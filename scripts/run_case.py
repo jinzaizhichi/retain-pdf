@@ -1,4 +1,5 @@
 import argparse
+import shutil
 from pathlib import Path
 
 from common.config import BODY_FONT_SIZE_FACTOR
@@ -10,6 +11,7 @@ from common.config import INNER_BBOX_SHRINK_Y
 from common.config import OUTPUT_DIR
 from common.config import TYPST_DEFAULT_FONT_FAMILY
 from common.config import apply_layout_tuning
+from common.job_dirs import create_job_dirs
 from common.input_resolver import resolve_case_sources
 from pipeline.book_pipeline import run_book_pipeline
 from translation.deepseek_client import DEFAULT_BASE_URL
@@ -92,6 +94,8 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Final output PDF filename under output/. Example: test9-run.pdf",
     )
+    parser.add_argument("--job-id", type=str, default="", help="Optional explicit structured output job directory name.")
+    parser.add_argument("--output-root", type=str, default=str(OUTPUT_DIR), help="Root directory for structured job outputs.")
     parser.add_argument("--body-font-size-factor", type=float, default=BODY_FONT_SIZE_FACTOR)
     parser.add_argument("--body-leading-factor", type=float, default=BODY_LEADING_FACTOR)
     parser.add_argument("--inner-bbox-shrink-x", type=float, default=INNER_BBOX_SHRINK_X)
@@ -145,11 +149,19 @@ def main() -> None:
 
     source_json, source_pdf, detected_stem, input_dir_text = resolve_sources(args)
     run_name = args.name.strip() or detected_stem
-    translations_dir, output_pdf = build_default_names(run_name, args.mode, args.render_mode)
+    job_dirs = create_job_dirs(Path(args.output_root), args.job_id.strip() or None)
+    source_json_copy = job_dirs.json_pdf_dir / source_json.name
+    source_pdf_copy = job_dirs.origin_pdf_dir / source_pdf.name
+    shutil.copy2(source_json, source_json_copy)
+    shutil.copy2(source_pdf, source_pdf_copy)
+
+    translations_rel, output_pdf_name = build_default_names(run_name, args.mode, args.render_mode)
+    translations_dir = job_dirs.trans_pdf_dir / translations_rel
+    output_pdf = job_dirs.trans_pdf_dir / output_pdf_name
     if args.output_dir.strip():
-        translations_dir = args.output_dir.strip().strip("/")
+        translations_dir = job_dirs.trans_pdf_dir / args.output_dir.strip().strip("/")
     if args.output.strip():
-        output_pdf = args.output.strip()
+        output_pdf = job_dirs.trans_pdf_dir / args.output.strip().strip("/")
 
     api_key = get_api_key(
         args.api_key,
@@ -157,10 +169,10 @@ def main() -> None:
     )
 
     result = run_book_pipeline(
-        source_json_path=source_json,
-        source_pdf_path=source_pdf,
-        output_dir=OUTPUT_DIR / translations_dir,
-        output_pdf_path=OUTPUT_DIR / output_pdf,
+        source_json_path=source_json_copy,
+        source_pdf_path=source_pdf_copy,
+        output_dir=translations_dir,
+        output_pdf_path=output_pdf,
         api_key=api_key,
         start_page=args.start_page,
         end_page=args.end_page,
@@ -178,8 +190,12 @@ def main() -> None:
 
     if input_dir_text:
         print(f"input dir: {input_dir_text}")
+    print(f"job root: {job_dirs.root}")
     print(f"source json: {source_json}")
     print(f"source pdf: {source_pdf}")
+    print(f"originPDF: {job_dirs.origin_pdf_dir}")
+    print(f"jsonPDF: {job_dirs.json_pdf_dir}")
+    print(f"transPDF: {job_dirs.trans_pdf_dir}")
     print(f"translation dir: {result['output_dir']}")
     print(f"output pdf: {result['output_pdf_path']}")
     print(f"pages processed: {result['pages_processed']}")

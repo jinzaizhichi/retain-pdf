@@ -276,6 +276,9 @@ SKIP_BLOCK_TYPES = {
     "ref_text",
     "image",
     "image_body",
+    "image_caption",
+    "table_caption",
+    "table_footnote",
 }
 
 

@@ -81,8 +81,8 @@ class TranslationRenderParams(BaseModel):
     api_key: str = Field(default="", description="Translation API key.")
     model: str = Field(default="deepseek-chat", description="Translation model name.")
     base_url: str = Field(default="https://api.deepseek.com/v1", description="OpenAI-compatible API base URL.")
-    render_mode: Literal["auto", "compact", "direct", "typst", "dual"] = Field(
-        default="typst",
+    render_mode: Literal["auto", "overlay", "compact", "direct", "typst", "dual"] = Field(
+        default="auto",
         description="Rendering mode.",
     )
     compile_workers: int = Field(default=0, ge=0, description="Parallel Typst compilation workers; 0 means auto.")

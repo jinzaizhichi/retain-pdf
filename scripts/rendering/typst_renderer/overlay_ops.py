@@ -22,9 +22,13 @@ def overlay_translated_items_on_page(
     stem: str,
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
     font_paths: list[Path] | None = None,
+    temp_root: Path | None = None,
+    cover_only: bool = False,
 ) -> None:
-    redact_translated_text_areas(page, translated_items)
-    with tempfile.TemporaryDirectory(prefix="typst-overlay-", dir=paths.OUTPUT_DIR) as temp_dir:
+    redact_translated_text_areas(page, translated_items, cover_only=cover_only)
+    base_dir = temp_root or paths.OUTPUT_DIR
+    base_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="typst-overlay-", dir=base_dir) as temp_dir:
         work_dir = Path(temp_dir)
         overlay_pdf = compile_overlay_pdf_resilient(
             page.rect.width,
@@ -49,8 +53,11 @@ def _compile_overlay_with_fallback(
     stem: str,
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
     font_paths: list[Path] | None = None,
+    temp_root: Path | None = None,
 ) -> Path:
-    work_dir = Path(tempfile.mkdtemp(prefix="typst-page-", dir=paths.OUTPUT_DIR))
+    base_dir = temp_root or paths.OUTPUT_DIR
+    base_dir.mkdir(parents=True, exist_ok=True)
+    work_dir = Path(tempfile.mkdtemp(prefix="typst-page-", dir=base_dir))
     return compile_overlay_pdf_resilient(
         page_width,
         page_height,
@@ -67,8 +74,11 @@ def _compile_book_overlay_with_fallback(
     stem: str,
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
     font_paths: list[Path] | None = None,
+    temp_root: Path | None = None,
 ) -> Path:
-    work_dir = Path(tempfile.mkdtemp(prefix="typst-book-", dir=paths.OUTPUT_DIR))
+    base_dir = temp_root or paths.OUTPUT_DIR
+    base_dir.mkdir(parents=True, exist_ok=True)
+    work_dir = Path(tempfile.mkdtemp(prefix="typst-book-", dir=base_dir))
     return compile_typst_book_overlay_pdf(
         page_specs,
         stem=stem,
@@ -83,13 +93,19 @@ def _overlay_pages_from_single_pdf(
     ordered_page_indices: list[int],
     translated_pages: dict[int, list[dict]],
     overlay_pdf_path: Path,
+    cover_only: bool = False,
 ) -> None:
     overlay_doc = fitz.open(overlay_pdf_path)
     try:
+        total_pages = len(ordered_page_indices)
         for overlay_page_idx, page_idx in enumerate(ordered_page_indices):
+            print(
+                f"overlay merge page {overlay_page_idx + 1}/{total_pages} -> source page {page_idx + 1}",
+                flush=True,
+            )
             page = doc[page_idx]
             strip_page_links(page)
-            redact_translated_text_areas(page, translated_pages[page_idx])
+            redact_translated_text_areas(page, translated_pages[page_idx], cover_only=cover_only)
             page.show_pdf_page(page.rect, overlay_doc, overlay_page_idx, overlay=True)
     finally:
         overlay_doc.close()
@@ -109,6 +125,8 @@ def _overlay_pages_via_page_fallback(
     compile_workers: int | None = None,
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
     font_paths: list[Path] | None = None,
+    temp_root: Path | None = None,
+    cover_only: bool = False,
 ) -> None:
     overlay_paths: dict[int, Path] = {}
     max_workers = compile_workers or default_compile_workers(len(page_specs))
@@ -122,6 +140,7 @@ def _overlay_pages_via_page_fallback(
                 page_stem,
                 font_family,
                 font_paths,
+                temp_root,
             ): page_idx
             for page_idx, page_width, page_height, items, page_stem in page_specs
         }
@@ -129,10 +148,15 @@ def _overlay_pages_via_page_fallback(
             page_idx = future_map[future]
             overlay_paths[page_idx] = future.result()
 
-    for page_idx in ordered_page_indices:
+    total_pages = len(ordered_page_indices)
+    for overlay_page_idx, page_idx in enumerate(ordered_page_indices):
+        print(
+            f"overlay merge page {overlay_page_idx + 1}/{total_pages} -> source page {page_idx + 1}",
+            flush=True,
+        )
         page = doc[page_idx]
         strip_page_links(page)
-        redact_translated_text_areas(page, translated_pages[page_idx])
+        redact_translated_text_areas(page, translated_pages[page_idx], cover_only=cover_only)
         overlay_doc = fitz.open(overlay_paths[page_idx])
         try:
             page.show_pdf_page(page.rect, overlay_doc, 0, overlay=True)
@@ -154,6 +178,8 @@ def overlay_translated_pages_on_doc(
     compile_workers: int | None = None,
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
     font_paths: list[Path] | None = None,
+    temp_root: Path | None = None,
+    cover_only: bool = False,
 ) -> None:
     translated_pages = prepare_render_payloads_by_page(translated_pages)
     ordered_page_indices = sorted(page_idx for page_idx in translated_pages if 0 <= page_idx < len(doc))
@@ -173,8 +199,15 @@ def overlay_translated_pages_on_doc(
             stem=stem,
             font_family=font_family,
             font_paths=font_paths,
+            temp_root=temp_root,
         )
-        _overlay_pages_from_single_pdf(doc, ordered_page_indices, translated_pages, overlay_pdf)
+        _overlay_pages_from_single_pdf(
+            doc,
+            ordered_page_indices,
+            translated_pages,
+            overlay_pdf,
+            cover_only=cover_only,
+        )
     except RuntimeError:
         print("typst book compile failed; falling back to per-page compilation")
         _overlay_pages_via_page_fallback(
@@ -185,4 +218,6 @@ def overlay_translated_pages_on_doc(
             compile_workers=compile_workers,
             font_family=font_family,
             font_paths=font_paths,
+            temp_root=temp_root,
+            cover_only=cover_only,
         )

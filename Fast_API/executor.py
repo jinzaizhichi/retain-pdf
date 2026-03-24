@@ -56,6 +56,7 @@ _BATCH_PROGRESS_RE = re.compile(r"^book: completed batch (\d+)/(\d+)$")
 _PENDING_BATCH_RE = re.compile(r"^book: pending items=(\d+) batches=(\d+) workers=(\d+)$")
 _PAGE_PROGRESS_RE = re.compile(r"^page (\d+): translated (\d+)/(\d+)$")
 _MINERU_BATCH_STATE_RE = re.compile(r"^batch ([^:]+): state=(.+)$")
+_OVERLAY_MERGE_RE = re.compile(r"^overlay merge page (\d+)/(\d+) -> source page (\d+)$")
 
 
 def _job_file(job_id: str) -> Path:
@@ -199,6 +200,28 @@ def _update_progress_from_line(record: JobRecord, line: str) -> bool:
     if match:
         page_idx = int(match.group(1))
         _set_stage(record, stage="rendering", detail=f"正在整理渲染结果，第 {page_idx} 页已完成")
+        return True
+    match = _OVERLAY_MERGE_RE.match(stripped)
+    if match:
+        current = int(match.group(1))
+        total = int(match.group(2))
+        source_page = int(match.group(3))
+        _set_stage(
+            record,
+            stage="rendering",
+            detail=f"正在合成 PDF，第 {current}/{total} 个覆盖页，对应源文第 {source_page} 页",
+            progress_current=current,
+            progress_total=total,
+        )
+        return True
+    if stripped == "save optimized pdf: subset fonts":
+        _set_stage(record, stage="saving", detail="正在整理字体并准备写出 PDF")
+        return True
+    if stripped.startswith("save optimized pdf: writing "):
+        _set_stage(record, stage="saving", detail="正在写出最终 PDF")
+        return True
+    if stripped.startswith("save optimized pdf: done "):
+        _set_stage(record, stage="finalizing", detail="最终 PDF 已写出，正在收尾")
         return True
     if stripped.startswith("translate+render time: "):
         _set_stage(record, stage="saving", detail="翻译和渲染完成，正在保存 PDF")

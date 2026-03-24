@@ -61,3 +61,10 @@ def strip_formula_commands_for_item_at_index(translated_items: list[dict], targe
 def default_compile_workers(page_count: int) -> int:
     cpu_count = os.cpu_count() or 1
     return max(1, min(page_count, cpu_count, 24))
+
+
+def default_typst_temp_root(output_pdf_path: Path) -> Path:
+    for parent in output_pdf_path.parents:
+        if parent.name == "transPDF" and parent.parent != parent:
+            return parent.parent / "typstPDF"
+    return output_pdf_path.parent / "typstPDF"

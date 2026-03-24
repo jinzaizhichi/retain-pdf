@@ -68,8 +68,8 @@ def parse_args() -> argparse.Namespace:
         "--render-mode",
         type=str,
         default="typst",
-        choices=["auto", "compact", "direct", "typst", "dual"],
-        help="Rendering mode for translated pages. direct writes translated text back into the original PDF. dual outputs a side-by-side PDF: left original page, right translated page.",
+        choices=["auto", "overlay", "typst", "dual", "direct", "compact"],
+        help="Rendering mode for translated pages. auto chooses between typst overlay and typst background. dual outputs a side-by-side PDF: left original page, right translated page. direct/compact are compatibility aliases for typst overlay.",
     )
     parser.add_argument(
         "--compile-workers",

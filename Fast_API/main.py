@@ -49,12 +49,28 @@ async def health() -> dict[str, str]:
 
 @app.post("/v1/run-case", response_model=SubmitJobResponse)
 async def run_case(request: RunCaseRequest) -> SubmitJobResponse:
-    return submit_job("run-case", request.to_command(), request.model_dump())
+    resolved_job_id = request.job_id.strip() or build_timestamp_job_id()
+    resolved_request = request.model_copy(update={"job_id": resolved_job_id})
+    request_payload = resolved_request.model_dump()
+    return submit_job(
+        "run-case",
+        resolved_request.to_command(),
+        request_payload,
+        job_id=resolved_job_id,
+    )
 
 
 @app.post("/v1/run-mineru-case", response_model=SubmitJobResponse)
 async def run_mineru_case(request: RunMinerUCaseRequest) -> SubmitJobResponse:
-    return submit_job("run-mineru-case", request.to_command(), request.model_dump())
+    resolved_job_id = request.job_id.strip() or build_timestamp_job_id()
+    resolved_request = request.model_copy(update={"job_id": resolved_job_id})
+    request_payload = resolved_request.model_dump()
+    return submit_job(
+        "run-mineru-case",
+        resolved_request.to_command(),
+        request_payload,
+        job_id=resolved_job_id,
+    )
 
 
 def _upload_dir(upload_id: str) -> Path:
@@ -136,7 +152,7 @@ async def run_uploaded_mineru_case(request: RunUploadedMinerUCaseRequest) -> Sub
         raise HTTPException(status_code=404, detail=f"uploaded file missing: {request.upload_id}")
     resolved_job_id = request.job_id.strip() or request.upload_id.strip()
     resolved_request = request.model_copy(update={"job_id": resolved_job_id})
-    request_payload = request.model_dump()
+    request_payload = resolved_request.model_dump()
     request_payload["uploaded_file"] = file_path
     request_payload["uploaded_filename"] = uploaded.get("filename", "")
     request_payload["page_count"] = uploaded.get("page_count")
@@ -159,7 +175,7 @@ async def upload_mineru_case(
     api_key: str = Form(""),
     model: str = Form("deepseek-chat"),
     base_url: str = Form("https://api.deepseek.com/v1"),
-    render_mode: str = Form("typst"),
+    render_mode: str = Form("auto"),
     compile_workers: int = Form(0),
     typst_font_family: str = Form("Noto Serif CJK SC"),
     pdf_compress_dpi: int = Form(200),

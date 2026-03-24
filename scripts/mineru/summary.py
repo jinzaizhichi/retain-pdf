@@ -35,6 +35,7 @@ def write_pipeline_summary(
             "model": model,
             "base_url": base_url,
             "render_mode": render_mode,
+            "effective_render_mode": result.get("effective_render_mode", render_mode),
             "pdf_compress_dpi": pdf_compress_dpi,
         },
     )
@@ -59,3 +60,5 @@ def print_pipeline_summary(
     print(f"translate+render time: {result['translate_elapsed']:.2f}s")
     print(f"save time: {result['save_elapsed']:.2f}s")
     print(f"total time: {result['total_elapsed']:.2f}s")
+    if result.get("effective_render_mode"):
+        print(f"effective render mode: {result['effective_render_mode']}")

@@ -12,13 +12,23 @@ ZH_FONT_SCALE = 0.91
 BLOCK_SCALE_MIN = 0.985
 BLOCK_SCALE_MAX = 1.015
 DEFAULT_LEADING_EM = 0.40
-BODY_LEADING_MIN = 0.58
-BODY_LEADING_MAX = 0.82
+BODY_LEADING_MIN = 0.54
+BODY_LEADING_MAX = 0.78
 BODY_FORMULA_RATIO_MAX = 0.5
 LOCAL_BLOCK_SCALE_MIN = 0.94
 LOCAL_BLOCK_SCALE_MAX = 1.08
 NON_BODY_LEADING_MIN = 0.26
 NON_BODY_LEADING_MAX = 0.72
+BODY_LEADING_SIZE_ADJUST = 0.62
+NON_BODY_LEADING_SIZE_ADJUST = 0.78
+LEADING_SIZE_DELTA_LIMIT = 0.18
+LEADING_TIGHTEN_PT_LIMIT = 1.6
+BODY_LEADING_FLOOR_MIN = 0.46
+NON_BODY_LEADING_FLOOR_MIN = 0.22
+BODY_LEADING_TIGHTEN_PER_PT = 0.12
+NON_BODY_LEADING_TIGHTEN_PER_PT = 0.07
+BODY_LEADING_TIGHTEN_RATIO_PER_PT = 0.12
+NON_BODY_LEADING_TIGHTEN_RATIO_PER_PT = 0.04
 MIN_TEXT_LINE_PITCH_PT = 10.8
 APPROX_TEXT_CHAR_WIDTH_PT = 5.2
 LOCAL_TEXTUAL_BLOCK_TYPES = {"text", "title", "image_caption", "table_caption", "table_footnote"}
@@ -254,6 +264,34 @@ def clamp(value: float, min_value: float, max_value: float) -> float:
     return max(min_value, min(max_value, value))
 
 
+def normalize_leading_em_for_font_size(
+    font_size_pt: float,
+    leading_em: float,
+    *,
+    reference_font_size_pt: float,
+    min_leading_em: float,
+    max_leading_em: float,
+    strength: float,
+    floor_min_leading_em: float | None = None,
+) -> float:
+    if font_size_pt <= 0:
+        return round(clamp(leading_em, min_leading_em, max_leading_em), 2)
+    reference = reference_font_size_pt if reference_font_size_pt > 0 else fonts.DEFAULT_FONT_SIZE
+    floor_min = floor_min_leading_em if floor_min_leading_em is not None else min_leading_em
+    if font_size_pt <= reference:
+        return round(clamp(leading_em, min_leading_em, max_leading_em), 2)
+
+    size_delta_pt = clamp(font_size_pt - reference, 0.0, LEADING_TIGHTEN_PT_LIMIT)
+    tighten_per_pt = BODY_LEADING_TIGHTEN_PER_PT if min_leading_em >= BODY_LEADING_MIN else NON_BODY_LEADING_TIGHTEN_PER_PT
+    tighten_ratio_per_pt = (
+        BODY_LEADING_TIGHTEN_RATIO_PER_PT if min_leading_em >= BODY_LEADING_MIN else NON_BODY_LEADING_TIGHTEN_RATIO_PER_PT
+    )
+    dynamic_min = max(floor_min, min_leading_em - size_delta_pt * tighten_per_pt * strength)
+    dynamic_max = max(dynamic_min + 0.08, max_leading_em - size_delta_pt * (tighten_per_pt + 0.03) * strength)
+    adjusted = leading_em * (1.0 - size_delta_pt * tighten_ratio_per_pt * strength)
+    return round(clamp(adjusted, dynamic_min, dynamic_max), 2)
+
+
 def estimate_font_size_pt(
     item: dict,
     page_font_size: float,
@@ -289,10 +327,30 @@ def estimate_leading_em(item: dict, page_line_pitch: float, font_size_pt: float)
             ocr_estimated = (pitch / font_size_pt) - 1.0
             zh_target = 0.66
             mixed = (ocr_estimated * 0.35) + (zh_target * 0.65)
-            return round(clamp(mixed * layout.BODY_LEADING_FACTOR, BODY_LEADING_MIN, BODY_LEADING_MAX), 2)
-        return round(clamp(0.66 * layout.BODY_LEADING_FACTOR, BODY_LEADING_MIN, BODY_LEADING_MAX), 2)
+            base = mixed * layout.BODY_LEADING_FACTOR
+        else:
+            base = 0.66 * layout.BODY_LEADING_FACTOR
+        return normalize_leading_em_for_font_size(
+            font_size_pt,
+            base,
+            reference_font_size_pt=fonts.DEFAULT_FONT_SIZE,
+            min_leading_em=BODY_LEADING_MIN,
+            max_leading_em=BODY_LEADING_MAX,
+            strength=BODY_LEADING_SIZE_ADJUST,
+            floor_min_leading_em=BODY_LEADING_FLOOR_MIN,
+        )
     if block_pitch > 0 and font_size_pt > 0:
         ocr_estimated = (block_pitch / font_size_pt) - 1.0
         mixed = (ocr_estimated * 0.55) + (DEFAULT_LEADING_EM * 0.45)
-        return round(clamp(mixed * layout.BODY_LEADING_FACTOR, NON_BODY_LEADING_MIN, NON_BODY_LEADING_MAX), 2)
-    return round(clamp(DEFAULT_LEADING_EM * layout.BODY_LEADING_FACTOR, NON_BODY_LEADING_MIN, NON_BODY_LEADING_MAX), 2)
+        base = mixed * layout.BODY_LEADING_FACTOR
+    else:
+        base = DEFAULT_LEADING_EM * layout.BODY_LEADING_FACTOR
+    return normalize_leading_em_for_font_size(
+        font_size_pt,
+        base,
+        reference_font_size_pt=fonts.DEFAULT_FONT_SIZE,
+        min_leading_em=NON_BODY_LEADING_MIN,
+        max_leading_em=NON_BODY_LEADING_MAX,
+        strength=NON_BODY_LEADING_SIZE_ADJUST,
+        floor_min_leading_em=NON_BODY_LEADING_FLOOR_MIN,
+    )

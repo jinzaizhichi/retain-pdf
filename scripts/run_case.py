@@ -56,8 +56,8 @@ def parse_args() -> argparse.Namespace:
         "--render-mode",
         type=str,
         default="typst",
-        choices=["auto", "compact", "direct", "typst", "dual"],
-        help="Rendering mode for translated pages.",
+        choices=["auto", "overlay", "typst", "dual", "direct", "compact"],
+        help="Rendering mode for translated pages. auto chooses between typst overlay and typst background. direct/compact are kept only as compatibility aliases and now map to typst overlay.",
     )
     parser.add_argument(
         "--compile-workers",
@@ -107,9 +107,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_default_names(stem: str, mode: str, render_mode: str) -> tuple[str, str]:
-    suffix = f"{mode}-{render_mode}"
-    translations_dir = f"translations/{stem}-{suffix}"
-    output_pdf = f"{stem}-{suffix}.pdf"
+    translations_dir = "translations"
+    output_pdf = f"{stem}-translated.pdf"
     return translations_dir, output_pdf
 
 

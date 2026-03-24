@@ -14,6 +14,7 @@ from rendering.typst_renderer.compiler import compile_typst_book_background_pdf
 from rendering.typst_renderer.overlay_ops import overlay_translated_items_on_page
 from rendering.typst_renderer.overlay_ops import overlay_translated_pages_on_doc
 from rendering.typst_renderer.sanitize import sanitize_page_specs_for_typst_book_background
+from rendering.typst_renderer.shared import default_typst_temp_root
 
 
 def build_single_page_typst_pdf(
@@ -23,6 +24,8 @@ def build_single_page_typst_pdf(
     page_idx: int,
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
     font_paths: list[Path] | None = None,
+    temp_root: Path | None = None,
+    cover_only: bool = False,
 ) -> None:
     source_doc = fitz.open(source_pdf_path)
     temp_doc = fitz.open()
@@ -35,6 +38,8 @@ def build_single_page_typst_pdf(
         stem=f"page-{page_idx + 1}",
         font_family=font_family,
         font_paths=font_paths,
+        temp_root=temp_root or default_typst_temp_root(output_pdf_path),
+        cover_only=cover_only,
     )
     save_optimized_pdf(temp_doc, output_pdf_path)
     temp_doc.close()
@@ -48,9 +53,13 @@ def build_book_typst_pdf(
     compile_workers: int | None = None,
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
     font_paths: list[Path] | None = None,
+    temp_root: Path | None = None,
+    cover_only: bool = False,
 ) -> None:
     doc = fitz.open(source_pdf_path)
     try:
+        typst_temp_root = temp_root or default_typst_temp_root(output_pdf_path)
+        typst_temp_root.mkdir(parents=True, exist_ok=True)
         overlay_translated_pages_on_doc(
             doc,
             translated_pages,
@@ -58,6 +67,8 @@ def build_book_typst_pdf(
             compile_workers=compile_workers,
             font_family=font_family,
             font_paths=font_paths,
+            temp_root=typst_temp_root,
+            cover_only=cover_only,
         )
         save_optimized_pdf(doc, output_pdf_path)
     finally:
@@ -73,11 +84,15 @@ def build_dual_book_pdf(
     compile_workers: int | None = None,
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
     font_paths: list[Path] | None = None,
+    temp_root: Path | None = None,
+    cover_only: bool = False,
 ) -> None:
     source_doc = fitz.open(source_pdf_path)
     translated_doc = fitz.open(source_pdf_path)
     dual_doc = fitz.open()
     try:
+        typst_temp_root = temp_root or default_typst_temp_root(output_pdf_path)
+        typst_temp_root.mkdir(parents=True, exist_ok=True)
         overlay_translated_pages_on_doc(
             translated_doc,
             translated_pages,
@@ -85,6 +100,8 @@ def build_dual_book_pdf(
             compile_workers=compile_workers,
             font_family=font_family,
             font_paths=font_paths,
+            temp_root=typst_temp_root,
+            cover_only=cover_only,
         )
         last_page = len(source_doc) - 1
         start_idx = max(0, start_page)
@@ -125,6 +142,7 @@ def build_book_typst_background_pdf(
     translated_pages: dict[int, list[dict]],
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
     font_paths: list[Path] | None = None,
+    temp_root: Path | None = None,
 ) -> None:
     translated_pages = prepare_render_payloads_by_page(translated_pages)
     source_doc = fitz.open(source_pdf_path)
@@ -142,7 +160,9 @@ def build_book_typst_background_pdf(
     finally:
         source_doc.close()
 
-    with tempfile.TemporaryDirectory(prefix="typst-background-", dir=paths.OUTPUT_DIR) as temp_dir:
+    typst_temp_root = temp_root or default_typst_temp_root(output_pdf_path)
+    typst_temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="typst-background-", dir=typst_temp_root) as temp_dir:
         work_dir = Path(temp_dir)
         try:
             background_pdf = compile_typst_book_background_pdf(

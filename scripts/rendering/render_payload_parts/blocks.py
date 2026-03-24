@@ -7,7 +7,16 @@ from rendering.font_fit import estimate_font_size_pt
 from rendering.font_fit import estimate_leading_em
 from rendering.font_fit import inner_bbox
 from rendering.font_fit import is_body_text_candidate
+from rendering.font_fit import normalize_leading_em_for_font_size
+from rendering.font_fit import NON_BODY_LEADING_FLOOR_MIN
+from rendering.font_fit import NON_BODY_LEADING_MAX
+from rendering.font_fit import NON_BODY_LEADING_MIN
 from rendering.font_fit import page_baseline_font_size
+from rendering.font_fit import BODY_LEADING_FLOOR_MIN
+from rendering.font_fit import BODY_LEADING_MAX
+from rendering.font_fit import BODY_LEADING_MIN
+from rendering.font_fit import BODY_LEADING_SIZE_ADJUST
+from rendering.font_fit import NON_BODY_LEADING_SIZE_ADJUST
 from rendering.math_utils import build_markdown_from_parts
 from rendering.math_utils import build_plain_text_from_text
 from rendering.models import RenderBlock
@@ -74,6 +83,26 @@ def build_render_blocks(translated_items: list[dict]) -> list[RenderBlock]:
             leading_em,
             page_body_font_size_pt=page_body_font_size_pt if body_flags.get(index) else None,
         )
+        if body_flags.get(index):
+            leading_em = normalize_leading_em_for_font_size(
+                font_size_pt,
+                leading_em,
+                reference_font_size_pt=page_body_font_size_pt or page_font_size,
+                min_leading_em=BODY_LEADING_MIN,
+                max_leading_em=BODY_LEADING_MAX,
+                strength=BODY_LEADING_SIZE_ADJUST,
+                floor_min_leading_em=BODY_LEADING_FLOOR_MIN,
+            )
+        else:
+            leading_em = normalize_leading_em_for_font_size(
+                font_size_pt,
+                leading_em,
+                reference_font_size_pt=page_font_size,
+                min_leading_em=NON_BODY_LEADING_MIN,
+                max_leading_em=NON_BODY_LEADING_MAX,
+                strength=NON_BODY_LEADING_SIZE_ADJUST,
+                floor_min_leading_em=NON_BODY_LEADING_FLOOR_MIN,
+            )
         blocks.append(
             RenderBlock(
                 block_id=f"item-{index}",

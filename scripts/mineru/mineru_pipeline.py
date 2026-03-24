@@ -53,7 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--api-key", type=str, default="", help="Optional translation API key. Prefer env DEEPSEEK_API_KEY for DeepSeek.")
     parser.add_argument("--model", type=str, default="Q3.5-turbo", help="Translation model name.")
     parser.add_argument("--base-url", type=str, default="http://1.94.67.196:10001/v1", help="OpenAI-compatible translation API base URL.")
-    parser.add_argument("--render-mode", type=str, default="typst", choices=["auto", "compact", "direct", "typst", "dual"], help="Rendering mode for translated pages.")
+    parser.add_argument("--render-mode", type=str, default="typst", choices=["auto", "overlay", "typst", "dual", "direct", "compact"], help="Rendering mode for translated pages. auto chooses between typst overlay and typst background. direct/compact are compatibility aliases for typst overlay.")
     parser.add_argument("--compile-workers", type=int, default=0, help="Parallel Typst overlay compilation workers. 0 means auto.")
     parser.add_argument("--typst-font-family", type=str, default=fonts.TYPST_DEFAULT_FONT_FAMILY, help="Base Typst font family name.")
     parser.add_argument("--pdf-compress-dpi", type=int, default=runtime.DEFAULT_PDF_COMPRESS_DPI, help="Final PDF image downsample DPI after rendering. 0 disables post-compression.")

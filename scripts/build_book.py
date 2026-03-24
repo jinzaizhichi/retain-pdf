@@ -57,8 +57,8 @@ def parse_args() -> argparse.Namespace:
         "--render-mode",
         type=str,
         default="typst",
-        choices=["typst", "direct", "dual"],
-        help="Book output mode. direct writes translated text back into the original PDF. dual places the original page on the left and translated page on the right.",
+        choices=["overlay", "typst", "dual", "direct", "compact"],
+        help="Book output mode. overlay keeps the original PDF and uses Typst to render translated content on top. typst uses the background-render route. direct/compact are compatibility aliases for overlay. dual places the original page on the left and translated page on the right.",
     )
     parser.add_argument(
         "--typst-font-family",

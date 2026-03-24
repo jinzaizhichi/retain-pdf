@@ -125,9 +125,10 @@ def apply_translated_items_to_page(
     page: fitz.Page,
     translated_items: list[dict],
     font_path: Path,
+    cover_only: bool = False,
 ) -> None:
     valid_items = iter_valid_translated_items(translated_items)
-    redact_translated_text_areas(page, translated_items)
+    redact_translated_text_areas(page, translated_items, cover_only=cover_only)
 
     page.insert_font(fontname="noto_cjk", fontfile=str(font_path))
     for rect, item, translated_text in valid_items:

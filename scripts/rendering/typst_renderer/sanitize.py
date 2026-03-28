@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 from config import fonts
@@ -11,13 +12,23 @@ from rendering.typst_renderer.shared import TYPST_OVERLAY_DIR
 from rendering.typst_renderer.shared import force_plain_text_item_at_index
 from rendering.typst_renderer.shared import force_plain_text_items
 from rendering.typst_renderer.shared import strip_formula_commands_for_item_at_index
-from translation.llm.deepseek_client import extract_json_text
 from translation.llm.deepseek_client import request_chat_content
 
 
 TYPST_REPAIR_MODEL_ENV = "TYPST_REPAIR_MODEL"
 TYPST_REPAIR_BASE_URL_ENV = "TYPST_REPAIR_BASE_URL"
 TYPST_REPAIR_ENABLED_ENV = "TYPST_REPAIR_LLM_ENABLED"
+_FENCED_BLOCK_RE = re.compile(r"^\s*```[^\n]*\n(?P<body>.*)\n```\s*$", re.DOTALL)
+_PROTECTED_TEXT_BLOCK_RE = re.compile(
+    r"<<<PROTECTED_TEXT>>>\s*(?P<content>.*?)\s*<<<END_PROTECTED_TEXT>>>",
+    re.DOTALL,
+)
+_FORMULA_BLOCK_RE = re.compile(
+    r"<<<FORMULA\s+placeholder=(?P<placeholder>\[\[FORMULA_\d+]])\s*>>>\s*"
+    r"(?P<content>.*?)"
+    r"\s*<<<END_FORMULA>>>",
+    re.DOTALL,
+)
 
 
 def _typst_repair_enabled() -> bool:
@@ -49,6 +60,53 @@ def _apply_formula_map(item: dict, formula_map: list[dict]) -> dict:
         cloned["translation_unit_formula_map"] = formula_map
     cloned["formula_map"] = formula_map
     return cloned
+
+
+def _strip_wrapping_fence(text: str) -> str:
+    stripped = (text or "").strip()
+    match = _FENCED_BLOCK_RE.match(stripped)
+    if match:
+        return (match.group("body") or "").strip()
+    return stripped
+
+
+def _parse_typst_repair_response(
+    content: str,
+    *,
+    original_protected_text: str,
+    formula_map: list[dict],
+) -> tuple[str, list[dict]]:
+    text = _strip_wrapping_fence(content)
+    protected_match = _PROTECTED_TEXT_BLOCK_RE.search(text)
+    repaired_text = (
+        (protected_match.group("content") or "").strip()
+        if protected_match is not None
+        else original_protected_text
+    )
+
+    repaired_lookup: dict[str, str] = {}
+    for match in _FORMULA_BLOCK_RE.finditer(text):
+        placeholder = str(match.group("placeholder") or "").strip()
+        formula_text = str(match.group("content") or "").strip()
+        if placeholder and formula_text:
+            repaired_lookup[placeholder] = formula_text
+
+    repaired_formula_map: list[dict] = []
+    for entry in formula_map:
+        placeholder = str(entry.get("placeholder", "") or "").strip()
+        original_formula_text = str(entry.get("formula_text", "") or "").strip()
+        repaired_formula_map.append(
+            {
+                "placeholder": placeholder,
+                "formula_text": repaired_lookup.get(placeholder, original_formula_text),
+            }
+        )
+
+    original_placeholders = [entry["placeholder"] for entry in formula_map if entry.get("placeholder")]
+    if any(placeholder not in repaired_text for placeholder in original_placeholders):
+        repaired_text = original_protected_text
+
+    return repaired_text, repaired_formula_map
 
 
 def _resolve_typst_repair_request(
@@ -102,7 +160,16 @@ def _repair_item_with_llm_for_typst(
                 "\\bf, \\rm, \\it, \\pmb, \\textcircled wrappers, redundant style wrappers, "
                 "and other purely stylistic commands that often break Typst.\n"
                 "Do not drop structural math commands like \\frac, \\sqrt, \\left, \\right, subscripts, superscripts.\n"
-                "Return one JSON object with keys protected_text and formula_map."
+                "Do not return JSON, markdown, code fences, or explanations.\n"
+                "Return only tagged blocks in this exact format:\n"
+                "<<<PROTECTED_TEXT>>>\n"
+                "repaired protected text with placeholders unchanged\n"
+                "<<<END_PROTECTED_TEXT>>>\n"
+                "Then return zero or more formula blocks:\n"
+                "<<<FORMULA placeholder=[[FORMULA_1]]>>>\n"
+                "repaired formula text\n"
+                "<<<END_FORMULA>>>\n"
+                "Return one formula block per placeholder only when formula_text exists."
             ),
         },
         {
@@ -125,43 +192,19 @@ def _repair_item_with_llm_for_typst(
             model=repair_model,
             base_url=repair_base_url,
             temperature=0.0,
-            response_format={"type": "json_object"},
+            response_format=None,
             timeout=60,
             request_label=request_label,
         )
-        payload = json.loads(extract_json_text(content))
     except Exception as exc:
         print(f"{request_label}: llm repair skipped: {type(exc).__name__}: {exc}", flush=True)
         return item
 
-    repaired_text = str(payload.get("protected_text", "") or "").strip() or protected_text
-    repaired_formula_map_raw = payload.get("formula_map", formula_map)
-    if not isinstance(repaired_formula_map_raw, list):
-        repaired_formula_map_raw = formula_map
-
-    original_placeholders = [entry["placeholder"] for entry in formula_map]
-    repaired_lookup: dict[str, str] = {}
-    for entry in repaired_formula_map_raw:
-        if not isinstance(entry, dict):
-            continue
-        placeholder = str(entry.get("placeholder", "") or "").strip()
-        formula_text = str(entry.get("formula_text", "") or "").strip()
-        if placeholder and formula_text:
-            repaired_lookup[placeholder] = formula_text
-
-    repaired_formula_map: list[dict] = []
-    for entry in formula_map:
-        placeholder = entry["placeholder"]
-        repaired_formula_map.append(
-            {
-                "placeholder": placeholder,
-                "formula_text": repaired_lookup.get(placeholder, entry["formula_text"]),
-            }
-        )
-
-    # If the model damages placeholders in body text, keep the original protected text.
-    if sorted(original_placeholders) != sorted(placeholder for placeholder in original_placeholders if placeholder in repaired_text):
-        repaired_text = protected_text
+    repaired_text, repaired_formula_map = _parse_typst_repair_response(
+        content,
+        original_protected_text=protected_text,
+        formula_map=formula_map,
+    )
 
     cloned = _apply_formula_map(item, repaired_formula_map)
     if "render_protected_text" in cloned:

@@ -33,7 +33,12 @@ TAGGED_SEGMENT_RE = re.compile(
     r"\s*<<<END>>>",
     re.DOTALL,
 )
+# Single-request budget for the legacy segmented-formula path.
 MAX_FORMULA_SEGMENT_COUNT = 16
+# Dynamic window budget for long formula-heavy body blocks.
+FORMULA_SEGMENT_WINDOW_TARGET_COUNT = 8
+FORMULA_SEGMENT_WINDOW_MAX_CHARS = 1200
+FORMULA_SEGMENT_WINDOW_NEIGHBOR_CONTEXT = 2
 
 
 class SuspiciousKeepOriginError(ValueError):
@@ -44,20 +49,39 @@ class SuspiciousKeepOriginError(ValueError):
 
 
 class UnexpectedPlaceholderError(ValueError):
-    def __init__(self, item_id: str, unexpected: list[str]) -> None:
+    def __init__(
+        self,
+        item_id: str,
+        unexpected: list[str],
+        *,
+        source_text: str = "",
+        translated_text: str = "",
+    ) -> None:
         super().__init__(f"{item_id}: unexpected placeholders in translation: {unexpected}")
         self.item_id = item_id
         self.unexpected = unexpected
+        self.source_text = source_text
+        self.translated_text = translated_text
 
 
 class PlaceholderInventoryError(ValueError):
-    def __init__(self, item_id: str, source_sequence: list[str], translated_sequence: list[str]) -> None:
+    def __init__(
+        self,
+        item_id: str,
+        source_sequence: list[str],
+        translated_sequence: list[str],
+        *,
+        source_text: str = "",
+        translated_text: str = "",
+    ) -> None:
         super().__init__(
             f"{item_id}: placeholder inventory mismatch: source={source_sequence} translated={translated_sequence}"
         )
         self.item_id = item_id
         self.source_sequence = source_sequence
         self.translated_sequence = translated_sequence
+        self.source_text = source_text
+        self.translated_text = translated_text
 
 
 class SegmentTranslationFormatError(ValueError):
@@ -89,6 +113,35 @@ def _internal_keep_origin_result(reason: str) -> dict[str, str]:
 
 def _is_internal_placeholder_degraded(payload: dict[str, str]) -> bool:
     return str(payload.get("_internal_reason", "") or "") == INTERNAL_PLACEHOLDER_DEGRADED_REASON
+
+
+def _text_preview(text: str, *, limit: int = 220) -> str:
+    normalized = _normalize_inline_whitespace(text)
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[: max(0, limit - 1)].rstrip()}…"
+
+
+def _log_placeholder_failure(request_label: str, item: dict, exc: Exception) -> None:
+    source_text = getattr(exc, "source_text", "") or _unit_source_text(item)
+    translated_text = getattr(exc, "translated_text", "") or ""
+    source_seq = getattr(exc, "source_sequence", None)
+    translated_seq = getattr(exc, "translated_sequence", None)
+    unexpected = getattr(exc, "unexpected", None)
+    print(
+        f"{request_label}: placeholder diagnostic item={item.get('item_id','')} block_type={item.get('block_type','')}",
+        flush=True,
+    )
+    print(f"{request_label}: source preview: {_text_preview(source_text)}", flush=True)
+    if translated_text:
+        print(f"{request_label}: translated preview: {_text_preview(translated_text)}", flush=True)
+    if unexpected:
+        print(f"{request_label}: unexpected placeholders: {unexpected}", flush=True)
+    if source_seq is not None or translated_seq is not None:
+        print(
+            f"{request_label}: placeholder seq source={source_seq or []} translated={translated_seq or []}",
+            flush=True,
+        )
 
 
 def _parse_translation_payload(content: str) -> dict[str, dict[str, str]]:
@@ -153,6 +206,11 @@ def _segment_context_text(text: str, *, limit: int = 280) -> str:
     return f"{cleaned[: max(0, limit - 1)].rstrip()}…"
 
 
+def _merge_segment_contexts(*texts: str, limit: int = 280) -> str:
+    merged = " ".join(part.strip() for part in texts if part and part.strip())
+    return _segment_context_text(merged, limit=limit)
+
+
 def _segment_structure_outline(skeleton: list[tuple[str, str]]) -> list[str]:
     outline: list[str] = []
     for kind, value in skeleton:
@@ -206,6 +264,8 @@ def _build_formula_segment_messages(
     segments: list[dict[str, str]],
     *,
     domain_guidance: str = "",
+    context_before: str | None = None,
+    context_after: str | None = None,
 ) -> list[dict[str, str]]:
     serialized_segments = [
         {
@@ -220,12 +280,16 @@ def _build_formula_segment_messages(
         "segment_structure": _segment_structure_outline(skeleton),
         "segments": serialized_segments,
     }
-    context_before = _segment_context_text(str(item.get("continuation_prev_text", "") or ""))
-    context_after = _segment_context_text(str(item.get("continuation_next_text", "") or ""))
-    if context_before:
-        user_payload["context_before"] = context_before
-    if context_after:
-        user_payload["context_after"] = context_after
+    resolved_context_before = (
+        context_before if context_before is not None else _segment_context_text(str(item.get("continuation_prev_text", "") or ""))
+    )
+    resolved_context_after = (
+        context_after if context_after is not None else _segment_context_text(str(item.get("continuation_next_text", "") or ""))
+    )
+    if resolved_context_before:
+        user_payload["context_before"] = resolved_context_before
+    if resolved_context_after:
+        user_payload["context_after"] = resolved_context_after
     if item.get("continuation_group"):
         user_payload["continuation_group"] = item["continuation_group"]
     return [
@@ -276,6 +340,89 @@ def _rebuild_formula_segment_translation(
     rebuilt = re.sub(r"[ \t]{2,}", " ", rebuilt)
     rebuilt = re.sub(r"\s+([,.;:!?])", r"\1", rebuilt)
     return rebuilt.strip()
+
+
+def _formula_segment_translation_route(item: dict) -> str:
+    if not _has_formula_placeholders(item):
+        return "none"
+    _, segments = _build_formula_segment_plan(_unit_source_text(item))
+    if not segments:
+        return "none"
+    if len(segments) <= MAX_FORMULA_SEGMENT_COUNT:
+        return "single"
+    return "windowed"
+
+
+def _window_neighbor_context(segments: list[dict[str, str]], start_index: int, end_index: int, *, direction: str) -> str:
+    if direction == "before":
+        context_segments = segments[max(0, start_index - FORMULA_SEGMENT_WINDOW_NEIGHBOR_CONTEXT) : start_index]
+    else:
+        context_segments = segments[end_index + 1 : end_index + 1 + FORMULA_SEGMENT_WINDOW_NEIGHBOR_CONTEXT]
+    return _segment_context_text(" ".join(segment["source_text"] for segment in context_segments))
+
+
+def _slice_formula_segment_skeleton(
+    skeleton: list[tuple[str, str]],
+    first_segment_id: str,
+    last_segment_id: str,
+) -> list[tuple[str, str]]:
+    first_index = next(
+        index for index, entry in enumerate(skeleton) if entry[0] == "segment" and entry[1] == first_segment_id
+    )
+    last_index = next(
+        index for index, entry in enumerate(skeleton) if entry[0] == "segment" and entry[1] == last_segment_id
+    )
+    start = first_index
+    while start > 0 and skeleton[start - 1][0] != "segment":
+        start -= 1
+    end = last_index
+    while end + 1 < len(skeleton) and skeleton[end + 1][0] != "segment":
+        end += 1
+    return skeleton[start : end + 1]
+
+
+def _build_formula_segment_windows(
+    skeleton: list[tuple[str, str]],
+    segments: list[dict[str, str]],
+) -> list[dict[str, object]]:
+    windows: list[dict[str, object]] = []
+    index = 0
+    while index < len(segments):
+        start_index = index
+        current_segments: list[dict[str, str]] = []
+        current_chars = 0
+        while index < len(segments):
+            segment = segments[index]
+            segment_chars = len(_normalize_inline_whitespace(segment["source_text"]))
+            if current_segments and (
+                len(current_segments) >= FORMULA_SEGMENT_WINDOW_TARGET_COUNT
+                or current_chars + segment_chars > FORMULA_SEGMENT_WINDOW_MAX_CHARS
+            ):
+                break
+            current_segments.append(segment)
+            current_chars += segment_chars
+            index += 1
+        if not current_segments:
+            current_segments.append(segments[index])
+            index += 1
+        end_index = index - 1
+        first_segment_id = current_segments[0]["segment_id"]
+        last_segment_id = current_segments[-1]["segment_id"]
+        windows.append(
+            {
+                "window_index": len(windows) + 1,
+                "start_index": start_index,
+                "end_index": end_index,
+                "is_first_window": start_index == 0,
+                "is_last_window": end_index >= len(segments) - 1,
+                "segments": current_segments,
+                "segment_range": f"{first_segment_id}-{last_segment_id}",
+                "context_before": _window_neighbor_context(segments, start_index, end_index, direction="before"),
+                "context_after": _window_neighbor_context(segments, start_index, end_index, direction="after"),
+                "skeleton": _slice_formula_segment_skeleton(skeleton, first_segment_id, last_segment_id),
+            }
+        )
+    return windows
 
 
 def _placeholders(text: str) -> set[str]:
@@ -340,20 +487,23 @@ def _has_formula_placeholders(item: dict) -> bool:
 
 
 def _should_use_formula_segment_translation(item: dict) -> bool:
-    if not _has_formula_placeholders(item):
-        return False
-    _, segments = _build_formula_segment_plan(_unit_source_text(item))
-    return bool(segments) and len(segments) <= MAX_FORMULA_SEGMENT_COUNT
+    return _formula_segment_translation_route(item) == "single"
 
 
 def _placeholder_alias_maps(item: dict) -> tuple[dict[str, str], dict[str, str]]:
     source_sequence = _placeholder_sequence(_unit_source_text(item))
+    source_set = set(source_sequence)
     original_to_alias: dict[str, str] = {}
     alias_to_original: dict[str, str] = {}
-    for index, placeholder in enumerate(dict.fromkeys(source_sequence), start=1):
-        alias = f"[[FORMULA_{1000 + index * 137}]]"
+    next_alias_id = 900_000
+    for placeholder in dict.fromkeys(source_sequence):
+        alias = f"[[FORMULA_{next_alias_id}]]"
+        while alias in source_set or alias in alias_to_original:
+            next_alias_id += 1
+            alias = f"[[FORMULA_{next_alias_id}]]"
         original_to_alias[placeholder] = alias
         alias_to_original[alias] = placeholder
+        next_alias_id += 1
     return original_to_alias, alias_to_original
 
 
@@ -534,11 +684,22 @@ def _validate_batch_result(batch: list[dict], result: dict[str, dict[str, str]])
         translated_placeholders = _placeholders(translated_text)
         if not translated_placeholders.issubset(source_placeholders):
             unexpected = sorted(translated_placeholders - source_placeholders)
-            raise UnexpectedPlaceholderError(item_id, unexpected)
+            raise UnexpectedPlaceholderError(
+                item_id,
+                unexpected,
+                source_text=source_text,
+                translated_text=translated_text,
+            )
         source_sequence = _placeholder_sequence(source_text)
         translated_sequence = _placeholder_sequence(translated_text)
         if Counter(translated_sequence) != Counter(source_sequence):
-            raise PlaceholderInventoryError(item_id, source_sequence, translated_sequence)
+            raise PlaceholderInventoryError(
+                item_id,
+                source_sequence,
+                translated_sequence,
+                source_text=source_text,
+                translated_text=translated_text,
+            )
         if translated_text.strip() == source_text.strip():
             if looks_like_url_fragment(source_text):
                 continue
@@ -695,6 +856,147 @@ def _translate_single_item_formula_segment_text_with_retries(
     raise RuntimeError("Segmented formula translation failed without an exception.")
 
 
+def _translate_formula_segment_window_with_retries(
+    item: dict,
+    window: dict[str, object],
+    *,
+    total_windows: int,
+    api_key: str = "",
+    model: str = "deepseek-chat",
+    base_url: str = "https://api.deepseek.com/v1",
+    request_label: str = "",
+    domain_guidance: str = "",
+) -> dict[str, str]:
+    window_index = int(window["window_index"])
+    window_segments = list(window["segments"])
+    window_range = str(window["segment_range"])
+    context_before = str(window.get("context_before", "") or "")
+    context_after = str(window.get("context_after", "") or "")
+    if bool(window.get("is_first_window")):
+        context_before = _merge_segment_contexts(str(item.get("continuation_prev_text", "") or ""), context_before)
+    if bool(window.get("is_last_window")):
+        context_after = _merge_segment_contexts(context_after, str(item.get("continuation_next_text", "") or ""))
+    last_error: Exception | None = None
+    for attempt in range(1, 5):
+        started = time.perf_counter()
+        try:
+            if request_label:
+                print(
+                    f"{request_label}: formula-window {window_index}/{total_windows} attempt {attempt}/4 segments={len(window_segments)} range={window_range}",
+                    flush=True,
+                )
+            content = request_chat_content(
+                _build_formula_segment_messages(
+                    item,
+                    list(window["skeleton"]),
+                    window_segments,
+                    domain_guidance=domain_guidance,
+                    context_before=context_before,
+                    context_after=context_after,
+                ),
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                temperature=0.0,
+                response_format=None,
+                timeout=120,
+                request_label=f"{request_label} win{window_index}#{attempt}" if request_label else "",
+            )
+            translated_segments = _parse_segment_translation_payload(content, expected_segments=window_segments)
+            if request_label:
+                elapsed = time.perf_counter() - started
+                print(
+                    f"{request_label}: formula-window {window_index}/{total_windows} ok in {elapsed:.2f}s",
+                    flush=True,
+                )
+            return translated_segments
+        except (ValueError, KeyError, json.JSONDecodeError) as exc:
+            last_error = exc
+            if request_label:
+                elapsed = time.perf_counter() - started
+                print(
+                    f"{request_label}: formula-window {window_index}/{total_windows} failed attempt {attempt}/4 after {elapsed:.2f}s: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+            if attempt >= 4:
+                raise
+            time.sleep(min(8, 2 * attempt))
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Formula window translation failed without an exception.")
+
+
+def _translate_single_item_formula_segment_windows_with_retries(
+    item: dict,
+    api_key: str = "",
+    model: str = "deepseek-chat",
+    base_url: str = "https://api.deepseek.com/v1",
+    request_label: str = "",
+    domain_guidance: str = "",
+) -> dict[str, dict[str, str]]:
+    source_text = _unit_source_text(item)
+    skeleton, segments = _build_formula_segment_plan(source_text)
+    if not segments:
+        raise SegmentTranslationFormatError(f"{item['item_id']}: no translatable formula segments")
+    windows = _build_formula_segment_windows(skeleton, segments)
+    if len(windows) <= 1:
+        return _translate_single_item_formula_segment_text_with_retries(
+            item,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            request_label=request_label,
+            domain_guidance=domain_guidance,
+        )
+
+    if request_label:
+        print(
+            f"{request_label}: route=windowed-formula windows={len(windows)} segments={len(segments)}",
+            flush=True,
+        )
+    translated_segments: dict[str, str] = {}
+    successful_windows = 0
+    for window in windows:
+        try:
+            translated_segments.update(
+                _translate_formula_segment_window_with_retries(
+                    item,
+                    window,
+                    total_windows=len(windows),
+                    api_key=api_key,
+                    model=model,
+                    base_url=base_url,
+                    request_label=request_label,
+                    domain_guidance=domain_guidance,
+                )
+            )
+            successful_windows += 1
+        except (ValueError, KeyError, json.JSONDecodeError) as exc:
+            window_index = int(window["window_index"])
+            window_range = str(window["segment_range"])
+            if request_label:
+                print(
+                    f"{request_label}: formula-window {window_index}/{len(windows)} degraded to local keep_origin range={window_range}: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+            for segment in list(window["segments"]):
+                translated_segments[segment["segment_id"]] = segment["source_text"]
+
+    if successful_windows == 0:
+        raise SegmentTranslationFormatError(f"{item['item_id']}: all formula windows degraded to source")
+
+    rebuilt_text = _rebuild_formula_segment_translation(skeleton, translated_segments)
+    result = {item["item_id"]: _result_entry("translate", rebuilt_text)}
+    result = _canonicalize_batch_result([item], result)
+    _validate_batch_result([item], result)
+    if request_label:
+        print(
+            f"{request_label}: windowed-formula rebuilt ok translated_windows={successful_windows}/{len(windows)}",
+            flush=True,
+        )
+    return result
+
+
 def _translate_single_item_plain_text_with_retries(
     item: dict,
     api_key: str = "",
@@ -704,7 +1006,8 @@ def _translate_single_item_plain_text_with_retries(
     domain_guidance: str = "",
     mode: str = "fast",
 ) -> dict[str, dict[str, str]]:
-    if _should_use_formula_segment_translation(item):
+    formula_route = _formula_segment_translation_route(item)
+    if formula_route == "single":
         try:
             return _translate_single_item_formula_segment_text_with_retries(
                 item,
@@ -718,6 +1021,37 @@ def _translate_single_item_plain_text_with_retries(
             if request_label:
                 print(
                     f"{request_label}: segmented-formula route failed, fallback to plain-text path: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+            try:
+                return _translate_single_item_formula_segment_windows_with_retries(
+                    item,
+                    api_key=api_key,
+                    model=model,
+                    base_url=base_url,
+                    request_label=request_label,
+                    domain_guidance=domain_guidance,
+                )
+            except Exception as windowed_exc:
+                if request_label:
+                    print(
+                        f"{request_label}: windowed-formula fallback failed, continue to plain-text path: {type(windowed_exc).__name__}: {windowed_exc}",
+                        flush=True,
+                    )
+    elif formula_route == "windowed":
+        try:
+            return _translate_single_item_formula_segment_windows_with_retries(
+                item,
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                request_label=request_label,
+                domain_guidance=domain_guidance,
+            )
+        except Exception as exc:
+            if request_label:
+                print(
+                    f"{request_label}: windowed-formula route failed, fallback to plain-text path: {type(exc).__name__}: {exc}",
                     flush=True,
                 )
     last_error: Exception | None = None
@@ -752,6 +1086,7 @@ def _translate_single_item_plain_text_with_retries(
                     f"{request_label}: plain-text placeholder failed attempt {attempt}/4 after {elapsed:.2f}s: {type(exc).__name__}: {exc}",
                     flush=True,
                 )
+                _log_placeholder_failure(request_label, item, exc)
             if _has_formula_placeholders(item):
                 tagged_started = time.perf_counter()
                 try:
@@ -787,6 +1122,7 @@ def _translate_single_item_plain_text_with_retries(
                             f"{request_label}: degraded to keep_origin after repeated placeholder instability",
                             flush=True,
                         )
+                        _log_placeholder_failure(request_label, item, exc)
                     return {item["item_id"]: _internal_keep_origin_result(INTERNAL_PLACEHOLDER_DEGRADED_REASON)}
                 raise last_error
             time.sleep(min(8, 2 * attempt))

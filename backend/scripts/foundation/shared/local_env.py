@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+SCRIPTS_DIR = Path(__file__).resolve().parents[2]
 ENV_DIR = SCRIPTS_DIR / ".env"
 
 

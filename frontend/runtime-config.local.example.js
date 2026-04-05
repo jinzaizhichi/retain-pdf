@@ -1,4 +1,5 @@
 window.__FRONT_RUNTIME_CONFIG__ = {
+  ...(window.__FRONT_RUNTIME_CONFIG__ || {}),
   apiBase: "",
   xApiKey: "",
   mineruToken: "",

@@ -5,6 +5,10 @@ function numberOrNull(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+function arrayOrEmpty(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 export function unwrapEnvelope(payload) {
   if (payload && typeof payload === "object" && "data" in payload && "code" in payload) {
     return payload.data;
@@ -47,6 +51,8 @@ export function normalizeJobPayload(payload) {
   const timestamps = unwrapped.timestamps || {};
   const progress = unwrapped.progress || {};
   const artifacts = unwrapped.artifacts || {};
+  const runtime = unwrapped.runtime || {};
+  const failure = unwrapped.failure || null;
   const status = unwrapped.status || "idle";
   let progressCurrent = numberOrNull(progress.current ?? unwrapped.progress_current);
   let progressTotal = numberOrNull(progress.total ?? unwrapped.progress_total);
@@ -66,6 +72,8 @@ export function normalizeJobPayload(payload) {
 
   return {
     raw_response: unwrapped,
+    request_payload: unwrapped.request_payload || null,
+    request_payload_page_ranges: firstNonEmpty(unwrapped.request_payload?.ocr?.page_ranges),
     job_id: unwrapped.job_id || "",
     workflow: unwrapped.workflow || unwrapped.job_type || "",
     job_type: unwrapped.job_type || unwrapped.workflow || "",
@@ -83,6 +91,19 @@ export function normalizeJobPayload(payload) {
     links: unwrapped.links || {},
     actions: unwrapped.actions || {},
     artifacts,
+    runtime,
+    failure,
+    current_stage: firstNonEmpty(runtime.current_stage, unwrapped.stage),
+    stage_started_at: firstNonEmpty(runtime.stage_started_at),
+    last_stage_transition_at: firstNonEmpty(runtime.last_stage_transition_at),
+    active_stage_elapsed_ms: numberOrNull(runtime.active_stage_elapsed_ms),
+    total_elapsed_ms: numberOrNull(runtime.total_elapsed_ms),
+    retry_count: numberOrNull(runtime.retry_count) ?? 0,
+    last_retry_at: firstNonEmpty(runtime.last_retry_at),
+    stage_history: arrayOrEmpty(runtime.stage_history),
+    terminal_reason: firstNonEmpty(runtime.terminal_reason),
+    final_failure_category: firstNonEmpty(runtime.final_failure_category),
+    final_failure_summary: firstNonEmpty(runtime.final_failure_summary),
     failure_diagnostic: unwrapped.failure_diagnostic || null,
     log_tail: Array.isArray(unwrapped.log_tail) ? unwrapped.log_tail : [],
     error: unwrapped.error || "",
@@ -194,7 +215,12 @@ export function summarizeStatus(status) {
 }
 
 export function summarizeStageDetail(payload) {
-  const detail = (payload.stage_detail || "").trim();
+  const detail = firstNonEmpty(
+    payload.failure?.summary,
+    payload.stage_detail,
+    payload.runtime?.current_stage,
+    payload.current_stage,
+  );
   if (detail) {
     return detail;
   }
@@ -218,6 +244,8 @@ export function summarizePublicError(payload) {
   }
   if (payload.status === "failed") {
     const detail = firstNonEmpty(
+      payload.failure?.summary,
+      payload.final_failure_summary,
       payload.failure_diagnostic?.summary,
       payload.stage_detail,
       payload.error,
@@ -232,6 +260,28 @@ export function summarizePublicError(payload) {
 }
 
 export function summarizeDiagnostic(payload) {
+  const failure = payload.failure;
+  if (failure) {
+    const lines = [
+      `阶段: ${failure.stage || "-"}`,
+      `分类: ${failure.category || "-"}`,
+      `摘要: ${failure.summary || "-"}`,
+      `可重试: ${failure.retryable ? "是" : "否"}`,
+    ];
+    if (failure.upstream_host) {
+      lines.push(`上游主机: ${failure.upstream_host}`);
+    }
+    if (failure.root_cause) {
+      lines.push(`根因: ${failure.root_cause}`);
+    }
+    if (failure.suggestion) {
+      lines.push(`建议: ${failure.suggestion}`);
+    }
+    if (failure.last_log_line) {
+      lines.push(`最后日志: ${failure.last_log_line}`);
+    }
+    return lines.join("\n");
+  }
   const diag = payload.failure_diagnostic;
   if (!diag) {
     return "-";
@@ -255,6 +305,52 @@ export function summarizeDiagnostic(payload) {
     lines.push(`最后日志: ${diag.last_log_line}`);
   }
   return lines.join("\n");
+}
+
+function formatDurationMs(ms) {
+  const num = Number(ms);
+  if (!Number.isFinite(num) || num < 0) {
+    return "-";
+  }
+  const totalSeconds = Math.floor(num / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}小时 ${minutes}分 ${seconds}秒`;
+  }
+  if (minutes > 0) {
+    return `${minutes}分 ${seconds}秒`;
+  }
+  return `${seconds}秒`;
+}
+
+export function summarizeRuntimeField(value) {
+  const text = firstNonEmpty(value);
+  return text || "-";
+}
+
+export function formatRuntimeDuration(ms) {
+  return formatDurationMs(ms);
+}
+
+export function formatEventTimestamp(value) {
+  const rawValue = `${value || ""}`.trim();
+  if (!rawValue) {
+    return "-";
+  }
+  const parsed = new Date(rawValue);
+  if (Number.isNaN(parsed.getTime())) {
+    return rawValue;
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(parsed);
 }
 
 export function formatJobFinishedAt(payload) {

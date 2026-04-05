@@ -14,6 +14,34 @@ export async function fetchJobPayload(jobId, apiPrefix) {
   return resp.json();
 }
 
+export async function fetchJobEvents(jobId, apiPrefix, limit = 50, offset = 0) {
+  const resp = await fetch(`${apiBase()}${apiPrefix}/jobs/${jobId}/events?limit=${limit}&offset=${offset}`, {
+    headers: buildApiHeaders(),
+  });
+  if (!resp.ok) {
+    if (resp.status === 404) {
+      return { items: [], limit, offset };
+    }
+    throw new Error(`读取事件流失败，请稍后重试。(${resp.status})`);
+  }
+  const payloadJson = await resp.json();
+  return unwrapEnvelope(payloadJson);
+}
+
+export async function fetchJobArtifactsManifest(jobId, apiPrefix) {
+  const resp = await fetch(`${apiBase()}${apiPrefix}/jobs/${jobId}/artifacts-manifest`, {
+    headers: buildApiHeaders(),
+  });
+  if (!resp.ok) {
+    if (resp.status === 404) {
+      return { items: [] };
+    }
+    throw new Error(`读取产物清单失败，请稍后重试。(${resp.status})`);
+  }
+  const payloadJson = await resp.json();
+  return unwrapEnvelope(payloadJson);
+}
+
 export function submitUploadRequest(url, form, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();

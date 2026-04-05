@@ -1,18 +1,49 @@
+<dialog id="browser-credentials-dialog" class="desktop-dialog">
+  <form method="dialog" class="desktop-shell">
+    <div class="desktop-head">
+      <h2>接口凭据</h2>
+      <button id="browser-credentials-close-btn" type="submit" class="dialog-close-btn" aria-label="关闭">×</button>
+    </div>
+    <div class="desktop-body">
+      <div class="grid">
+        <label>
+          <span>MinerU Token</span>
+          <input id="browser-mineru-token" type="text" autocomplete="off" placeholder="填写 MinerU Token" />
+          <span class="field-link">
+            <a href="https://mineru.net/apiManage/docs?openApplyModal=true" target="_blank" rel="noopener noreferrer">前往 MinerU 获取 Token</a>
+          </span>
+        </label>
+        <label>
+          <span>DeepSeek Key</span>
+          <input id="browser-api-key" type="text" autocomplete="off" placeholder="填写 DeepSeek API Key" />
+          <span class="field-link">
+            <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer">前往 DeepSeek 获取 Key</a>
+          </span>
+        </label>
+      </div>
+      <div class="actions">
+        <button id="browser-credentials-save-btn" type="button">保存</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="desktop-setup-dialog" class="desktop-dialog">
   <form method="dialog" class="desktop-shell">
     <div class="desktop-head">
       <h2>首次配置</h2>
+      <button id="desktop-setup-close-btn" type="submit" class="dialog-close-btn" aria-label="关闭">×</button>
     </div>
     <div class="desktop-body">
       <p class="muted">首次使用前，请先填写 MinerU Token 和大模型 API Key。</p>
       <div class="grid two">
         <label>
           <span>MinerU Token</span>
-          <input id="setup-mineru-token" type="password" autocomplete="off" />
+          <input id="setup-mineru-token" type="text" autocomplete="off" />
         </label>
         <label>
-          <span>Model API Key</span>
-          <input id="setup-model-api-key" type="password" autocomplete="off" />
+          <span>DeepSeek Key</span>
+          <input id="setup-model-api-key" type="text" autocomplete="off" />
         </label>
       </div>
       <div id="desktop-setup-error" class="upload-status hidden"></div>
@@ -27,22 +58,153 @@
   <form method="dialog" class="desktop-shell">
     <div class="desktop-head">
       <h2>设置</h2>
-      <button id="desktop-settings-close-btn" type="submit" class="secondary">关闭</button>
+      <button id="desktop-settings-close-btn" type="submit" class="dialog-close-btn" aria-label="关闭">×</button>
     </div>
     <div class="desktop-body">
       <div class="grid two">
         <label>
           <span>MinerU Token</span>
-          <input id="settings-mineru-token" type="password" autocomplete="off" />
+          <input id="settings-mineru-token" type="text" autocomplete="off" />
         </label>
         <label>
-          <span>Model API Key</span>
-          <input id="settings-model-api-key" type="password" autocomplete="off" />
+          <span>DeepSeek Key</span>
+          <input id="settings-model-api-key" type="text" autocomplete="off" />
         </label>
       </div>
       <div id="desktop-settings-error" class="upload-status hidden"></div>
       <div class="actions">
         <button id="desktop-settings-save-btn" type="button">保存设置</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="page-range-dialog" class="desktop-dialog page-range-dialog">
+  <form method="dialog" class="desktop-shell">
+    <div class="desktop-head">
+      <h2>分页翻译</h2>
+      <button id="page-range-close-btn" type="submit" class="dialog-close-btn" aria-label="关闭">×</button>
+    </div>
+    <div class="desktop-body">
+      <p class="muted">按页码范围限制本次翻译，页码从 1 开始。</p>
+      <div class="grid two">
+        <label>
+          <span>起始页</span>
+          <input id="page-range-start" type="number" min="1" step="1" inputmode="numeric" autocomplete="off" placeholder="例如 1" />
+        </label>
+        <label>
+          <span>结束页</span>
+          <input id="page-range-end" type="number" min="1" step="1" inputmode="numeric" autocomplete="off" placeholder="例如 15" />
+        </label>
+      </div>
+      <div class="actions">
+        <button id="page-range-clear-btn" type="button" class="secondary">清空</button>
+        <button id="page-range-apply-btn" type="button">应用</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="status-detail-dialog" class="desktop-dialog status-detail-dialog">
+  <form method="dialog" class="desktop-shell">
+    <div class="desktop-head">
+      <div class="status-detail-headline">
+        <span id="status-detail-head-icon" class="status-detail-head-icon" aria-hidden="true"></span>
+        <div>
+          <h2>任务详情</h2>
+          <p id="status-detail-head-note" class="status-panel-note">查看任务概览、失败原因与事件流</p>
+        </div>
+      </div>
+      <button id="status-detail-close-btn" type="submit" class="dialog-close-btn" aria-label="关闭">×</button>
+    </div>
+    <div class="desktop-body status-detail-body">
+      <div class="detail-tabs" role="tablist" aria-label="任务详情">
+        <button id="detail-tab-overview" type="button" class="detail-tab is-active" data-tab="overview" role="tab" aria-selected="true">概览</button>
+        <button id="detail-tab-failure" type="button" class="detail-tab" data-tab="failure" role="tab" aria-selected="false">失败</button>
+        <button id="detail-tab-events" type="button" class="detail-tab" data-tab="events" role="tab" aria-selected="false">事件</button>
+      </div>
+
+      <div class="detail-tab-panels">
+        <section id="detail-panel-overview" class="detail-tab-panel is-active" data-panel="overview" role="tabpanel">
+          <div class="detail-download-row">
+            <a id="markdown-bundle-btn" class="button-link secondary disabled" href="#" target="_blank" rel="noopener noreferrer">下载 Markdown ZIP</a>
+          </div>
+          <div class="detail-grid">
+            <div class="detail-item">
+              <span class="label">当前阶段</span>
+              <span id="runtime-current-stage" class="info-value">-</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">当前阶段耗时</span>
+              <span id="runtime-stage-elapsed" class="info-value">-</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">累计耗时</span>
+              <span id="runtime-total-elapsed" class="info-value">-</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">重试次数</span>
+              <span id="runtime-retry-count" class="info-value">0</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">最近切换</span>
+              <span id="runtime-last-transition" class="info-value">-</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">终态原因</span>
+              <span id="runtime-terminal-reason" class="info-value">-</span>
+            </div>
+          </div>
+          <div class="status-panel detail-stage-panel">
+            <div class="status-panel-head">
+              <h3>过程时间线</h3>
+            </div>
+            <div id="overview-stage-empty" class="events-empty">暂无阶段记录</div>
+            <div id="overview-stage-list" class="stage-history-list hidden"></div>
+          </div>
+        </section>
+
+        <section id="detail-panel-failure" class="detail-tab-panel" data-panel="failure" role="tabpanel" hidden>
+          <div class="status-panel">
+            <div class="info-list">
+              <div class="info-row">
+                <span class="label">摘要</span>
+                <span id="failure-summary" class="info-value">-</span>
+              </div>
+              <div class="info-row">
+                <span class="label">分类</span>
+                <span id="failure-category" class="info-value">-</span>
+              </div>
+              <div class="info-row">
+                <span class="label">阶段</span>
+                <span id="failure-stage" class="info-value">-</span>
+              </div>
+              <div class="info-row">
+                <span class="label">根因</span>
+                <span id="failure-root-cause" class="info-value">-</span>
+              </div>
+              <div class="info-row">
+                <span class="label">建议</span>
+                <span id="failure-suggestion" class="info-value">-</span>
+              </div>
+              <div class="info-row">
+                <span class="label">可重试</span>
+                <span id="failure-retryable" class="info-value">-</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="detail-panel-events" class="detail-tab-panel" data-panel="events" role="tabpanel" hidden>
+          <div class="status-panel">
+            <div class="status-panel-head">
+              <h3>事件流</h3>
+              <span id="events-status" class="status-panel-note">最近 50 条</span>
+            </div>
+            <div id="events-empty" class="events-empty">暂无事件</div>
+            <div id="events-list" class="events-list hidden"></div>
+          </div>
+        </section>
       </div>
     </div>
   </form>

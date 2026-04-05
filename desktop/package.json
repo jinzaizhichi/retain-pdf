@@ -9,7 +9,8 @@
     "prepare-app": "node scripts/prepare-app.mjs",
     "dist:win32": "npm run prepare-app && electron-builder --win portable --ia32 --config.directories.output=win",
     "dist:win32-installer": "npm run prepare-app && electron-builder --win nsis --ia32 --config.directories.output=win",
-    "dist:mac": "npm run prepare-app && electron-builder --mac zip dmg --publish never --config.directories.output=mac"
+    "dist:mac": "npm run prepare-app && electron-builder --mac zip dmg --publish never --config.directories.output=mac",
+    "dist:linux": "npm run prepare-app && electron-builder --linux AppImage --publish never --config.directories.output=linux"
   },
   "devDependencies": {
     "electron": "^33.3.1",
@@ -51,6 +52,14 @@
     "mac": {
       "category": "public.app-category.productivity",
       "artifactName": "RetainPDF-${version}-mac-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility",
+      "icon": "build/icon.png",
+      "artifactName": "RetainPDF-${version}-linux-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,

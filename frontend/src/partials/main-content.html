@@ -1,109 +1,147 @@
-<main class="page lab-ui">
-  <header class="hero">
-    <div>
-      <h1>保留排版翻译 by wxyhgk</h1>
-      <p class="muted">三步完成：上传 PDF、等待任务处理、下载译文结果。当前主要面向 sci 论文场景，其他类型文档的版面与公式效果不保证。</p>
-    </div>
+<main id="app-shell" class="page app-shell">
+  <header class="topbar">
+    <div class="brand-mark" aria-hidden="true"></div>
     <div class="hero-actions">
       <button id="desktop-settings-btn" type="button" class="secondary hidden">设置</button>
       <button id="open-output-btn" type="button" class="secondary hidden">打开输出目录</button>
     </div>
   </header>
 
-  <section class="card notice-card">
-    <strong>当前支持单个 PDF，文件大小不超过 200MB，页数不超过 600 页。</strong>
-    <p class="notice-links">
-      如需使用自有服务，可填写你自己的 Key。
-      <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer">申请 DeepSeek API</a>
-      <span>｜</span>
-      <a href="https://mineru.net/apiManage/token" target="_blank" rel="noopener noreferrer">申请 MinerU API</a>
-    </p>
+  <section class="hero hero-single">
+    <div class="hero-copy">
+      <a class="hero-repo-link" href="https://github.com/wxyhgk/retain-pdf" target="_blank" rel="noopener noreferrer">
+        <img class="hero-repo-logo" src="src/assets/RetainPDF-logo.svg" alt="RetainPDF logo" />
+        <span>RetainPDF</span>
+      </a>
+    </div>
   </section>
 
-  <section class="panel-grid">
-    <section class="card panel">
-      <h2>提交</h2>
-      <p class="muted">建议优先上传结构清晰的论文 PDF。只需要准备 MinerU Token 和模型 API Key，其余参数已经固定。</p>
-      <div id="job-warning" class="job-warning hidden">检测到上一个任务仍在处理中。建议先等待当前任务结束，再提交新的 PDF。</div>
-      <form id="job-form" class="form" novalidate>
-        <div class="grid two">
-          <label>
-            <span>MinerU API key</span>
-            <input id="mineru_token" name="mineru_token" type="password" value="" autocomplete="off" placeholder="请输入 MinerU Token" />
-          </label>
-          <label>
-            <span>Model API key</span>
-            <input id="api_key" name="api_key" type="password" value="" autocomplete="off" placeholder="请输入 Model API Key" />
-          </label>
-        </div>
+  <section class="card workflow-card">
+    <div id="job-warning" class="job-warning hidden">检测到上一个任务仍在处理中。建议先等待当前任务结束，再提交新的 PDF。</div>
 
-        <label for="file" class="upload-tile">
-          <input id="file" name="file" type="file" accept="application/pdf,.pdf" />
-          <span class="upload-kicker">PDF 上传</span>
-          <strong id="file-label">点击选择文件或拖到这里</strong>
-          <em>仅支持单个 PDF；上传后会先完成文件校验，再进入任务处理</em>
+    <form id="job-form" class="form" novalidate>
+      <input id="mineru_token" name="mineru_token" type="hidden" value="" />
+      <input id="api_key" name="api_key" type="hidden" value="" />
+
+      <div class="upload-tile upload-tile-hero">
+        <input id="file" name="file" type="file" accept="application/pdf,.pdf" />
+        <span id="upload-fill" class="upload-fill" aria-hidden="true"></span>
+        <div id="credential-gate" class="credential-gate hidden">
+          <button id="credentials-btn" type="button" class="credential-gate-button" aria-label="配置凭据">
+            <span class="credential-gate-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.2 7.2 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.49-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.58.22-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .49-.42l.36-2.54c.58-.22 1.13-.54 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                <circle cx="12" cy="12" r="2.9" stroke="currentColor" stroke-width="1.4"/>
+              </svg>
+            </span>
+            <strong id="credential-gate-title">先填写接口凭据</strong>
+            <em id="credential-gate-help">未填写 MinerU Token 和 DeepSeek Key 前，无法上传 PDF。</em>
+          </button>
+        </div>
+        <span id="upload-glyph" class="upload-glyph" aria-hidden="true">
+          <span class="upload-glyph-h"></span>
+          <span class="upload-glyph-v"></span>
+        </span>
+        <strong id="file-label">拖拽或点击上传 PDF</strong>
+        <em id="upload-help">上传后会先完成文件校验，再进入任务处理。</em>
+        <div class="upload-meta upload-meta-inline">
+          <span>单个 PDF</span>
+          <span>最大 200MB</span>
+          <span>最多 600 页</span>
+        </div>
+        <div id="upload-status" class="upload-status hidden">尚未选择文件</div>
+        <div id="upload-progress-panel" class="upload-progress-panel hidden" aria-live="polite">
+          <span id="upload-progress-text">上传中</span>
+        </div>
+        <div id="upload-action-slot" class="upload-action-slot hidden">
+          <div class="upload-action-group">
+            <button id="submit-btn" type="submit" disabled>开始翻译</button>
+            <button id="page-range-btn" type="button" class="page-range-mini secondary" aria-label="分页翻译" title="分页翻译">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 5v5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                <path d="M12 10c0 2.8-2.1 4.2-4.5 5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                <path d="M12 10c0 2.8 2.1 4.2 4.5 5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                <circle cx="12" cy="4.5" r="1.5" fill="currentColor"/>
+                <circle cx="7" cy="16.5" r="1.5" fill="currentColor"/>
+                <circle cx="17" cy="16.5" r="1.5" fill="currentColor"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div id="page-range-summary" class="page-range-summary hidden">已选择页码：-</div>
+      </div>
+    </form>
+  </section>
+
+  <section id="status-section" class="card status-card hidden">
+    <div class="status-head">
+      <div class="status-head-actions">
+        <button id="cancel-btn" type="button" class="secondary" disabled>取消任务</button>
+        <button id="stop-btn" type="button" class="secondary">停止轮询</button>
+        <button id="back-home-btn" type="button" class="secondary hidden">返回主页面</button>
+      </div>
+    </div>
+
+    <div class="status-ring-shell">
+      <div class="status-ring-wrap">
+        <svg class="status-ring" viewBox="0 0 160 160" aria-hidden="true">
+          <circle class="status-ring-track" cx="80" cy="80" r="62"></circle>
+          <circle id="status-ring-progress" class="status-ring-progress" cx="80" cy="80" r="62"></circle>
+        </svg>
+        <div class="status-ring-center">
+          <div id="status-stage-icon" class="status-stage-icon" aria-hidden="true"></div>
+          <div id="status-ring-label" class="status-ring-label">等待中</div>
+          <div id="status-ring-value" class="status-ring-value">准备中</div>
+          <div id="status-ring-elapsed" class="status-ring-elapsed">0秒</div>
+          <div class="status-ring-actions">
+            <button id="copy-job-btn" type="button" class="copy-job-btn secondary">复制任务号</button>
+            <button id="status-detail-btn" type="button" class="copy-job-btn secondary">详情</button>
+          </div>
+          <a id="pdf-btn" class="button-link disabled ring-download hidden" href="#" target="_blank" rel="noopener noreferrer">下载 PDF</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="hidden">
+      <div id="job-id">-</div>
+      <div id="job-status">idle</div>
+      <div id="job-stage-detail">-</div>
+      <div id="query-job-duration">-</div>
+      <div id="job-progress-text">-</div>
+      <div class="progress-track"><div id="job-progress-bar" class="progress-bar"></div></div>
+      <div id="job-finished-at">-</div>
+      <a id="download-btn" class="button-link disabled" href="#" target="_blank" rel="noopener noreferrer">ZIP</a>
+      <a id="markdown-raw-btn" class="button-link secondary disabled" href="#" target="_blank" rel="noopener noreferrer">Markdown</a>
+      <a id="markdown-btn" class="button-link secondary disabled" href="#" target="_blank" rel="noopener noreferrer">JSON</a>
+    </div>
+  </section>
+
+  <div class="query-entry">
+    <button id="open-query-btn" type="button" class="secondary">任务查询</button>
+  </div>
+
+  <dialog id="query-dialog" class="desktop-dialog">
+    <form method="dialog" class="desktop-shell">
+      <div class="desktop-head">
+        <h2>任务查询</h2>
+        <button id="query-dialog-close-btn" type="submit" class="dialog-close-btn" aria-label="关闭">×</button>
+      </div>
+      <div class="desktop-body advanced-content">
+      <div class="form">
+        <label>
+          <span>任务编号</span>
+          <input id="job-id-input" type="text" placeholder="输入已有任务编号" />
         </label>
 
-        <div id="upload-progress-panel" class="upload-progress-panel hidden" aria-live="polite">
-          <div class="progress-meta">
-            <span>上传进度</span>
-            <strong id="upload-progress-text">0%</strong>
-          </div>
-          <div class="progress-track">
-            <div id="upload-progress-bar" class="progress-bar"></div>
-          </div>
-        </div>
-
-        <div id="upload-status" class="upload-status">尚未选择文件</div>
-
-        <div class="actions vertical-actions">
-          <button id="submit-btn" type="submit" disabled>运行任务</button>
-        </div>
-      </form>
-    </section>
-
-    <section class="card panel">
-      <div class="status-head simple-head">
-        <h2>状态</h2>
-        <div class="status-head-actions">
-          <button id="cancel-btn" type="button" class="secondary" disabled>取消任务</button>
-          <button id="stop-btn" type="button" class="secondary">停止轮询</button>
+        <div class="actions">
+          <button id="watch-btn" class="secondary" type="button">查询任务</button>
         </div>
       </div>
 
-      <div class="status-stack dense two">
-        <div>
-          <div class="label">任务号</div>
-          <div id="job-id" class="mono clamp-text">-</div>
-        </div>
-        <div>
-          <div class="label">状态</div>
-          <div id="job-status" class="badge idle">idle</div>
-        </div>
-        <div>
-          <div class="label">状态摘要</div>
-          <div id="job-summary" class="summary-text clamp-text">等待提交任务</div>
-        </div>
-        <div>
-          <div class="label">当前阶段</div>
-          <div id="job-stage-detail" class="summary-text clamp-text">-</div>
-        </div>
-      </div>
-
-      <div class="status-meta-row top-gap">
-        <div class="status-meta-card">
-          <div class="label">完成时间</div>
-          <div id="job-finished-at" class="status-meta-value">-</div>
-        </div>
-      </div>
-
-      <div class="top-gap">
-        <div class="progress-meta">
-          <span class="label compact-label">任务进度</span>
-          <strong id="job-progress-text">-</strong>
-        </div>
-        <div class="progress-track">
-          <div id="job-progress-bar" class="progress-bar"></div>
+      <div class="info-list top-gap">
+        <div class="info-row">
+          <span class="label">完成时间</span>
+          <span id="query-job-finished-at" class="info-value">-</span>
         </div>
       </div>
 
@@ -114,39 +152,9 @@
 
       <div class="top-gap">
         <div class="label">失败诊断</div>
-        <pre id="diagnostic-box" class="log error-box">-</pre>
+        <pre id="diagnostic-box" class="log">-</pre>
       </div>
-    </section>
-
-    <section class="card panel">
-      <h2>查询 / 下载</h2>
-      <p class="muted">输入已有任务号可继续查看状态。任务成功后，可直接打开译文 PDF、Markdown 或下载结果 ZIP。</p>
-
-      <div class="form">
-        <label>
-          <span>job_id</span>
-          <input id="job-id-input" type="text" placeholder="粘贴已有 job_id" />
-        </label>
-
-        <div class="actions action-matrix">
-          <button id="watch-btn" class="secondary" type="button">查询任务</button>
-          <a id="download-btn" class="button-link disabled" href="#" target="_blank" rel="noopener noreferrer">下载结果 ZIP</a>
-          <a id="pdf-btn" class="button-link secondary disabled" href="#" target="_blank" rel="noopener noreferrer">下载译文 PDF</a>
-          <a id="markdown-btn" class="button-link secondary disabled" href="#" target="_blank" rel="noopener noreferrer">下载 Markdown JSON</a>
-          <a id="markdown-raw-btn" class="button-link secondary disabled" href="#" target="_blank" rel="noopener noreferrer">下载 Markdown</a>
-        </div>
-
-        <div class="status-meta-row top-gap">
-          <div class="status-meta-card">
-            <div class="label">完成时间</div>
-            <div id="query-job-finished-at" class="status-meta-value">-</div>
-          </div>
-          <div class="status-meta-card">
-            <div class="label">用时</div>
-            <div id="query-job-duration" class="status-meta-value">-</div>
-          </div>
-        </div>
       </div>
-    </section>
-  </section>
+    </form>
+  </dialog>
 </main>

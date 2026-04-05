@@ -1,10 +1,15 @@
 export const state = {
   timer: null,
+  elapsedTimer: null,
   currentJobId: "",
+  currentJobSnapshot: null,
+  currentJobStartedAt: "",
+  currentJobFinishedAt: "",
   uploadId: "",
   uploadedFileName: "",
   uploadedPageCount: 0,
   uploadedBytes: 0,
+  appliedPageRange: "",
   desktopMode: false,
   desktopConfigured: false,
 };

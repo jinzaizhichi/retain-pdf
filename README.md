@@ -72,7 +72,8 @@
 1. 打开 [GitHub Releases](https://github.com/wxyhgk/retain-pdf/releases)
 2. 下载对应平台的发布包
 3. Windows 用户优先下载 `Setup.exe` 安装版
-4. macOS 用户可以下载 GitHub Releases 里的 mac 构建包进行测试
+4. macOS 用户下载 `.dmg` 安装包
+5. Linux 用户下载 `.deb` 安装包
 
 如果你想自己部署服务，优先用 Docker 方式。
 
@@ -92,7 +93,9 @@
 
 - Windows 版本当前以安装版 `Setup.exe` 为主
 - GitHub Releases 里的 Windows `Setup.exe` 会内置桌面运行所需的 Python 运行时，不要求用户自己装 Python
-- macOS 版本当前先提供自动构建的测试包，主要用于验证打包链路和本机运行
+- macOS 版本当前提供 `.dmg` 构建包
+- Linux 版本当前提供 `.deb` 构建包，适合 Debian / Ubuntu 系发行版
+- 当前桌面端已经覆盖 Windows / macOS / Linux 三个平台
 
 ### Docker 部署
 

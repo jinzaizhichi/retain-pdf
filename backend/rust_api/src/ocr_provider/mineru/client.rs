@@ -78,17 +78,10 @@ impl MineruClient {
         &self,
         file_name: &str,
         model_version: &str,
+        page_ranges: &str,
         data_id: &str,
     ) -> Result<MineruUploadTarget> {
-        let file_spec = if data_id.trim().is_empty() {
-            json!({ "name": file_name })
-        } else {
-            json!({ "name": file_name, "data_id": data_id.trim() })
-        };
-        let payload = json!({
-            "files": [file_spec],
-            "model_version": model_version,
-        });
+        let payload = build_apply_upload_payload(file_name, model_version, page_ranges, data_id);
         let envelope: MineruApiEnvelope<MineruApplyUploadUrlsData> = self
             .post_json("/api/v4/file-urls/batch", &payload)
             .await
@@ -139,30 +132,19 @@ impl MineruClient {
         cache_tolerance: i64,
         extra_formats: &[String],
     ) -> Result<MineruCreatedTask> {
-        let mut payload = json!({
-            "url": file_url,
-            "model_version": model_version,
-            "is_ocr": is_ocr,
-            "enable_formula": enable_formula,
-            "enable_table": enable_table,
-            "language": language,
-            "no_cache": no_cache,
-            "cache_tolerance": cache_tolerance,
-        });
-        if !page_ranges.trim().is_empty() {
-            payload["page_ranges"] = Value::String(page_ranges.trim().to_string());
-        }
-        if !data_id.trim().is_empty() {
-            payload["data_id"] = Value::String(data_id.trim().to_string());
-        }
-        if !extra_formats.is_empty() {
-            payload["extra_formats"] = Value::Array(
-                extra_formats
-                    .iter()
-                    .map(|item| Value::String(item.clone()))
-                    .collect(),
-            );
-        }
+        let payload = build_extract_task_payload(
+            file_url,
+            model_version,
+            is_ocr,
+            enable_formula,
+            enable_table,
+            language,
+            page_ranges,
+            data_id,
+            no_cache,
+            cache_tolerance,
+            extra_formats,
+        );
         let envelope: MineruApiEnvelope<MineruTaskData> = self
             .post_json("/api/v4/extract/task", &payload)
             .await
@@ -355,6 +337,67 @@ pub fn find_extract_result_in_batch<'a>(
         .find(|item| item.file_name == file_name)
 }
 
+fn build_apply_upload_payload(
+    file_name: &str,
+    model_version: &str,
+    page_ranges: &str,
+    data_id: &str,
+) -> Value {
+    let mut file_spec = if data_id.trim().is_empty() {
+        json!({ "name": file_name })
+    } else {
+        json!({ "name": file_name, "data_id": data_id.trim() })
+    };
+    if !page_ranges.trim().is_empty() {
+        file_spec["page_ranges"] = Value::String(page_ranges.trim().to_string());
+    }
+    json!({
+        "files": [file_spec],
+        "model_version": model_version,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_extract_task_payload(
+    file_url: &str,
+    model_version: &str,
+    is_ocr: bool,
+    enable_formula: bool,
+    enable_table: bool,
+    language: &str,
+    page_ranges: &str,
+    data_id: &str,
+    no_cache: bool,
+    cache_tolerance: i64,
+    extra_formats: &[String],
+) -> Value {
+    let mut payload = json!({
+        "url": file_url,
+        "model_version": model_version,
+        "is_ocr": is_ocr,
+        "enable_formula": enable_formula,
+        "enable_table": enable_table,
+        "language": language,
+        "no_cache": no_cache,
+        "cache_tolerance": cache_tolerance,
+    });
+    if !page_ranges.trim().is_empty() {
+        payload["page_ranges"] = Value::String(page_ranges.trim().to_string());
+    }
+    if !data_id.trim().is_empty() {
+        payload["data_id"] = Value::String(data_id.trim().to_string());
+    }
+    if !extra_formats.is_empty() {
+        payload["extra_formats"] = Value::Array(
+            extra_formats
+                .iter()
+                .map(|item| Value::String(item.clone()))
+                .collect(),
+        );
+    }
+    payload
+}
+
 fn ensure_envelope_ok<T>(envelope: &MineruApiEnvelope<T>, raw_text: &str) -> Result<()> {
     match &envelope.code {
         Value::Number(value) if value.as_i64() == Some(0) => Ok(()),
@@ -384,4 +427,40 @@ fn summarize_error_text(text: &str) -> String {
 fn normalize_trace_id(trace_id: &str) -> Option<String> {
     let trimmed = trace_id.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_apply_upload_payload, build_extract_task_payload};
+
+    #[test]
+    fn build_apply_upload_payload_includes_page_ranges_when_present() {
+        let payload = build_apply_upload_payload("sample.pdf", "doclayout_yolo", "1-5", "data-1");
+
+        assert_eq!(payload["model_version"], "doclayout_yolo");
+        assert_eq!(payload["files"][0]["name"], "sample.pdf");
+        assert_eq!(payload["files"][0]["data_id"], "data-1");
+        assert_eq!(payload["files"][0]["page_ranges"], "1-5");
+    }
+
+    #[test]
+    fn build_extract_task_payload_includes_page_ranges_when_present() {
+        let payload = build_extract_task_payload(
+            "https://example.com/a.pdf",
+            "doclayout_yolo",
+            false,
+            true,
+            true,
+            "en",
+            "2,4-6",
+            "data-2",
+            false,
+            0,
+            &["markdown".to_string()],
+        );
+
+        assert_eq!(payload["page_ranges"], "2,4-6");
+        assert_eq!(payload["data_id"], "data-2");
+        assert_eq!(payload["extra_formats"][0], "markdown");
+    }
 }

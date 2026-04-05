@@ -23,8 +23,8 @@ pub struct AppConfig {
     pub bind_host: String,
     pub port: u16,
     pub simple_port: u16,
-    pub normal_max_bytes: u64,
-    pub normal_max_pages: u32,
+    pub upload_max_bytes: u64,
+    pub upload_max_pages: u32,
     pub api_keys: HashSet<String>,
     pub max_running_jobs: usize,
 }
@@ -102,14 +102,14 @@ impl AppConfig {
                 .and_then(|v| v.parse::<u16>().ok())
                 .unwrap_or(41000),
             simple_port: resolve_simple_port(local_auth.as_ref()),
-            normal_max_bytes: env::var("RUST_API_NORMAL_MAX_BYTES")
+            upload_max_bytes: env::var("RUST_API_UPLOAD_MAX_BYTES")
                 .ok()
                 .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(10 * 1024 * 1024),
-            normal_max_pages: env::var("RUST_API_NORMAL_MAX_PAGES")
+                .unwrap_or(0),
+            upload_max_pages: env::var("RUST_API_UPLOAD_MAX_PAGES")
                 .ok()
                 .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(30),
+                .unwrap_or(0),
             api_keys,
             max_running_jobs,
         })
@@ -157,8 +157,8 @@ impl AppConfig {
             bind_host: "127.0.0.1".to_string(),
             port,
             simple_port,
-            normal_max_bytes: 200 * 1024 * 1024,
-            normal_max_pages: 600,
+            upload_max_bytes: 0,
+            upload_max_pages: 0,
             api_keys: [api_key].into_iter().collect(),
             max_running_jobs: 4,
         })

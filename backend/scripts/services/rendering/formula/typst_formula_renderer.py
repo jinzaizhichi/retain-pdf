@@ -203,8 +203,16 @@ def compile_formula_png(formula_text: str) -> tuple[Path, tuple[int, int]]:
             f"${typst_expr}$\n",
             encoding="utf-8",
         )
+        command = [TYPST_BIN, "compile"]
+        raw_font_dirs = os.environ.get("RETAIN_PDF_TYPST_FONT_DIRS", "").strip()
+        if raw_font_dirs:
+            for font_dir in raw_font_dirs.split(os.pathsep):
+                font_dir = font_dir.strip()
+                if font_dir:
+                    command.extend(["--font-path", font_dir])
+        command.extend([str(typ_path), str(png_path), "--format", "png", "--ppi", "300"])
         proc = subprocess.run(
-            [TYPST_BIN, "compile", str(typ_path), str(png_path), "--format", "png", "--ppi", "300"],
+            command,
             capture_output=True,
             text=True,
         )

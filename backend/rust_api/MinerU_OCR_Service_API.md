@@ -21,6 +21,16 @@
 
 当前首个 provider 是 `mineru`。
 
+内部实现说明：
+
+- `routes/jobs.rs` 只负责 OCR 接口的 HTTP endpoint 编排
+- `routes/job_requests.rs` 负责 OCR `multipart/form-data` 字段解析
+- `routes/job_helpers.rs` 负责 OCR / 通用 job 的 response、下载和 loader 辅助逻辑
+- `services/job_validation.rs` 负责 OCR provider 参数与 MinerU 限制校验
+- `services/job_factory.rs` 负责 OCR job 的统一构建、命令组装与启动
+
+如果你在排查接口行为，请以这些拆分后的模块职责为准，而不是旧版集中式文件结构。
+
 ## 1. 基础信息
 
 - 服务端口：`41000`
@@ -113,6 +123,12 @@ X-API-Key: your-rust-api-key
 `POST /api/v1/ocr/jobs`
 
 这是一个 `multipart/form-data` 接口。
+
+实现补充：
+
+- 表单字段到 `CreateJobInput` 的映射在 `routes/job_requests.rs`
+- 创建前的 provider / token / URL / timeout 校验在 `services/job_validation.rs`
+- OCR job 的命令拼装和初始化（例如 `ocr-{job_id}` trace）在 `services/job_factory.rs`
 
 支持两种提交方式，二选一：
 

@@ -19,6 +19,7 @@ DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_API_KEY_ENV = "DEEPSEEK_API_KEY"
 DEFAULT_API_KEY_FILE = "deepseek.env"
 TRUST_ENV_PROXY_ENV = "PDF_TRANSLATOR_TRUST_ENV_PROXY"
+STREAM_RESPONSES_ENV = "PDF_TRANSLATOR_DEEPSEEK_STREAM"
 _THREAD_LOCAL = threading.local()
 HTTP_RETRY_ATTEMPTS = 8
 HTTP_RETRY_BACKOFF_MAX_SECS = 20
@@ -260,6 +261,11 @@ def build_headers(api_key: str) -> dict[str, str]:
     return headers
 
 
+def should_use_stream_responses() -> bool:
+    value = os.environ.get(STREAM_RESPONSES_ENV, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def should_trust_env_proxy() -> bool:
     value = os.environ.get(TRUST_ENV_PROXY_ENV, "")
     return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -343,6 +349,49 @@ def _retry_delay(attempt: int) -> int:
     return min(HTTP_RETRY_BACKOFF_MAX_SECS, 2 * attempt)
 
 
+def _extract_stream_delta_text(data: dict[str, Any]) -> str:
+    choices = data.get("choices")
+    if not isinstance(choices, list):
+        return ""
+    chunks: list[str] = []
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        delta = choice.get("delta")
+        if isinstance(delta, dict):
+            content = delta.get("content")
+            if isinstance(content, str) and content:
+                chunks.append(content)
+            reasoning_content = delta.get("reasoning_content")
+            if isinstance(reasoning_content, str) and reasoning_content:
+                chunks.append(reasoning_content)
+            continue
+        message = choice.get("message")
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, str) and content:
+                chunks.append(content)
+    return "".join(chunks)
+
+
+def _read_streaming_chat_content(response: requests.Response) -> str:
+    chunks: list[str] = []
+    for raw_line in response.iter_lines(decode_unicode=True):
+        if raw_line is None:
+            continue
+        line = raw_line.strip()
+        if not line or not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        data = json.loads(payload)
+        piece = _extract_stream_delta_text(data)
+        if piece:
+            chunks.append(piece)
+    return "".join(chunks)
+
+
 def request_chat_content(
     messages: list[dict[str, str]],
     api_key: str = "",
@@ -359,6 +408,9 @@ def request_chat_content(
         "temperature": temperature,
         "messages": messages,
     }
+    use_stream = should_use_stream_responses()
+    if use_stream:
+        body["stream"] = True
     if response_format is not None:
         body["response_format"] = response_format
 
@@ -367,7 +419,7 @@ def request_chat_content(
         try:
             if request_label:
                 print(
-                    f"{request_label}: http attempt {attempt}/{HTTP_RETRY_ATTEMPTS} -> {model} {chat_completions_url(base_url)} timeout={timeout}s",
+                    f"{request_label}: http attempt {attempt}/{HTTP_RETRY_ATTEMPTS} -> {model} {chat_completions_url(base_url)} timeout={timeout}s stream={use_stream}",
                     flush=True,
                 )
             response = get_session().post(
@@ -375,13 +427,20 @@ def request_chat_content(
                 headers=build_headers(api_key),
                 json=body,
                 timeout=timeout,
+                stream=use_stream,
             )
             response.raise_for_status()
-            data: dict[str, Any] = response.json()
+            if use_stream:
+                content = _read_streaming_chat_content(response)
+                if not content.strip():
+                    raise ValueError("Stream response did not contain any content.")
+            else:
+                data: dict[str, Any] = response.json()
+                content = data["choices"][0]["message"]["content"]
             if request_label:
                 elapsed = time.perf_counter() - started
                 print(f"{request_label}: http ok in {elapsed:.2f}s", flush=True)
-            return data["choices"][0]["message"]["content"]
+            return content
         except (requests.RequestException, ValueError, KeyError, json.JSONDecodeError) as exc:
             last_error = exc
             elapsed = time.perf_counter() - started

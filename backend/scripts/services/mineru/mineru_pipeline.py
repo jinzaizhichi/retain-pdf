@@ -8,6 +8,8 @@ from foundation.config import fonts
 from foundation.config import layout
 from foundation.config import runtime
 from foundation.shared.job_dirs import add_explicit_job_dir_args
+from foundation.shared.job_dirs import job_dirs_from_explicit_args
+from foundation.shared.tee_output import enable_job_log_capture
 from services.document_schema import DOCUMENT_SCHEMA_REPORT_FILE_NAME
 from services.mineru.artifacts import resolve_translation_source_json_path
 from services.mineru.contracts import MINERU_PIPELINE_SUMMARY_FILE_NAME
@@ -74,6 +76,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    job_dirs = job_dirs_from_explicit_args(args)
+    enable_job_log_capture(job_dirs.logs_dir, prefix="mineru-pipeline")
     layout.apply_layout_tuning(
         body_font_size_factor=args.body_font_size_factor,
         body_leading_factor=args.body_leading_factor,

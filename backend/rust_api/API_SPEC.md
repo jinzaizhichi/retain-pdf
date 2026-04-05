@@ -183,6 +183,12 @@ Multipart fields:
 - `file`: required, PDF file
 - `developer_mode`: optional, `true/false`
 
+Upload limit policy:
+
+- `RUST_API_UPLOAD_MAX_BYTES`
+- `RUST_API_UPLOAD_MAX_PAGES`
+- either value set to `0` means that limit is disabled
+
 Response:
 
 ```json

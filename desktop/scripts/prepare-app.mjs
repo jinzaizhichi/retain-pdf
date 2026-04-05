@@ -61,9 +61,7 @@ function resolveRustApiBinary() {
       path.join(backendRoot, "rust_api", "target", "aarch64-apple-darwin", "release", "rust_api"),
     );
   } else {
-    candidates.push(
-      path.join(backendRoot, "rust_api", "target", "release", "rust_api"),
-    );
+    candidates.push(path.join(backendRoot, "rust_api", "target", "release", "rust_api"));
   }
 
   for (const candidate of candidates) {
@@ -82,7 +80,6 @@ function resolveRustApiBinary() {
 }
 
 const rustApiBinary = resolveRustApiBinary();
-
 if (desktopPackage.version !== releaseVersion) {
   desktopPackage.version = releaseVersion;
   fs.writeFileSync(`${desktopPackagePath}.tmp`, `${JSON.stringify(desktopPackage, null, 2)}\n`, "utf8");

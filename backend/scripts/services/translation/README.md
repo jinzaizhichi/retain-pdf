@@ -14,12 +14,16 @@
   `precise` 模式下的可疑块分类。
 - `continuation/`
   段落连续性判断、candidate pair 导出和审阅。
+- `diagnostics/`
+  结构化翻译诊断模型，承接 placeholder 异常、窗口降级和 keep-origin 降级事件。
 - `policy/`
   翻译策略配置、正文噪声过滤、元数据过滤和策略应用。
 - `llm/`
-  模型请求、缓存、重试、领域推断。
+  模型请求、缓存、重试、placeholder 守护、分段路由和控制上下文。
 - `payload/`
   payload 协议、公式占位、翻译 JSON 读写。
+- `terms/`
+  术语表、缩写表和术语注入骨架，供后续高精度模式/RAG 增强接入。
 - `workflow/`
   单页翻译流程入口。
 
@@ -31,7 +35,7 @@
 4. `orchestration` 补齐布局区和编排元数据
 5. `continuation` 把跨行、跨页连续段落合并成统一 translation unit
 6. `policy` 根据模式决定跳过哪些块
-7. `llm` 按 batch 调模型翻译、缓存和重试
+7. `llm` 按 batch 调模型翻译、缓存和重试，并统一处理 placeholder/segment/fallback 控制
 8. `payload` 把翻译结果回填到 page payload，并保存最终 JSON
 
 补充约定：

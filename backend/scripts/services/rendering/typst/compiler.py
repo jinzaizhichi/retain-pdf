@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -12,9 +13,23 @@ from services.rendering.typst.source_builder import build_typst_book_overlay_sou
 from services.rendering.typst.source_builder import build_typst_overlay_source
 
 
+def _resolved_font_paths(font_paths: list[Path] | None = None) -> list[Path]:
+    resolved: list[Path] = []
+    raw = os.environ.get("RETAIN_PDF_TYPST_FONT_DIRS", "").strip()
+    if raw:
+        for item in raw.split(os.pathsep):
+            value = item.strip()
+            if value:
+                resolved.append(Path(value))
+    for item in font_paths or []:
+        if item not in resolved:
+            resolved.append(item)
+    return resolved
+
+
 def _typst_compile_command(typ_path: Path, pdf_path: Path, font_paths: list[Path] | None = None) -> list[str]:
     command = [TYPST_BIN, "compile"]
-    for font_path in font_paths or []:
+    for font_path in _resolved_font_paths(font_paths):
         command.extend(["--font-path", str(font_path)])
     command.extend([str(typ_path), str(pdf_path)])
     return command
@@ -93,7 +108,7 @@ def compile_typst_book_background_pdf(
         encoding="utf-8",
     )
     command = [TYPST_BIN, "compile", "--root", str(paths.ROOT_DIR)]
-    for font_path in font_paths or []:
+    for font_path in _resolved_font_paths(font_paths):
         command.extend(["--font-path", str(font_path)])
     command.extend([str(typ_path), str(pdf_path)])
     proc = subprocess.run(command, capture_output=True, text=True)

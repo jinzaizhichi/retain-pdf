@@ -11,6 +11,7 @@ from foundation.config import layout
 from foundation.config import runtime
 from foundation.shared.job_dirs import add_explicit_job_dir_args
 from foundation.shared.job_dirs import job_dirs_from_explicit_args
+from foundation.shared.tee_output import enable_job_log_capture
 from runtime.pipeline.book_pipeline import run_book_pipeline
 from services.document_schema import DOCUMENT_SCHEMA_REPORT_FILE_NAME
 from services.mineru.contracts import MINERU_PIPELINE_SUMMARY_FILE_NAME
@@ -72,6 +73,7 @@ def main() -> None:
     )
 
     job_dirs = job_dirs_from_explicit_args(args)
+    enable_job_log_capture(job_dirs.logs_dir, prefix="translate-from-ocr")
     source_json_path = Path(args.source_json).resolve()
     source_pdf_path = Path(args.source_pdf).resolve()
     layout_json_path = Path(args.layout_json).resolve() if args.layout_json.strip() else source_json_path

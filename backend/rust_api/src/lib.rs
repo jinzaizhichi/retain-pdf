@@ -3,10 +3,12 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod job_events;
+pub mod job_failure;
 pub mod job_runner;
 pub mod models;
 pub mod ocr_provider;
 pub mod routes;
+pub mod services;
 pub mod storage_paths;
 
 use std::collections::HashSet;
@@ -89,6 +91,14 @@ pub fn build_app(state: AppState) -> Router {
             get(jobs::get_ocr_job_artifacts),
         )
         .route(
+            "/api/v1/ocr/jobs/:job_id/artifacts-manifest",
+            get(jobs::get_ocr_job_artifacts_manifest),
+        )
+        .route(
+            "/api/v1/ocr/jobs/:job_id/artifacts/:artifact_key",
+            get(jobs::download_ocr_artifact_by_key),
+        )
+        .route(
             "/api/v1/ocr/jobs/:job_id/normalized-document",
             get(jobs::download_ocr_normalized_document),
         )
@@ -110,6 +120,14 @@ pub fn build_app(state: AppState) -> Router {
         .route(
             "/api/v1/jobs/:job_id/artifacts",
             get(jobs::get_job_artifacts),
+        )
+        .route(
+            "/api/v1/jobs/:job_id/artifacts-manifest",
+            get(jobs::get_job_artifacts_manifest),
+        )
+        .route(
+            "/api/v1/jobs/:job_id/artifacts/:artifact_key",
+            get(jobs::download_artifact_by_key),
         )
         .route("/api/v1/jobs/:job_id/pdf", get(jobs::download_pdf))
         .route(

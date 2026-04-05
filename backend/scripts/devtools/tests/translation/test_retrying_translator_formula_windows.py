@@ -61,6 +61,8 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_plain_text_retry_uses_windowed_route_before_plain_text(self):
         module = load_retrying_translator()
+        import services.translation.llm.fallbacks as fallbacks
+
         item = make_formula_item(20)
         calls: list[str] = []
 
@@ -71,15 +73,23 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
         def fake_plain(*args, **kwargs):
             raise AssertionError("plain-text path should not be reached for this test")
 
-        module._translate_single_item_formula_segment_windows_with_retries = fake_windowed
-        module._translate_single_item_plain_text = fake_plain
+        original_windowed = fallbacks.translate_single_item_formula_segment_windows_with_retries
+        original_plain = fallbacks.translate_single_item_plain_text
+        try:
+            fallbacks.translate_single_item_formula_segment_windows_with_retries = fake_windowed
+            fallbacks.translate_single_item_plain_text = fake_plain
+            result = module._translate_single_item_plain_text_with_retries(item, request_label="unit")
+        finally:
+            fallbacks.translate_single_item_formula_segment_windows_with_retries = original_windowed
+            fallbacks.translate_single_item_plain_text = original_plain
 
-        result = module._translate_single_item_plain_text_with_retries(item, request_label="unit")
         self.assertEqual(calls, ["windowed"])
         self.assertEqual(result[item["item_id"]]["decision"], "translate")
 
     def test_windowed_formula_translation_degrades_only_local_window(self):
         module = load_retrying_translator()
+        import services.translation.llm.segment_routing as segment_routing
+
         item = make_formula_item(20)
         calls: list[list[str]] = []
 
@@ -97,8 +107,12 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
                 for segment in payload["segments"]
             )
 
-        module.request_chat_content = fake_request
-        result = module._translate_single_item_formula_segment_windows_with_retries(item, request_label="unit")
+        original_request = segment_routing.request_chat_content
+        try:
+            segment_routing.request_chat_content = fake_request
+            result = module._translate_single_item_formula_segment_windows_with_retries(item, request_label="unit")
+        finally:
+            segment_routing.request_chat_content = original_request
         translated_text = result[item["item_id"]]["translated_text"]
 
         self.assertGreaterEqual(len(calls), 3)

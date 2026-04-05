@@ -71,7 +71,8 @@
 
 1. 打开 [GitHub Releases](https://github.com/wxyhgk/retain-pdf/releases)
 2. 下载对应平台的发布包
-3. Windows 用户优先下载安装版或便携版 `exe`
+3. Windows 用户优先下载 `Setup.exe` 安装版
+4. macOS 用户可以下载 GitHub Releases 里的 mac 构建包进行测试
 
 如果你想自己部署服务，优先用 Docker 方式。
 
@@ -82,6 +83,7 @@
 ### 我该选哪种方式
 
 - 如果你只是自己在 Windows 电脑上使用，优先选 GitHub Releases 里的桌面版
+- 如果你在 macOS 上只是自己测试使用，也可以直接下载 GitHub Releases 里的 mac 包
 - 如果你想给局域网、团队或多台设备一起用，优先选 Docker 部署
 - 如果你希望后续自己更新镜像、改配置、接自己的 API key，也优先选 Docker 部署
 - 如果你不想关心端口、容器、环境变量，优先选桌面版
@@ -91,6 +93,7 @@
 - Windows 版本当前以安装版 `Setup.exe` 为主
 - GitHub Releases 里的 Windows `Setup.exe` 会内置桌面运行所需的 Python 运行时，不要求用户自己装 Python
 - macOS 版本当前先提供自动构建的测试包，主要用于验证打包链路和本机运行
+
 ### Docker 部署
 
 当前仓库提供了 Docker 交付目录：

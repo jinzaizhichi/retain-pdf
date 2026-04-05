@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/rust_api/Cargo.toml backend/rust_api/Cargo.lock ./backend/rust_api/
+COPY backend/rust_api/Cargo.toml backend/rust_api/Cargo.lock backend/rust_api/build.rs ./backend/rust_api/
 COPY backend/rust_api/src ./backend/rust_api/src
 
 WORKDIR /build/backend/rust_api

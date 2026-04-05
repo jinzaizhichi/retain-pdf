@@ -6,6 +6,12 @@
 
 - [api.md](/home/wxyhgk/tmp/Code/backend/rust_api/api.md)
 
+文档约定：
+
+- 前端请求示例统一以分组后的正式请求结构为准
+- 旧版扁平字段已经移除，不再接受
+- Rust 侧内部已经拆成 `job_requests`、`job_helpers`、`job_factory`、`job_validation` 四类辅助模块；前端只需要关心接口契约，不需要依赖这些内部模块名
+
 ## 1. 你必须准备的 5 个值
 
 调用 Rust API 时，前端至少要准备下面这些值：
@@ -79,6 +85,11 @@ async function uploadPdf(file: File, backendKey: string, developerMode = false) 
 }
 ```
 
+上传限制说明：
+
+- 当前后端默认不额外限制 PDF 大小和页数
+- 如果部署方配置了 `RUST_API_UPLOAD_MAX_BYTES` / `RUST_API_UPLOAD_MAX_PAGES`，以前端实际收到的服务端报错为准
+
 ## 4. 创建任务
 
 请求：
@@ -91,17 +102,29 @@ Content-Type: application/json
 
 ### 4.1 DeepSeek 示例
 
+推荐请求体：
+
 ```json
 {
-  "upload_id": "20260327-abc123",
-  "mineru_token": "your-mineru-api-key",
-  "base_url": "https://api.deepseek.com/v1",
-  "api_key": "your-deepseek-api-key",
-  "model": "deepseek-chat",
-  "mode": "sci",
-  "workers": 50,
-  "batch_size": 1,
-  "render_mode": "auto"
+  "workflow": "mineru",
+  "source": {
+    "upload_id": "20260327-abc123"
+  },
+  "ocr": {
+    "provider": "mineru",
+    "mineru_token": "your-mineru-api-key"
+  },
+  "translation": {
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "your-deepseek-api-key",
+    "model": "deepseek-chat",
+    "mode": "sci",
+    "workers": 50,
+    "batch_size": 1
+  },
+  "render": {
+    "render_mode": "auto"
+  }
 }
 ```
 
@@ -109,15 +132,25 @@ Content-Type: application/json
 
 ```json
 {
-  "upload_id": "20260327-abc123",
-  "mineru_token": "your-mineru-api-key",
-  "base_url": "http://127.0.0.1:10001/v1",
-  "api_key": "your-openai-compatible-api-key",
-  "model": "Q3.5-turbo",
-  "mode": "precise",
-  "workers": 4,
-  "batch_size": 1,
-  "render_mode": "auto"
+  "workflow": "mineru",
+  "source": {
+    "upload_id": "20260327-abc123"
+  },
+  "ocr": {
+    "provider": "mineru",
+    "mineru_token": "your-mineru-api-key"
+  },
+  "translation": {
+    "base_url": "http://127.0.0.1:10001/v1",
+    "api_key": "your-openai-compatible-api-key",
+    "model": "Q3.5-turbo",
+    "mode": "precise",
+    "workers": 4,
+    "batch_size": 1
+  },
+  "render": {
+    "render_mode": "auto"
+  }
 }
 ```
 
@@ -125,19 +158,29 @@ Content-Type: application/json
 
 ```ts
 type CreateJobPayload = {
-  upload_id: string;
-  mineru_token: string;
-  base_url: string;
-  api_key: string;
-  model: string;
-  mode?: "sci" | "precise";
-  workers?: number;
-  batch_size?: number;
-  render_mode?: string;
-  compile_workers?: number;
-  page_ranges?: string;
-  rule_profile_name?: string;
-  custom_rules_text?: string;
+  workflow?: "mineru";
+  source: {
+    upload_id: string;
+  };
+  ocr: {
+    provider?: "mineru" | "paddle";
+    mineru_token: string;
+    page_ranges?: string;
+  };
+  translation: {
+    base_url: string;
+    api_key: string;
+    model: string;
+    mode?: "sci" | "precise";
+    workers?: number;
+    batch_size?: number;
+    rule_profile_name?: string;
+    custom_rules_text?: string;
+  };
+  render?: {
+    render_mode?: string;
+    compile_workers?: number;
+  };
 };
 
 async function createJob(payload: CreateJobPayload, backendKey: string) {
@@ -162,11 +205,11 @@ async function createJob(payload: CreateJobPayload, backendKey: string) {
 
 `POST /api/v1/jobs` 目前会强制校验：
 
-- `upload_id`
-- `mineru_token`
-- `base_url`
-- `api_key`
-- `model`
+- `source.upload_id`
+- `ocr.mineru_token`
+- `translation.base_url`
+- `translation.api_key`
+- `translation.model`
 
 另外：
 
@@ -248,15 +291,25 @@ async function runPdfTranslateFlow(file: File, config: {
   const upload = await uploadPdf(file, config.backendKey, false);
 
   const job = await createJob({
-    upload_id: upload.upload_id,
-    mineru_token: config.mineruToken,
-    base_url: config.modelBaseUrl,
-    api_key: config.modelApiKey,
-    model: config.model,
-    mode: config.mode ?? "sci",
-    workers: 50,
-    batch_size: 1,
-    render_mode: "auto",
+    workflow: "mineru",
+    source: {
+      upload_id: upload.upload_id,
+    },
+    ocr: {
+      provider: "mineru",
+      mineru_token: config.mineruToken,
+    },
+    translation: {
+      base_url: config.modelBaseUrl,
+      api_key: config.modelApiKey,
+      model: config.model,
+      mode: config.mode ?? "sci",
+      workers: 50,
+      batch_size: 1,
+    },
+    render: {
+      render_mode: "auto",
+    },
   }, config.backendKey);
 
   const finalJob = await pollJobUntilDone(job.job_id, config.backendKey);

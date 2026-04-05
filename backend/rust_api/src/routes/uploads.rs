@@ -12,7 +12,7 @@ use crate::AppState;
 pub async fn upload_pdf(
     State(state): State<AppState>,
     mut multipart: Multipart,
-) -> Result<Json<ApiResponse<crate::models::UploadResponseData>>, AppError> {
+) -> Result<Json<ApiResponse<crate::models::UploadView>>, AppError> {
     let mut file_name: Option<String> = None;
     let mut file_bytes: Option<Vec<u8>> = None;
     let mut developer_mode = false;
@@ -70,13 +70,17 @@ pub async fn store_upload(
         .map(|doc| doc.get_pages().len() as u32)
         .map_err(|e| AppError::bad_request(format!("invalid pdf: {e}")))?;
 
-    if !developer_mode {
-        if byte_count > state.config.normal_max_bytes {
-            return Err(AppError::bad_request("普通用户仅支持 10MB 以内 PDF"));
-        }
-        if page_count > state.config.normal_max_pages {
-            return Err(AppError::bad_request("普通用户仅支持 30 页以内 PDF"));
-        }
+    if state.config.upload_max_bytes > 0 && byte_count > state.config.upload_max_bytes {
+        return Err(AppError::bad_request(format!(
+            "当前服务限制：PDF 文件大小必须不超过 {:.2}MB",
+            state.config.upload_max_bytes as f64 / 1024.0 / 1024.0
+        )));
+    }
+    if state.config.upload_max_pages > 0 && page_count > state.config.upload_max_pages {
+        return Err(AppError::bad_request(format!(
+            "当前服务限制：PDF 页数必须不超过 {} 页",
+            state.config.upload_max_pages
+        )));
     }
 
     Ok(UploadRecord {

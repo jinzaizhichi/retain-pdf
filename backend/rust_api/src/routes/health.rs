@@ -7,7 +7,7 @@ use crate::models::JobStatusKind;
 use crate::AppState;
 
 #[derive(Serialize)]
-pub struct HealthData {
+pub struct HealthView {
     pub status: &'static str,
     pub db: &'static str,
     pub queue_depth: i64,
@@ -16,7 +16,7 @@ pub struct HealthData {
     pub time: String,
 }
 
-pub async fn health(State(state): State<AppState>) -> Json<ApiResponse<HealthData>> {
+pub async fn health(State(state): State<AppState>) -> Json<ApiResponse<HealthView>> {
     let db_ok = state.db.ping().is_ok();
     let queued = state
         .db
@@ -26,7 +26,7 @@ pub async fn health(State(state): State<AppState>) -> Json<ApiResponse<HealthDat
         .db
         .count_jobs_with_status(&JobStatusKind::Running)
         .unwrap_or(0);
-    Json(ApiResponse::ok(HealthData {
+    Json(ApiResponse::ok(HealthView {
         status: if db_ok { "up" } else { "degraded" },
         db: if db_ok { "ok" } else { "error" },
         queue_depth: queued,

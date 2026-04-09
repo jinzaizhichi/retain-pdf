@@ -145,9 +145,9 @@ http://127.0.0.1:40001
   后端调用 Python 脚本使用的解释器。
 - `TYPST_BIN`
   Typst 可执行文件路径。
-- `DEFAULT_FONT_PATH`
+- `RETAIN_PDF_FONT_PATH`
   默认中文字体文件路径。
-- `TYPST_FONT_FAMILY`
+- `RETAIN_PDF_TYPST_FONT_FAMILY`
   Typst 默认字体族名称。
 - `RUST_API_PORT`
   完整 API 在容器内监听的端口，默认 `41000`。

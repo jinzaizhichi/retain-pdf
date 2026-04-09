@@ -14,10 +14,9 @@ COPY backend/rust_api/src ./backend/rust_api/src
 WORKDIR /build/backend/rust_api
 RUN cargo build --release
 
+FROM wxyhgk/retainpdf-app:4.0.5-beta AS typstsrc
 
 FROM python:3.11-slim-bookworm AS runtime
-
-ARG TYPST_VERSION=0.14.2
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -27,8 +26,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     OUTPUT_ROOT=/data/jobs \
     PYTHON_BIN=python3 \
     TYPST_BIN=/usr/local/bin/typst \
-    DEFAULT_FONT_PATH=/usr/local/share/fonts/source-han-serif/SourceHanSerifSC-Regular.otf \
-    TYPST_FONT_FAMILY="Source Han Serif SC" \
+    RETAIN_PDF_FONT_PATH=/usr/local/share/fonts/source-han-serif/SourceHanSerifSC-Regular.otf \
+    RETAIN_PDF_TYPST_FONT_FAMILY="Source Han Serif SC" \
     RUST_API_PORT=41000 \
     RUST_API_SIMPLE_PORT=42000
 
@@ -42,15 +41,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL -o /tmp/typst.tar.xz \
-      "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-x86_64-unknown-linux-musl.tar.xz" \
-    && mkdir -p /tmp/typst \
-    && tar -xJf /tmp/typst.tar.xz -C /tmp/typst --strip-components=1 \
-    && install -m 0755 /tmp/typst/typst /usr/local/bin/typst \
-    && rm -rf /tmp/typst /tmp/typst.tar.xz
+COPY --from=typstsrc /usr/local/bin/typst /usr/local/bin/typst
 
-RUN mkdir -p /usr/local/share/fonts/source-han-serif \
-    && ln -sf /usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc /usr/local/share/fonts/source-han-serif/SourceHanSerifSC-Regular.otf \
+RUN mkdir -p /usr/local/share/fonts/source-han-serif
+
+COPY desktop/assets/fonts/SourceHanSerifSC-Regular.otf /usr/local/share/fonts/source-han-serif/SourceHanSerifSC-Regular.otf
+COPY docker/fontconfig/65-source-han-serif-alias.conf /etc/fonts/conf.d/65-source-han-serif-alias.conf
+
+RUN fc-scan /usr/local/share/fonts/source-han-serif/SourceHanSerifSC-Regular.otf >/dev/null \
     && fc-cache -f
 
 COPY docker/requirements-app.txt /tmp/requirements-app.txt

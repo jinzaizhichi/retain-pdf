@@ -104,10 +104,6 @@ def translate_items_to_path(
             finalize_payload_orchestration_metadata(payload)
             save_translations(translation_path, payload)
             print(f"{label}: skipped {skip_summary['title_skipped']} title items")
-    if skip_summary.get("metadata_fragment_skipped"):
-        finalize_payload_orchestration_metadata(payload)
-        save_translations(translation_path, payload)
-        print(f"{label}: skipped {skip_summary['metadata_fragment_skipped']} metadata fragments")
     if skip_summary.get("ref_text_skipped"):
         finalize_payload_orchestration_metadata(payload)
         save_translations(translation_path, payload)

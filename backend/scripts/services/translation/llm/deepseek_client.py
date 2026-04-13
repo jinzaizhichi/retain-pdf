@@ -47,7 +47,14 @@ _TAGGED_ITEM_BLOCK_RE = re.compile(
     r"\s*<<<END>>>",
     re.DOTALL,
 )
+_CONTEXT_PLACEHOLDER_RE = re.compile(r"<[a-z]\d+-[0-9a-z]{3}/>|@@P\d+@@|\[\[FORMULA_\d+]]")
 _JSON_ONLY_INSTRUCTION = 'Return only valid JSON with the schema {"translations":[{"item_id":"...","translated_text":"..."}]}.'
+
+
+def sanitize_prompt_context_text(text: str) -> str:
+    sanitized = _CONTEXT_PLACEHOLDER_RE.sub(" ", str(text or ""))
+    sanitized = re.sub(r"\s+", " ", sanitized).strip()
+    return sanitized
 
 
 def _build_translation_system_prompt(
@@ -112,12 +119,16 @@ def build_messages(
         if group_id:
             item_payload["continuation_group"] = group_id
             if item.get("continuation_prev_text"):
-                item_payload["context_before"] = item["continuation_prev_text"]
+                context_before = sanitize_prompt_context_text(item["continuation_prev_text"])
+                if context_before:
+                    item_payload["context_before"] = context_before
             if item.get("continuation_next_text"):
-                item_payload["context_after"] = item["continuation_next_text"]
+                context_after = sanitize_prompt_context_text(item["continuation_next_text"])
+                if context_after:
+                    item_payload["context_after"] = context_after
             group = groups.setdefault(group_id, {"group_id": group_id, "item_ids": [], "combined_source_text": []})
             group["item_ids"].append(item["item_id"])
-            group["combined_source_text"].append(item["protected_source_text"])
+            group["combined_source_text"].append(sanitize_prompt_context_text(item["protected_source_text"]))
         items_payload.append(item_payload)
     user_payload = {
         "task": load_prompt("translation_task.txt"),
@@ -210,9 +221,13 @@ def build_single_item_fallback_messages(
     if style_hint:
         user_payload["item"]["style_hint"] = style_hint
     if item.get("continuation_prev_text"):
-        user_payload["item"]["context_before"] = item["continuation_prev_text"]
+        context_before = sanitize_prompt_context_text(item["continuation_prev_text"])
+        if context_before:
+            user_payload["item"]["context_before"] = context_before
     if item.get("continuation_next_text"):
-        user_payload["item"]["context_after"] = item["continuation_next_text"]
+        context_after = sanitize_prompt_context_text(item["continuation_next_text"])
+        if context_after:
+            user_payload["item"]["context_after"] = context_after
     if item.get("continuation_group"):
         user_payload["item"]["continuation_group"] = item["continuation_group"]
     user_prompt = json.dumps(user_payload, ensure_ascii=False)

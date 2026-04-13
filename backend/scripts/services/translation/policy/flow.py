@@ -4,6 +4,7 @@ from services.translation.payload import ops as payload_ops
 from services.translation.policy.config import TranslationPolicyConfig
 from services.translation.policy.config import build_translation_policy_config
 
+
 def _load_classifier():
     try:
         from services.translation.classification.page_classifier import classify_payload_items
@@ -13,6 +14,35 @@ def _load_classifier():
         from services.translation.classification.page_classifier import classify_payload_items
 
         return classify_payload_items
+
+
+def _build_skip_summary(
+    *,
+    title_skipped: int,
+    reference_tail_skipped: int,
+    ref_text_skipped: int,
+    reference_zone_skipped: int,
+    metadata_fragment_skipped: int,
+    shared_literal_summary: dict[str, int],
+    mixed_literal_summary: dict[str, int],
+) -> dict[str, int]:
+    return {
+        "title_skipped": title_skipped,
+        "reference_tail_skipped": reference_tail_skipped,
+        "tail_skipped": reference_tail_skipped,
+        "ref_text_skipped": ref_text_skipped,
+        "reference_zone_skipped": reference_zone_skipped,
+        # Deprecated compatibility field. Narrow-body skip logic is disabled.
+        "narrow_body_skipped": 0,
+        "metadata_fragment_skipped": metadata_fragment_skipped,
+        "shared_literal_code_skipped": shared_literal_summary["shared_literal_code_skipped"],
+        "shared_literal_code_region_skipped": shared_literal_summary["shared_literal_code_region_skipped"],
+        "shared_literal_image_region_skipped": shared_literal_summary["shared_literal_image_region_skipped"],
+        "shared_literal_translate_forced": shared_literal_summary["shared_literal_translate_forced"],
+        "mixed_keep_all": mixed_literal_summary["mixed_keep_all"],
+        "mixed_translate_all": mixed_literal_summary["mixed_translate_all"],
+        "mixed_translate_tail": mixed_literal_summary["mixed_translate_tail"],
+    }
 
 
 def apply_translation_policies(
@@ -71,23 +101,15 @@ def apply_translation_policies(
         if policy_config.enable_metadata_fragment_skip
         else 0
     )
-    narrow_body_skipped = 0
-    skip_summary = {
-        "title_skipped": 0,
-        "reference_tail_skipped": 0,
-        "tail_skipped": 0,
-        "ref_text_skipped": ref_text_skipped,
-        "reference_zone_skipped": reference_zone_skipped,
-        "narrow_body_skipped": narrow_body_skipped,
-        "metadata_fragment_skipped": metadata_fragment_skipped,
-        "shared_literal_code_skipped": shared_literal_summary["shared_literal_code_skipped"],
-        "shared_literal_code_region_skipped": shared_literal_summary["shared_literal_code_region_skipped"],
-        "shared_literal_image_region_skipped": shared_literal_summary["shared_literal_image_region_skipped"],
-        "shared_literal_translate_forced": shared_literal_summary["shared_literal_translate_forced"],
-        "mixed_keep_all": mixed_literal_summary["mixed_keep_all"],
-        "mixed_translate_all": mixed_literal_summary["mixed_translate_all"],
-        "mixed_translate_tail": mixed_literal_summary["mixed_translate_tail"],
-    }
+    skip_summary = _build_skip_summary(
+        title_skipped=0,
+        reference_tail_skipped=0,
+        ref_text_skipped=ref_text_skipped,
+        reference_zone_skipped=reference_zone_skipped,
+        metadata_fragment_skipped=metadata_fragment_skipped,
+        shared_literal_summary=shared_literal_summary,
+        mixed_literal_summary=mixed_literal_summary,
+    )
 
     if policy_config.mode == "precise":
         labels = classify_payload_items(
@@ -109,39 +131,25 @@ def apply_translation_policies(
             cutoff_page_idx=policy_config.sci_cutoff_page_idx,
             cutoff_block_idx=policy_config.sci_cutoff_block_idx,
         )
-        skip_summary = {
-            "title_skipped": title_skipped,
-            "reference_tail_skipped": reference_tail_skipped,
-            "tail_skipped": reference_tail_skipped,
-            "ref_text_skipped": ref_text_skipped,
-            "reference_zone_skipped": reference_zone_skipped,
-            "narrow_body_skipped": narrow_body_skipped,
-            "metadata_fragment_skipped": metadata_fragment_skipped,
-            "shared_literal_code_skipped": shared_literal_summary["shared_literal_code_skipped"],
-            "shared_literal_code_region_skipped": shared_literal_summary["shared_literal_code_region_skipped"],
-            "shared_literal_image_region_skipped": shared_literal_summary["shared_literal_image_region_skipped"],
-            "shared_literal_translate_forced": shared_literal_summary["shared_literal_translate_forced"],
-            "mixed_keep_all": mixed_literal_summary["mixed_keep_all"],
-            "mixed_translate_all": mixed_literal_summary["mixed_translate_all"],
-            "mixed_translate_tail": mixed_literal_summary["mixed_translate_tail"],
-        }
+        skip_summary = _build_skip_summary(
+            title_skipped=title_skipped,
+            reference_tail_skipped=reference_tail_skipped,
+            ref_text_skipped=ref_text_skipped,
+            reference_zone_skipped=reference_zone_skipped,
+            metadata_fragment_skipped=metadata_fragment_skipped,
+            shared_literal_summary=shared_literal_summary,
+            mixed_literal_summary=mixed_literal_summary,
+        )
     elif policy_config.enable_title_skip:
-        skip_summary = {
-            "title_skipped": payload_ops.apply_title_skip(payload),
-            "reference_tail_skipped": 0,
-            "tail_skipped": 0,
-            "ref_text_skipped": ref_text_skipped,
-            "reference_zone_skipped": reference_zone_skipped,
-            "narrow_body_skipped": skip_summary["narrow_body_skipped"],
-            "metadata_fragment_skipped": metadata_fragment_skipped,
-            "shared_literal_code_skipped": shared_literal_summary["shared_literal_code_skipped"],
-            "shared_literal_code_region_skipped": shared_literal_summary["shared_literal_code_region_skipped"],
-            "shared_literal_image_region_skipped": shared_literal_summary["shared_literal_image_region_skipped"],
-            "shared_literal_translate_forced": shared_literal_summary["shared_literal_translate_forced"],
-            "mixed_keep_all": mixed_literal_summary["mixed_keep_all"],
-            "mixed_translate_all": mixed_literal_summary["mixed_translate_all"],
-            "mixed_translate_tail": mixed_literal_summary["mixed_translate_tail"],
-        }
+        skip_summary = _build_skip_summary(
+            title_skipped=payload_ops.apply_title_skip(payload),
+            reference_tail_skipped=0,
+            ref_text_skipped=ref_text_skipped,
+            reference_zone_skipped=reference_zone_skipped,
+            metadata_fragment_skipped=metadata_fragment_skipped,
+            shared_literal_summary=shared_literal_summary,
+            mixed_literal_summary=mixed_literal_summary,
+        )
 
     return classified_items, skip_summary
 

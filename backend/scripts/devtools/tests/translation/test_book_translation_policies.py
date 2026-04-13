@@ -8,6 +8,7 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 
 from runtime.pipeline.book_translation_policies import finalize_page_payloads
+from services.translation.policy.config import build_translation_policy_config
 
 
 def _page_payload_item(
@@ -96,3 +97,57 @@ def test_finalize_page_payloads_annotates_layout_before_cross_page_provider_join
     assert page_payloads[0][0]["continuation_decision"] == "provider_joined"
     assert page_payloads[1][0]["continuation_decision"] == "provider_joined"
     assert page_payloads[0][0]["continuation_group"] == group_id
+
+
+def test_policy_config_defaults_keep_legacy_skip_rules_disabled() -> None:
+    config = build_translation_policy_config(mode="sci", skip_title_translation=False)
+
+    assert config.enable_narrow_body_noise_skip is False
+    assert config.enable_metadata_fragment_skip is False
+
+
+def test_policy_config_honors_explicit_true_skip_rule_overrides() -> None:
+    config = build_translation_policy_config(
+        mode="sci",
+        skip_title_translation=False,
+        enable_narrow_body_noise_skip=True,
+        enable_metadata_fragment_skip=True,
+    )
+
+    assert config.enable_narrow_body_noise_skip is True
+    assert config.enable_metadata_fragment_skip is True
+
+
+def test_policy_config_honors_explicit_false_skip_rule_overrides() -> None:
+    config = build_translation_policy_config(
+        mode="sci",
+        skip_title_translation=False,
+        enable_narrow_body_noise_skip=False,
+        enable_metadata_fragment_skip=False,
+    )
+
+    assert config.enable_narrow_body_noise_skip is False
+    assert config.enable_metadata_fragment_skip is False
+
+
+def test_policy_config_mixes_override_and_default_skip_rule_values() -> None:
+    config = build_translation_policy_config(
+        mode="sci",
+        skip_title_translation=False,
+        enable_narrow_body_noise_skip=True,
+    )
+
+    assert config.enable_narrow_body_noise_skip is True
+    assert config.enable_metadata_fragment_skip is False
+
+
+def test_policy_config_keeps_metadata_fragment_page_idx_contract() -> None:
+    default_config = build_translation_policy_config(mode="sci", skip_title_translation=False)
+    overridden_config = build_translation_policy_config(
+        mode="sci",
+        skip_title_translation=False,
+        metadata_fragment_max_page_idx=3,
+    )
+
+    assert default_config.metadata_fragment_max_page_idx == 8
+    assert overridden_config.metadata_fragment_max_page_idx == 3

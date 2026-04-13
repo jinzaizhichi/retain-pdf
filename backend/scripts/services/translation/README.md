@@ -116,6 +116,26 @@ Translation 阶段当前只做两件事：
 - `precise`
   启用 LLM 分类器，只对可疑 OCR 块做额外判断。
 
+## Policy Config 兼容约定
+
+`policy/config.py` 里的 `build_translation_policy_config()` 目前保留了几个旧的 skip 开关，主要用于兼容老调用方和实验开关：
+
+- `enable_narrow_body_noise_skip`
+- `enable_metadata_fragment_skip`
+- `metadata_fragment_max_page_idx`
+
+当前语义必须保持为：
+
+- 默认值由 policy builder 决定；当前这两个 legacy skip flag 默认关闭
+- 调用方如果显式传入 `True` 或 `False`，builder 必须尊重 override，不能再被内部默认值覆盖
+- `None` 表示“未指定”，这时才回落到默认策略
+
+注意：
+
+- 这属于内部 Python translation policy contract，不是外部 HTTP API 契约
+- “默认关闭旧 skip 规则”只是默认策略收紧，不代表系统永久禁止重新开启这些规则
+- 如果后续继续瘦身 skip 规则，不能把 `policy default` 改成 `hard constraint`
+
 ## 协作规矩
 
 如果翻译模块单独分人维护，这里只负责“把 `document.v1.json` 变成稳定翻译产物”。

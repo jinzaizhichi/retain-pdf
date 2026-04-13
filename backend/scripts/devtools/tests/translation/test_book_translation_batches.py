@@ -105,7 +105,7 @@ def test_smarter_batches_group_low_risk_items_and_keep_complex_items_single() ->
     assert not batches[1][0].get("_batched_plain_candidate")
 
 
-def test_smarter_batches_do_not_group_reference_like_text() -> None:
+def test_smarter_batches_leave_reference_like_text_as_single_batch_without_fast_skip() -> None:
     context = build_translation_control_context()
     body_text = "This sentence describes antibacterial activity and provides enough body text for translation."
     reference_text = "[1] Antimicrobial Resistance Collaborators, Lancet. 2022, 399, 629."
@@ -119,9 +119,10 @@ def test_smarter_batches_do_not_group_reference_like_text() -> None:
         effective_batch_size=4,
         translation_context=context,
     )
-    assert [[item["item_id"] for item in batch] for batch in batches] == [["body-a", "body-b"]]
-    assert [list(result)[0] for result in immediate] == ["ref"]
+    assert [[item["item_id"] for item in batch] for batch in batches] == [["body-a", "body-b"], ["ref"]]
+    assert immediate == []
     assert all(item.get("_batched_plain_candidate") for item in batches[0])
+    assert not batches[1][0].get("_batched_plain_candidate")
 
 
 def test_fast_path_keep_origin_is_removed_from_network_batches() -> None:

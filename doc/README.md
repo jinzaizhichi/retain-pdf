@@ -10,6 +10,7 @@
 - [Rust API 任务生命周期](./rust_api/04-任务生命周期.md)
 - [产物清单与下载](./rust_api/06-产物清单与下载.md)
 - [Pipeline 阶段契约](../backend/scripts/runtime/pipeline/README.md)
+- [Translation 模块说明](../backend/scripts/services/translation/README.md)
 - [后端 API 主文档](./backend-api.md)
 - [服务总览](./api-overview.md)
 - [本地启动与配置](./api-dev.md)

@@ -7,7 +7,7 @@ import time
 from services.document_schema.semantics import is_body_structure_role
 from services.translation.diagnostics import TranslationDiagnosticsCollector
 from services.translation.payload.formula_protection import restore_tokens_by_type
-from services.translation.policy.metadata_filter import looks_like_nontranslatable_metadata
+from services.translation.policy.metadata_filter import looks_like_safe_nontranslatable_metadata
 from services.translation.llm.cache import split_cached_batch
 from services.translation.llm.cache import store_cached_batch
 from services.translation.llm.control_context import TranslationControlContext
@@ -256,7 +256,7 @@ def _attach_result_metadata(
 
 
 def _should_keep_origin_on_empty_translation(item: dict) -> bool:
-    if looks_like_nontranslatable_metadata(item):
+    if looks_like_safe_nontranslatable_metadata(item):
         return True
     source_text = str(item.get("translation_unit_protected_source_text") or item.get("protected_source_text") or "")
     compact = " ".join(source_text.split())
@@ -681,7 +681,7 @@ def translate_single_item_plain_text_with_retries(
                         route_path=["block_level", "plain_text_raw"],
                         output_mode_path=["plain_text"],
                     )
-                except (ValueError, KeyError, json.JSONDecodeError) as raw_exc:
+                except (ValueError, KeyError, json.JSONDecodeError, EnglishResidueError, EmptyTranslationError) as raw_exc:
                     last_error = raw_exc
                     if request_label:
                         raw_elapsed = time.perf_counter() - raw_started
@@ -713,6 +713,34 @@ def translate_single_item_plain_text_with_retries(
                             f"{request_label}: sentence-level fallback failed: {type(sentence_exc).__name__}: {sentence_exc}",
                             flush=True,
                         )
+                if isinstance(last_error, EnglishResidueError):
+                    if diagnostics is not None:
+                        diagnostics.emit(
+                            kind="english_residue_degraded",
+                            item_id=str(item.get("item_id", "") or ""),
+                            page_idx=item.get("page_idx"),
+                            severity="warning",
+                            message="Degraded to keep_origin after repeated English-residue validation failure",
+                            retryable=True,
+                        )
+                    if request_label:
+                        print(
+                            f"{request_label}: degraded to keep_origin after repeated English-residue validation failure",
+                            flush=True,
+                        )
+                    payload = internal_keep_origin_result("english_residue_repeated")
+                    payload["error_taxonomy"] = "validation"
+                    payload["translation_diagnostics"] = {
+                        "item_id": item.get("item_id", ""),
+                        "page_idx": item.get("page_idx"),
+                        "route_path": ["block_level", "keep_origin"],
+                        "error_trace": [{"type": "validation", "code": "ENGLISH_RESIDUE"}],
+                        "fallback_to": "keep_origin",
+                        "degradation_reason": "english_residue_repeated",
+                        "final_status": "kept_origin",
+                        **_formula_route_diagnostics(item, context=context),
+                    }
+                    return {item["item_id"]: payload}
                 if isinstance(last_error, EmptyTranslationError) and not should_force_translate_body_text(item):
                     if diagnostics is not None:
                         diagnostics.emit(
@@ -729,7 +757,11 @@ def translate_single_item_plain_text_with_retries(
                             flush=True,
                         )
                     return _keep_origin_payload_for_repeated_empty_translation(item)
-                if has_formula_placeholders(item) and context.fallback_policy.allow_keep_origin_degradation:
+                if (
+                    has_formula_placeholders(item)
+                    and context.fallback_policy.allow_keep_origin_degradation
+                    and isinstance(last_error, (UnexpectedPlaceholderError, PlaceholderInventoryError))
+                ):
                     if diagnostics is not None:
                         diagnostics.emit(
                             kind="placeholder_unstable",

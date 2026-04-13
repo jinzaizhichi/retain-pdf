@@ -17,8 +17,11 @@ class TranslationPolicyConfig:
     enable_title_skip: bool = False
     enable_reference_tail_skip: bool = False
     enable_reference_zone_skip: bool = False
+    # Deprecated compatibility flag. Defaults off, but explicit overrides are honored.
     enable_narrow_body_noise_skip: bool = False
+    # Deprecated compatibility flag. Defaults off; safe metadata rules remain narrow.
     enable_metadata_fragment_skip: bool = False
+    # Deprecated compatibility field retained for old callers.
     metadata_fragment_max_page_idx: int = 1
     enable_candidate_continuation_review: bool = True
     enable_domain_inference: bool = False

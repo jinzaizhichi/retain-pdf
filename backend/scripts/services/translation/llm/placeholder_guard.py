@@ -22,6 +22,8 @@ EN_WORD_RE = re.compile(r"[A-Za-z]+(?:[-'][A-Za-z]+)?")
 KEEP_ORIGIN_LABEL = "keep_origin"
 INTERNAL_PLACEHOLDER_DEGRADED_REASON = "placeholder_unstable"
 SHORT_FRAGMENT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._/-]{0,7}$")
+EN_RESIDUE_SEGMENT_RE = re.compile(r"[A-Za-z][A-Za-z0-9\s,;:()'./%+-]{30,}")
+AUTHOR_NAME_TOKEN_RE = re.compile(r"\b(?:[A-Z]\.\s*)?[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'`´.-]{1,}\b")
 
 
 class SuspiciousKeepOriginError(ValueError):
@@ -329,6 +331,37 @@ def _zh_char_count(text: str) -> int:
     return sum(1 for ch in strip_placeholders(text) if "\u4e00" <= ch <= "\u9fff")
 
 
+def _has_long_english_residue_span(text: str) -> bool:
+    cleaned = strip_placeholders(text)
+    if not cleaned:
+        return False
+    for match in EN_RESIDUE_SEGMENT_RE.finditer(cleaned):
+        segment = " ".join((match.group(0) or "").split())
+        if len(EN_WORD_RE.findall(segment)) >= 10 and looks_like_english_prose(segment):
+            return True
+    return False
+
+
+def _looks_like_author_name_list(text: str) -> bool:
+    cleaned = strip_placeholders(text).strip()
+    if not cleaned:
+        return False
+    if len(cleaned) > 240:
+        return False
+    if "@" in cleaned or "http://" in cleaned or "https://" in cleaned:
+        return False
+    normalized = cleaned.replace(" and ", ", ")
+    segments = [segment.strip(" *†‡§,;") for segment in re.split(r",|;|\band\b", normalized) if segment.strip(" *†‡§,;")]
+    if len(segments) < 3:
+        return False
+    name_like = 0
+    for segment in segments:
+        words = AUTHOR_NAME_TOKEN_RE.findall(segment)
+        if 2 <= len(words) <= 5:
+            name_like += 1
+    return name_like >= max(3, len(segments) - 1)
+
+
 def looks_like_untranslated_english_output(item: dict, translated_text: str) -> bool:
     source_text = unit_source_text(item).strip()
     translated = str(translated_text or "").strip()
@@ -338,8 +371,12 @@ def looks_like_untranslated_english_output(item: dict, translated_text: str) -> 
         return False
     if not looks_like_english_prose(source_text):
         return False
+    if _looks_like_author_name_list(source_text):
+        return False
     english_words = _english_word_count(translated)
     zh_chars = _zh_char_count(translated)
+    if _has_long_english_residue_span(translated):
+        return True
     if english_words < 12:
         return False
     if zh_chars == 0:

@@ -2,7 +2,6 @@ from __future__ import annotations
 from services.document_schema.semantics import is_algorithm_semantic
 from services.document_schema.semantics import is_reference_entry_semantic
 from services.document_schema.semantics import is_reference_heading_semantic
-from services.translation.policy.body_text_filter import find_narrow_body_noise_item_ids
 from services.translation.policy.literal_block_rules import shared_literal_block_label
 from services.translation.policy.mixed_literal_splitter import split_mixed_literal_items
 from services.translation.policy.metadata_filter import find_metadata_fragment_item_ids
@@ -407,19 +406,7 @@ def apply_scientific_paper_skips(
 
 
 def apply_narrow_body_text_skip(payload: list[dict]) -> int:
-    skip_ids = find_narrow_body_noise_item_ids(payload)
-    if not skip_ids:
-        return 0
-    skipped = 0
-    for item in payload:
-        item_id = item.get("item_id", "")
-        if item_id not in skip_ids:
-            continue
-        if not item.get("should_translate", True):
-            continue
-        _mark_item_skipped(item, "skip_narrow_body_noise")
-        skipped += 1
-    return skipped
+    return 0
 
 
 def apply_metadata_fragment_skip(payload: list[dict], *, page_idx: int, max_page_idx: int) -> int:

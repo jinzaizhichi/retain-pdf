@@ -4,6 +4,7 @@ import sys
 import tempfile
 import types
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -82,12 +83,12 @@ class TranslationFastPathTests(unittest.TestCase):
             )
         )
 
-    def test_short_first_page_header_fragment_is_treated_as_nontranslatable(self):
+    def test_short_first_page_header_fragment_is_not_force_skipped_by_metadata_filter(self):
         module = _load_module(
             "services.translation.policy.metadata_filter",
             REPO_SCRIPTS_ROOT / "services" / "translation" / "policy" / "metadata_filter.py",
         )
-        self.assertTrue(
+        self.assertFalse(
             module.looks_like_nontranslatable_metadata(
                 {
                     "block_type": "text",
@@ -97,6 +98,70 @@ class TranslationFastPathTests(unittest.TestCase):
                     "page_idx": 0,
                     "bbox": [48, 421, 105, 431],
                     "lines": [{"spans": [{"content": "Energy property"}]}],
+                }
+            )
+        )
+
+    def test_biography_prose_is_not_treated_as_nontranslatable_metadata(self):
+        module = _load_module(
+            "services.translation.policy.metadata_filter",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "policy" / "metadata_filter.py",
+        )
+        self.assertFalse(
+            module.looks_like_nontranslatable_metadata(
+                {
+                    "block_type": "text",
+                    "source_text": (
+                        "Samantha A. Green received her B.S. from Emory University in 2013, conducting research under "
+                        "Professor Huw Davies, after which she completed a postbaccalaureate fellowship at the NIH under "
+                        "Dr. Marta Catalfamo. Currently she is a graduate student in the Shenvi research group at The "
+                        "Scripps Research Institute investigating new MHAT methods."
+                    ),
+                    "should_translate": True,
+                    "metadata": {"structure_role": "body"},
+                    "page_idx": 10,
+                    "lines": [{"spans": [{"content": "bio"}]}],
+                }
+            )
+        )
+
+    def test_biography_prose_is_not_treated_as_safe_nontranslatable_metadata(self):
+        module = _load_module(
+            "services.translation.policy.metadata_filter",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "policy" / "metadata_filter.py",
+        )
+        self.assertFalse(
+            module.looks_like_safe_nontranslatable_metadata(
+                {
+                    "block_type": "text",
+                    "source_text": (
+                        "Samantha A. Green received her B.S. from Emory University in 2013, conducting research under "
+                        "Professor Huw Davies, after which she completed a postbaccalaureate fellowship at the NIH under "
+                        "Dr. Marta Catalfamo. Currently she is a graduate student in the Shenvi research group at The "
+                        "Scripps Research Institute investigating new MHAT methods."
+                    ),
+                    "should_translate": True,
+                    "metadata": {"structure_role": "body"},
+                    "page_idx": 10,
+                    "lines": [{"spans": [{"content": "bio"}]}],
+                }
+            )
+        )
+
+    def test_author_list_is_treated_as_safe_nontranslatable_metadata(self):
+        module = _load_module(
+            "services.translation.policy.metadata_filter",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "policy" / "metadata_filter.py",
+        )
+        self.assertTrue(
+            module.looks_like_safe_nontranslatable_metadata(
+                {
+                    "block_type": "text",
+                    "source_text": "John A. Smith, Jane B. Doe, Alan C. Brown†, Maria D. White*",
+                    "should_translate": True,
+                    "metadata": {"structure_role": "metadata"},
+                    "page_idx": 0,
+                    "lines": [{"spans": [{"content": "authors"}]}],
                 }
             )
         )
@@ -120,6 +185,28 @@ class TranslationFastPathTests(unittest.TestCase):
         self.assertEqual(
             payload["p012-b022"]["translation_diagnostics"]["degradation_reason"],
             "empty_translation_non_body_label",
+        )
+
+    def test_empty_translation_body_biography_does_not_keep_origin(self):
+        module = _load_module(
+            "services.translation.llm.fallbacks",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+        )
+        self.assertFalse(
+            module._should_keep_origin_on_empty_translation(
+                {
+                    "item_id": "p011-b017",
+                    "page_idx": 10,
+                    "block_type": "text",
+                    "metadata": {"structure_role": "body"},
+                    "translation_unit_protected_source_text": (
+                        "Samantha A. Green received her B.S. from Emory University in 2013, conducting research under "
+                        "Professor Huw Davies, after which she completed a postbaccalaureate fellowship at the NIH under "
+                        "Dr. Marta Catalfamo. Currently she is a graduate student in the Shenvi research group at The "
+                        "Scripps Research Institute investigating new MHAT methods."
+                    ),
+                }
+            )
         )
 
     def test_repeated_empty_translation_degrades_to_keep_origin(self):
@@ -169,6 +256,51 @@ class TranslationFastPathTests(unittest.TestCase):
             module.looks_like_untranslated_english_output(
                 item,
                 "The advancement of complex computer programs with faster computing power and material simulation methods remains important.",
+            )
+        )
+
+    def test_english_residue_detector_rejects_long_mixed_output_with_english_span(self):
+        module = _load_module(
+            "services.translation.llm.placeholder_guard",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "placeholder_guard.py",
+        )
+        item = {
+            "item_id": "p009-b067",
+            "block_type": "text",
+            "metadata": {"structure_role": "body"},
+            "translation_unit_protected_source_text": (
+                "Olefins offer the unique benefit of starting from prochiral carbons rather than preformed "
+                "tetrasubstituted carbons like tertiary alkyl bromides, which can be laborious to synthesize or unstable."
+            ),
+        }
+        self.assertTrue(
+            module.looks_like_untranslated_english_output(
+                item,
+                "这是一个重要优势。 Olefins offer the unique benefit of starting from prochiral carbons rather than "
+                "preformed tetrasubstituted carbons like tertiary alkyl bromides, which can be laborious to synthesize or unstable. "
+                "后续底物也可以顺利偶联。",
+            )
+        )
+
+    def test_english_residue_detector_ignores_author_name_list(self):
+        module = _load_module(
+            "services.translation.llm.placeholder_guard",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "placeholder_guard.py",
+        )
+        item = {
+            "item_id": "p001-b002",
+            "block_type": "text",
+            "metadata": {"structure_role": "body"},
+            "translation_unit_protected_source_text": (
+                "Samantha A. Green, Steven W. M. Crossley, Jeishla L. M. Matos, "
+                "Suhelen Vásquez-Céspedes, Sophia L. Shevick, and Ryan A. Shenvi*"
+            ),
+        }
+        self.assertFalse(
+            module.looks_like_untranslated_english_output(
+                item,
+                "Samantha A. Green, Steven W. M. Crossley, Jeishla L. M. Matos, "
+                "Suhelen Vásquez-Céspedes, Sophia L. Shevick, and Ryan A. Shenvi*",
             )
         )
 
@@ -359,6 +491,197 @@ class TranslationFastPathTests(unittest.TestCase):
             response_style="tagged",
         )
         self.assertIn("<<<ITEM item_id=ITEM_ID decision=translate>>>", messages[0]["content"])
+
+    def test_build_messages_sanitizes_continuation_context_placeholders(self):
+        module = _load_module(
+            "services.translation.llm.deepseek_client",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "deepseek_client.py",
+        )
+        messages = module.build_messages(
+            [
+                {
+                    "item_id": "p006-b056",
+                    "protected_source_text": "The combination of these results",
+                    "continuation_group": "cg-001",
+                    "continuation_next_text": "evidence against a <f1-2e5/> catalytic cycle and <f2-9ad/> reaction pathway",
+                    "metadata": {"structure_role": "body"},
+                }
+            ],
+            mode="sci",
+            response_style="tagged",
+        )
+        payload = json.loads(messages[1]["content"])
+        item_payload = payload["items"][0]
+        self.assertEqual(item_payload["context_after"], "evidence against a catalytic cycle and reaction pathway")
+        self.assertNotIn("<f1-2e5/>", messages[1]["content"])
+        self.assertNotIn("<f2-9ad/>", messages[1]["content"])
+
+    def test_build_single_item_fallback_messages_sanitizes_continuation_context_placeholders(self):
+        module = _load_module(
+            "services.translation.llm.deepseek_client",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "deepseek_client.py",
+        )
+        messages = module.build_single_item_fallback_messages(
+            {
+                "item_id": "p006-b056",
+                "protected_source_text": "The combination of these results",
+                "continuation_next_text": "evidence against a <f1-2e5/> catalytic cycle and <f2-9ad/> reaction pathway",
+                "metadata": {"structure_role": "body"},
+            },
+            mode="sci",
+            response_style="plain_text",
+        )
+        payload = json.loads(messages[1]["content"])
+        self.assertEqual(
+            payload["item"]["context_after"],
+            "evidence against a catalytic cycle and reaction pathway",
+        )
+        self.assertNotIn("<f1-2e5/>", messages[1]["content"])
+        self.assertNotIn("<f2-9ad/>", messages[1]["content"])
+
+    def test_formula_english_residue_degrades_to_keep_origin_after_all_fallbacks_fail(self):
+        module = _load_module(
+            "services.translation.llm.fallbacks",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+        )
+        control_context = _load_module(
+            "services.translation.llm.control_context",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+        )
+        item = {
+            "item_id": "p009-b067",
+            "page_idx": 8,
+            "block_type": "text",
+            "metadata": {"structure_role": "body"},
+            "protected_source_text": "Olefins offer the unique benefit of starting from prochiral <f1-8fa/> carbons.",
+            "translation_unit_protected_source_text": "Olefins offer the unique benefit of starting from prochiral <f1-8fa/> carbons.",
+            "formula_map": [{"placeholder": "<f1-8fa/>"}],
+            "translation_unit_formula_map": [{"placeholder": "<f1-8fa/>"}],
+        }
+        context = control_context.build_translation_control_context(mode="sci")
+        context = replace(
+            context,
+            fallback_policy=replace(
+                context.fallback_policy,
+                plain_text_attempts=1,
+                allow_tagged_placeholder_retry=False,
+            ),
+        )
+
+        english_residue = module.EnglishResidueError("p009-b067")
+        with mock.patch.object(module, "translate_single_item_plain_text", side_effect=english_residue):
+            with mock.patch.object(module, "translate_single_item_plain_text_unstructured", side_effect=english_residue):
+                with mock.patch.object(module, "_sentence_level_fallback", side_effect=english_residue):
+                    result = module.translate_single_item_plain_text_with_retries(
+                        item,
+                        api_key="",
+                        model="deepseek-chat",
+                        base_url="https://api.deepseek.com/v1",
+                        request_label="test",
+                        context=context,
+                        diagnostics=None,
+                    )
+        payload = result["p009-b067"]
+        self.assertEqual(payload["decision"], "keep_origin")
+        self.assertEqual(payload["translation_diagnostics"]["degradation_reason"], "english_residue_repeated")
+
+    def test_english_residue_after_raw_fallback_continues_to_sentence_level(self):
+        module = _load_module(
+            "services.translation.llm.fallbacks",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+        )
+        control_context = _load_module(
+            "services.translation.llm.control_context",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+        )
+        placeholder_guard = _load_module(
+            "services.translation.llm.placeholder_guard",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "placeholder_guard.py",
+        )
+        item = {
+            "item_id": "p001-b002",
+            "page_idx": 0,
+            "block_type": "text",
+            "metadata": {"structure_role": "body"},
+            "protected_source_text": "This is the first sentence. This is the second sentence.",
+            "translation_unit_protected_source_text": "This is the first sentence. This is the second sentence.",
+        }
+        context = control_context.build_translation_control_context(mode="sci")
+        context = replace(
+            context,
+            fallback_policy=replace(
+                context.fallback_policy,
+                plain_text_attempts=1,
+                allow_tagged_placeholder_retry=False,
+            ),
+        )
+        english_residue = module.EnglishResidueError("p001-b002")
+        sentence_payload = {
+            "p001-b002": {
+                "decision": "translate",
+                "translated_text": "这是第一句。 第二句保留原文。",
+                "final_status": "partially_translated",
+            }
+        }
+
+        with mock.patch.object(module, "translate_single_item_plain_text", side_effect=english_residue):
+            with mock.patch.object(module, "translate_single_item_plain_text_unstructured", side_effect=english_residue):
+                with mock.patch.object(module, "_sentence_level_fallback", return_value=sentence_payload) as sentence_mock:
+                    result = module.translate_single_item_plain_text_with_retries(
+                        item,
+                        api_key="",
+                        model="deepseek-chat",
+                        base_url="https://api.deepseek.com/v1",
+                        request_label="test",
+                        context=context,
+                        diagnostics=None,
+                    )
+        self.assertEqual(result, sentence_payload)
+        sentence_mock.assert_called_once()
+
+    def test_english_residue_degrades_to_keep_origin_after_sentence_fallback_failure(self):
+        module = _load_module(
+            "services.translation.llm.fallbacks",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+        )
+        control_context = _load_module(
+            "services.translation.llm.control_context",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+        )
+        item = {
+            "item_id": "p001-b002",
+            "page_idx": 0,
+            "block_type": "text",
+            "metadata": {"structure_role": "body"},
+            "protected_source_text": "This is the first sentence. This is the second sentence.",
+            "translation_unit_protected_source_text": "This is the first sentence. This is the second sentence.",
+        }
+        context = control_context.build_translation_control_context(mode="sci")
+        context = replace(
+            context,
+            fallback_policy=replace(
+                context.fallback_policy,
+                plain_text_attempts=1,
+                allow_tagged_placeholder_retry=False,
+            ),
+        )
+        english_residue = module.EnglishResidueError("p001-b002")
+        with mock.patch.object(module, "translate_single_item_plain_text", side_effect=english_residue):
+            with mock.patch.object(module, "translate_single_item_plain_text_unstructured", side_effect=english_residue):
+                with mock.patch.object(module, "_sentence_level_fallback", side_effect=module.PlaceholderInventoryError("p001-b002", [], [])):
+                    result = module.translate_single_item_plain_text_with_retries(
+                        item,
+                        api_key="",
+                        model="deepseek-chat",
+                        base_url="https://api.deepseek.com/v1",
+                        request_label="test",
+                        context=context,
+                        diagnostics=None,
+                    )
+        payload = result["p001-b002"]
+        self.assertEqual(payload["decision"], "keep_origin")
+        self.assertEqual(payload["translation_diagnostics"]["degradation_reason"], "english_residue_repeated")
+        self.assertEqual(payload["translation_diagnostics"]["final_status"], "kept_origin")
 
     def test_domain_context_parser_salvages_fields_from_malformed_json(self):
         module = _load_module(

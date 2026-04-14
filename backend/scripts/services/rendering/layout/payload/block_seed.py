@@ -18,6 +18,7 @@ from services.rendering.layout.font_fit import is_body_text_candidate
 from services.rendering.layout.font_fit import normalize_leading_em_for_font_size
 from services.rendering.layout.font_fit import page_baseline_font_size
 from services.rendering.layout.font_fit import percentile_value
+from services.rendering.layout.font_fit import resolve_font_weight
 from services.rendering.layout.payload.body_context import page_box_area_ratio as compute_page_box_area_ratio
 from services.rendering.layout.payload.capacity import estimated_render_height_pt
 from services.rendering.layout.payload.metrics import fit_translated_block_metrics
@@ -215,6 +216,7 @@ def build_block_payloads(
                 "render_kind": "plain_line" if item.get("_force_plain_line") or is_flag_like_plain_text_block(item) else "markdown",
                 "font_size_pt": font_size_pt,
                 "leading_em": leading_em,
+                "font_weight": resolve_font_weight(item),
                 "page_body_font_size_pt": page_body_font_size_pt if body_flags.get(index) else None,
                 "is_body": body_flags.get(index, False),
                 "page_box_area_ratio": page_box_area_ratio,

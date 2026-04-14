@@ -15,6 +15,7 @@ const typstDarwinRoot = path.join(backendRoot, "typst-darwin");
 const typstLinuxRoot = path.join(backendRoot, "typst-linux");
 const typstPackagesRoot = path.join(backendRoot, "typst-packages");
 const targetPlatform = process.env.RETAIN_PDF_DESKTOP_PLATFORM || process.platform;
+const allowBundledMacPython = process.env.RETAIN_PDF_BUNDLE_MAC_PYTHON === "1";
 const appRoot = path.join(desktopRoot, "app");
 const outputFrontendRoot = path.join(appRoot, "frontend");
 const outputBackendRoot = path.join(appRoot, "backend");
@@ -184,11 +185,24 @@ if (targetPlatform === "win32" && fs.existsSync(path.join(embeddedPythonRoot, "p
   });
 }
 
-if ((targetPlatform === "darwin" || targetPlatform === "linux") && hasBundledPosixPython(embeddedPythonRoot)) {
+if (targetPlatform === "linux" && hasBundledPosixPython(embeddedPythonRoot)) {
   fs.cpSync(embeddedPythonRoot, path.join(outputBackendRoot, "python"), {
     recursive: true,
     force: true,
   });
+}
+
+if (targetPlatform === "darwin" && hasBundledPosixPython(embeddedPythonRoot)) {
+  if (allowBundledMacPython) {
+    fs.cpSync(embeddedPythonRoot, path.join(outputBackendRoot, "python"), {
+      recursive: true,
+      force: true,
+    });
+  } else {
+    console.warn(
+      "[prepare-app] skip bundling backend/python for darwin because RETAIN_PDF_BUNDLE_MAC_PYTHON!=1",
+    );
+  }
 }
 
 if (targetPlatform === "win32" && fs.existsSync(typstWindowsRoot)) {

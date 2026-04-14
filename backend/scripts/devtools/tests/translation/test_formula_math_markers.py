@@ -78,6 +78,24 @@ def test_typst_markdown_compacts_bracket_citation_text() -> None:
     assert markdown == "见[35,36]下一步"
 
 
+def test_typst_markdown_promotes_bare_superscript_citation() -> None:
+    markdown = build_markdown_from_parts("Herzon课题组也使用了该条件。^{18}", [])
+    assert markdown.endswith("$^{18}$")
+
+
+def test_typst_markdown_promotes_bare_scripted_chemical_formula() -> None:
+    markdown = build_markdown_from_parts("Co(III)(Sal^{tBu,tBu})(i - Pr) (4) 与中间体反应。", [])
+    expected = normalize_formula_for_latex_math("Co(III)(Sal^{tBu,tBu})(i - Pr)")
+    assert f"${expected}$" in markdown
+    assert "(4) 与中间体反应。" in markdown
+
+
+def test_typst_markdown_repairs_double_slash_latex_command_outside_math() -> None:
+    markdown = build_markdown_from_parts(r"$\mathrm{Ni(II)}$-芳基/ \\mathrm{Co(IV)} -烷基", [])
+    assert r"$\mathrm{Ni(II)}$" in markdown
+    assert r"$\mathrm{Co(IV)}$" in markdown
+
+
 def test_formula_normalizer_repairs_low_risk_ocr_noise() -> None:
     assert normalize_formula_for_latex_math(r"\mathrm { C 0 0 H ^ { * } } ]") == r"\mathrm{COOH^{*}} ]"
     assert normalize_formula_for_latex_math(r"1 . 2 7 ~ \mathrm { e V } .") == r"1.27 \mathrm{eV}"

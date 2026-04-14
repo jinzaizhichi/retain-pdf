@@ -24,7 +24,7 @@ DEFAULT_API_KEY_FILE = "deepseek.env"
 TRUST_ENV_PROXY_ENV = "PDF_TRANSLATOR_TRUST_ENV_PROXY"
 STREAM_RESPONSES_ENV = "PDF_TRANSLATOR_DEEPSEEK_STREAM"
 _THREAD_LOCAL = threading.local()
-HTTP_RETRY_ATTEMPTS = 8
+HTTP_RETRY_ATTEMPTS = 2
 HTTP_RETRY_BACKOFF_MAX_SECS = 20
 HTTP_RATE_LIMIT_WAIT_MAX_SECS = 300
 _JSON_QUOTE_TRANSLATION = str.maketrans(
@@ -49,6 +49,25 @@ _TAGGED_ITEM_BLOCK_RE = re.compile(
 )
 _CONTEXT_PLACEHOLDER_RE = re.compile(r"<[a-z]\d+-[0-9a-z]{3}/>|@@P\d+@@|\[\[FORMULA_\d+]]")
 _JSON_ONLY_INSTRUCTION = 'Return only valid JSON with the schema {"translations":[{"item_id":"...","translated_text":"..."}]}.'
+_TRANSPORT_RETRY_MARKERS = (
+    "temporary failure in name resolution",
+    "name resolution",
+    "failed to resolve",
+    "max retries exceeded",
+    "connection aborted",
+    "connection reset",
+    "connection refused",
+    "connect timeout",
+    "read timeout",
+    "timed out",
+    "server disconnected",
+    "remote end closed connection",
+    "service unavailable",
+    "bad gateway",
+    "gateway timeout",
+    "too many requests",
+)
+_TRANSPORT_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
 
 def sanitize_prompt_context_text(text: str) -> str:
@@ -496,35 +515,21 @@ def _request_session_key() -> str:
     return "session_trust_env" if should_trust_env_proxy() else "session_direct"
 
 
-def _is_retryable_http_error(exc: Exception) -> bool:
+def is_transport_error(exc: Exception) -> bool:
     if isinstance(exc, (ValueError, KeyError, json.JSONDecodeError)):
         return False
+    if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
+        return True
     text = str(exc).lower()
-    retry_markers = (
-        "temporary failure in name resolution",
-        "name resolution",
-        "failed to resolve",
-        "max retries exceeded",
-        "connection aborted",
-        "connection reset",
-        "connection refused",
-        "connect timeout",
-        "read timeout",
-        "timed out",
-        "server disconnected",
-        "remote end closed connection",
-        "service unavailable",
-        "bad gateway",
-        "gateway timeout",
-        "too many requests",
-    )
-    if any(marker in text for marker in retry_markers):
+    if any(marker in text for marker in _TRANSPORT_RETRY_MARKERS):
         return True
     if isinstance(exc, requests.HTTPError) and exc.response is not None:
-        return exc.response.status_code in {408, 429, 500, 502, 503, 504}
-    if isinstance(exc, requests.RequestException):
-        return True
-    return False
+        return exc.response.status_code in _TRANSPORT_STATUS_CODES
+    return isinstance(exc, requests.RequestException)
+
+
+def _is_retryable_http_error(exc: Exception) -> bool:
+    return is_transport_error(exc)
 
 
 def _retry_delay(attempt: int) -> int:
@@ -591,6 +596,7 @@ def request_chat_content(
     response_format: dict[str, str] | None = None,
     timeout: int = 120,
     request_label: str = "",
+    max_attempts: int | None = None,
 ) -> str:
     last_error: Exception | None = None
     request_stage = infer_stage_from_request_label(request_label)
@@ -614,7 +620,8 @@ def request_chat_content(
     if active_response_format is not None:
         body["response_format"] = active_response_format
 
-    for attempt in range(1, HTTP_RETRY_ATTEMPTS + 1):
+    attempt_limit = max(1, int(max_attempts or HTTP_RETRY_ATTEMPTS))
+    for attempt in range(1, attempt_limit + 1):
         started = time.perf_counter()
         diagnostics_request_id: int | None = None
         try:
@@ -628,7 +635,7 @@ def request_chat_content(
                 )
             if request_label:
                 print(
-                    f"{request_label}: http attempt {attempt}/{HTTP_RETRY_ATTEMPTS} -> {model} {chat_completions_url(base_url)} timeout={timeout}s stream={use_stream}",
+                    f"{request_label}: http attempt {attempt}/{attempt_limit} -> {model} {chat_completions_url(base_url)} timeout={timeout}s stream={use_stream}",
                     flush=True,
                 )
             response = get_session().post(
@@ -686,7 +693,7 @@ def request_chat_content(
                 )
             if request_label:
                 print(
-                    f"{request_label}: http failed attempt {attempt}/{HTTP_RETRY_ATTEMPTS} after {elapsed:.2f}s: {type(exc).__name__}: {exc}",
+                    f"{request_label}: http failed attempt {attempt}/{attempt_limit} after {elapsed:.2f}s: {type(exc).__name__}: {exc}",
                     flush=True,
                 )
             if (
@@ -705,7 +712,7 @@ def request_chat_content(
                 if request_label:
                     print(f"{request_label}: response_format fallback json_schema -> json_object after 400", flush=True)
                 continue
-            if attempt >= HTTP_RETRY_ATTEMPTS or not _is_retryable_http_error(exc):
+            if attempt >= attempt_limit or not _is_retryable_http_error(exc):
                 raise
             _drop_session(_request_session_key())
             delay_secs, delay_kind = _retry_after_delay(exc, attempt)

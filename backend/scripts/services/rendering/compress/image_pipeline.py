@@ -54,7 +54,7 @@ def compress_pdf_images_only_impl(
                 continue
 
             try:
-                obj = pdf.objects[xref - 1]
+                obj = pdf.get_object((xref, 0))
             except Exception:
                 skipped_missing += 1
                 continue

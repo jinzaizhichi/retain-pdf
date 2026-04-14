@@ -1,5 +1,8 @@
 import sys
 from pathlib import Path
+from unittest import mock
+
+import requests
 
 REPO_SCRIPTS_ROOT = Path("/home/wxyhgk/tmp/Code/backend/scripts")
 sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
@@ -8,6 +11,9 @@ from runtime.pipeline.book_translation_batches import _build_translation_batches
 from runtime.pipeline.book_translation_batches import _dedupe_pending_items
 from runtime.pipeline.book_translation_batches import _expand_duplicate_results
 from runtime.pipeline.book_translation_batches import _effective_translation_batch_size
+from runtime.pipeline.book_translation_batches import _slow_queue_workers
+from runtime.pipeline.book_translation_batches import _split_fast_and_slow_batches
+from runtime.pipeline.book_translation_batches import _translate_batch_or_keep_origin
 from services.translation.llm.control_context import build_translation_control_context
 from services.translation.llm.control_context import resolve_engine_profile
 from services.translation.payload.parts.units import pending_translation_items
@@ -34,7 +40,7 @@ def test_default_profile_enables_provider_agnostic_plain_batching() -> None:
             base_url="https://api.openai.com/v1",
             translation_context=context,
         )
-        == 4
+        == 6
     )
 
 
@@ -52,7 +58,7 @@ def test_deepseek_profile_can_raise_plain_batch_size() -> None:
             base_url="https://api.deepseek.com/v1",
             translation_context=context,
         )
-        == 6
+        == 8
     )
     assert context.segmentation_policy.prefer_plain_when_segment_count_leq == 6
     assert context.fallback_policy.formula_segment_attempts == 2
@@ -125,7 +131,12 @@ def test_smarter_batches_group_low_risk_items_and_keep_complex_items_single() ->
     pending = [
         _item("a", batchable_text),
         _item("b", batchable_text),
-        _item("c", "After <f1-a7c/> hours, activity increased.", formula_map=[{"placeholder": "<f1-a7c/>"}]),
+        _item(
+            "c",
+            "After <f1-a7c/> hours, activity increased while the catalyst remained active in the reaction system.",
+            formula_map=[{"placeholder": "<f1-a7c/>"}],
+            metadata={"structure_role": "body"},
+        ),
     ]
     batches, immediate = _build_translation_batches(
         pending,
@@ -133,9 +144,83 @@ def test_smarter_batches_group_low_risk_items_and_keep_complex_items_single() ->
         translation_context=context,
     )
     assert immediate == []
-    assert [[item["item_id"] for item in batch] for batch in batches] == [["a", "b"], ["c"]]
+    assert [[item["item_id"] for item in batch] for batch in batches] == [["a", "b", "c"]]
     assert all(item.get("_batched_plain_candidate") for item in batches[0])
+
+
+def test_smarter_batches_allow_continuation_group_when_block_is_low_risk() -> None:
+    context = build_translation_control_context()
+    pending = [
+        _item(
+            "a",
+            "This continuation block still contains enough body text to remain batchable after policy relaxation.",
+            continuation_group="cg-1",
+        ),
+        _item(
+            "b",
+            "This companion block stays in the same continuation group and should join the batched plain path.",
+            continuation_group="cg-1",
+        ),
+    ]
+    batches, immediate = _build_translation_batches(
+        pending,
+        effective_batch_size=4,
+        translation_context=context,
+    )
+    assert immediate == []
+    assert [[item["item_id"] for item in batch] for batch in batches] == [["a", "b"]]
+    assert all(item.get("_batched_plain_candidate") for item in batches[0])
+
+
+def test_smarter_batches_keep_continuation_group_with_placeholders_out_of_batched_plain_path() -> None:
+    context = build_translation_control_context()
+    pending = [
+        _item(
+            "__cg__:cg-1",
+            "This continuation block mentions <f1-a7c/> and keeps enough body text for translation while preserving placeholders.",
+            continuation_group="cg-1",
+            translation_unit_id="__cg__:cg-1",
+            formula_map=[{"placeholder": "<f1-a7c/>"}],
+            translation_unit_formula_map=[{"placeholder": "<f1-a7c/>"}],
+            metadata={"structure_role": "body"},
+        ),
+        _item(
+            "body",
+            "This sentence describes antibacterial activity and provides enough body text for translation.",
+        ),
+    ]
+    batches, immediate = _build_translation_batches(
+        pending,
+        effective_batch_size=4,
+        translation_context=context,
+    )
+    assert immediate == []
+    assert [[item["item_id"] for item in batch] for batch in batches] == [["body"], ["__cg__:cg-1"]]
+    assert batches[0][0].get("_batched_plain_candidate")
     assert not batches[1][0].get("_batched_plain_candidate")
+
+
+def test_queue_split_moves_formula_and_continuation_singletons_to_slow_queue() -> None:
+    fast_batches, slow_batches = _split_fast_and_slow_batches(
+        [
+            [_item("body-a", "This sentence describes antibacterial activity and provides enough body text for translation.", _batched_plain_candidate=True)],
+            [_item("__cg__:cg-1", "Continuation with <f1-a7c/> placeholder.", continuation_group="cg-1", translation_unit_id="__cg__:cg-1")],
+            [_item("formula-1", "Text with <f1-a7c/> formula marker.", formula_map=[{"placeholder": "<f1-a7c/>"}])],
+            [
+                _item("body-b", "This sentence describes antibacterial activity and provides enough body text for translation.", _batched_plain_candidate=True),
+                _item("body-c", "This sentence describes antibacterial activity and provides enough body text for translation.", _batched_plain_candidate=True),
+            ],
+        ]
+    )
+    assert [[item["item_id"] for item in batch] for batch in fast_batches] == [["body-a"], ["body-b", "body-c"]]
+    assert [[item["item_id"] for item in batch] for batch in slow_batches] == [["__cg__:cg-1"], ["formula-1"]]
+
+
+def test_slow_queue_workers_reserve_small_pool() -> None:
+    assert _slow_queue_workers(1) == 1
+    assert _slow_queue_workers(4) == 1
+    assert _slow_queue_workers(12) == 3
+    assert _slow_queue_workers(100) == 12
 
 
 def test_smarter_batches_leave_reference_like_text_as_single_batch_without_fast_skip() -> None:
@@ -212,9 +297,8 @@ def test_fast_path_keep_origin_skips_editorial_metadata_tokens() -> None:
         effective_batch_size=4,
         translation_context=context,
     )
-    assert [[item["item_id"] for item in batch] for batch in batches] == [["body"]]
-    assert [list(result)[0] for result in immediate] == ["crossmark"]
-    assert list(immediate[0].values())[0]["translation_diagnostics"]["degradation_reason"] == "hard_metadata_fragment"
+    assert [[item["item_id"] for item in batch] for batch in batches] == [["body"], ["crossmark"]]
+    assert immediate == []
 
 
 def test_fast_path_keep_origin_skips_pure_email_fragments_only() -> None:
@@ -263,3 +347,30 @@ def test_duplicate_plain_items_are_collapsed_and_expanded_with_item_diagnostics(
     assert expanded["b"]["translated_text"] == "甲"
     assert expanded["b"]["translation_diagnostics"]["item_id"] == "b"
     assert expanded["b"]["translation_diagnostics"]["page_idx"] == 1
+
+
+def test_translate_batch_wrapper_degrades_transport_failure_to_keep_origin() -> None:
+    context = build_translation_control_context()
+    batch = [
+        _item("a", "This sentence describes antibacterial activity and provides enough body text for translation."),
+        _item("b", "This paragraph keeps enough content for translation even when the network request times out."),
+    ]
+    with mock.patch(
+        "runtime.pipeline.book_translation_batches.translate_batch",
+        side_effect=requests.ConnectionError("Read timed out"),
+    ):
+        result = _translate_batch_or_keep_origin(
+            batch,
+            api_key="sk-test",
+            model="deepseek-chat",
+            base_url="https://api.deepseek.com/v1",
+            request_label="book: batch 1/1",
+            domain_guidance="",
+            mode="fast",
+            context=context,
+        )
+
+    assert result["a"]["decision"] == "keep_origin"
+    assert result["b"]["decision"] == "keep_origin"
+    assert result["a"]["translation_diagnostics"]["degradation_reason"] == "batch_transport_timeout_budget_exceeded"
+    assert result["a"]["translation_diagnostics"]["route_path"] == ["block_level", "batched_plain", "keep_origin"]

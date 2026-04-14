@@ -187,6 +187,86 @@ function resolvePythonRuntime(backendRoot) {
   return { command: "python3", bundledHome: null };
 }
 
+function resolveSystemPythonRuntime() {
+  if (process.platform === "darwin") {
+    const macCandidates = [
+      process.env.RETAIN_PDF_SYSTEM_PYTHON,
+      "/usr/bin/python3",
+      "/opt/homebrew/bin/python3",
+      "/usr/local/bin/python3",
+    ].filter(Boolean);
+    for (const candidate of macCandidates) {
+      if (fs.existsSync(candidate)) {
+        return { command: candidate, bundledHome: null };
+      }
+    }
+  }
+  return { command: "python3", bundledHome: null };
+}
+
+function shouldSetBundledPythonHome(bundledHome) {
+  if (!bundledHome || !fs.existsSync(bundledHome)) {
+    return false;
+  }
+  return !fs.existsSync(path.join(bundledHome, "pyvenv.cfg"));
+}
+
+function probePythonRuntime(runtime) {
+  return new Promise((resolve) => {
+    if (!runtime || !runtime.command) {
+      resolve({ ok: false, reason: "missing_python_command" });
+      return;
+    }
+    const env = {
+      ...process.env,
+      PYTHONUNBUFFERED: "1",
+      PYTHONUTF8: "1",
+    };
+    if (shouldSetBundledPythonHome(runtime.bundledHome)) {
+      env.PYTHONHOME = runtime.bundledHome;
+    } else {
+      delete env.PYTHONHOME;
+    }
+    const child = spawn(
+      runtime.command,
+      ["-c", "import sys; print(sys.executable)"],
+      {
+        env,
+        windowsHide: process.platform === "win32",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+    }, 8000);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      resolve({ ok: false, reason: String(error && error.message ? error.message : error), stdout, stderr });
+    });
+    child.once("exit", (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve({ ok: true, stdout: stdout.trim(), stderr: stderr.trim() });
+        return;
+      }
+      resolve({
+        ok: false,
+        reason: `exit_code=${code ?? "null"} signal=${signal ?? "null"}`,
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+      });
+    });
+  });
+}
+
 function bundledPythonSitePackages(bundledHome) {
   if (!bundledHome || !fs.existsSync(bundledHome)) {
     return [];
@@ -234,7 +314,7 @@ async function startBundledBackend() {
   updateSplashProgress(18, "正在检查运行文件", "正在校验后端、Python 和脚本资源");
   const backendRoot = resolveBackendRoot();
   const backendBin = resolveBackendBinary(backendRoot);
-  const pythonRuntime = resolvePythonRuntime(backendRoot);
+  let pythonRuntime = resolvePythonRuntime(backendRoot);
   const scriptsDir = path.join(backendRoot, "scripts");
   const typstBin = resolveTypstBinary(backendRoot);
   const bundledFontPath = path.join(backendRoot, "fonts", "SourceHanSerifSC-Regular.otf");
@@ -255,6 +335,25 @@ async function startBundledBackend() {
   }
   if (!fs.existsSync(scriptsDir)) {
     throw new Error(`missing bundled scripts directory: ${scriptsDir}`);
+  }
+
+  if (process.platform === "darwin") {
+    const bundledProbe = await probePythonRuntime(pythonRuntime);
+    if (!bundledProbe.ok && pythonRuntime.bundledHome) {
+      console.warn(
+        `[desktop] bundled mac python probe failed, fallback to system python: ${bundledProbe.reason}\n${bundledProbe.stderr || ""}`.trim(),
+      );
+      updateSplashProgress(26, "正在检查 Python 运行时", "内置 Python 不可用，正在回退系统 Python");
+      const fallbackRuntime = resolveSystemPythonRuntime();
+      const fallbackProbe = await probePythonRuntime(fallbackRuntime);
+      if (fallbackProbe.ok) {
+        pythonRuntime = fallbackRuntime;
+      } else {
+        throw new Error(
+          `macOS Python runtime probe failed; bundled=${bundledProbe.reason}; fallback=${fallbackProbe.reason}`,
+        );
+      }
+    }
   }
 
   fs.mkdirSync(dataRoot, { recursive: true });
@@ -312,7 +411,7 @@ async function startBundledBackend() {
   if (fs.existsSync(typstPackagePath)) {
     env.TYPST_PACKAGE_PATH = typstPackagePath;
   }
-  if (pythonRuntime.bundledHome) {
+  if (shouldSetBundledPythonHome(pythonRuntime.bundledHome)) {
     env.PYTHONHOME = pythonRuntime.bundledHome;
   }
   if (fs.existsSync(typstBin)) {

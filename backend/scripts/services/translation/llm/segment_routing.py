@@ -98,6 +98,15 @@ _SMALL_INLINE_SUPPORT_PHRASES = (
     "stands for",
 )
 
+_PROSE_HEAVY_PLAIN_MAX_PLACEHOLDERS = 12
+_PROSE_HEAVY_PLAIN_MAX_SEGMENTS = 12
+_PROSE_HEAVY_PLAIN_MIN_PROSE_CHARS = 240
+_PROSE_HEAVY_PLAIN_MAX_DENSITY = 0.02
+_FORMULA_DENSE_PROSE_MIN_PLACEHOLDERS = 4
+_FORMULA_DENSE_PROSE_MIN_PROSE_CHARS = 180
+_FORMULA_DENSE_PROSE_MAX_DENSITY = 0.12
+_FORMULA_DENSE_PROSE_MAX_EFFECTIVE_SEGMENTS = 32
+
 
 class SegmentTranslationFormatError(ValueError):
     pass
@@ -517,6 +526,49 @@ def small_formula_risk_score(
     return score
 
 
+def is_formula_dense_prose_candidate(
+    item: dict,
+    *,
+    policy: SegmentationPolicy | None = None,
+) -> bool:
+    if policy is None:
+        policy = SegmentationPolicy()
+    if not has_formula_placeholders(item):
+        return False
+    if item.get("continuation_group"):
+        return False
+    source_text = unit_source_text(item)
+    if not source_text:
+        return False
+    skeleton, segments = build_formula_segment_plan(source_text)
+    if not segments:
+        return False
+    placeholder_count = len(re.findall(r"<[ft]\d+-[0-9a-z]{3}/>|\[\[FORMULA_\d+]]", source_text))
+    if placeholder_count < _FORMULA_DENSE_PROSE_MIN_PLACEHOLDERS:
+        return False
+    effective_segments = effective_formula_segment_count(segments)
+    if effective_segments <= 2 or effective_segments > _FORMULA_DENSE_PROSE_MAX_EFFECTIVE_SEGMENTS:
+        return False
+    prose_chars = len(normalize_inline_whitespace(strip_placeholders(source_text)))
+    if prose_chars < _FORMULA_DENSE_PROSE_MIN_PROSE_CHARS:
+        return False
+    formula_density = placeholder_count / max(1, len(source_text))
+    if formula_density > _FORMULA_DENSE_PROSE_MAX_DENSITY:
+        return False
+    segment_texts = [normalize_inline_whitespace(segment["source_text"]).strip().lower() for segment in segments]
+    long_segment_count = sum(1 for text in segment_texts if len(text) >= 80)
+    short_segment_count = sum(1 for text in segment_texts if 0 < len(text) <= 40)
+    micro_segment_count = sum(1 for text in segment_texts if is_micro_formula_segment(text))
+    sentence_count = len(re.findall(r"[.!?;:]", normalize_inline_whitespace(strip_placeholders(source_text))))
+    if short_segment_count < 2:
+        return False
+    if long_segment_count == 0:
+        return False
+    if sentence_count < 2:
+        return False
+    return True
+
+
 def formula_segment_translation_route(item: dict, *, policy: SegmentationPolicy | None = None) -> str:
     if policy is None:
         policy = SegmentationPolicy()
@@ -528,9 +580,20 @@ def formula_segment_translation_route(item: dict, *, policy: SegmentationPolicy 
         return "none"
     effective_segments = effective_formula_segment_count(segments)
     placeholder_count = len(re.findall(r"<[ft]\d+-[0-9a-z]{3}/>|\[\[FORMULA_\d+]]", source_text))
+    prose_chars = len(normalize_inline_whitespace(strip_placeholders(source_text)))
+    formula_density = placeholder_count / max(1, len(source_text))
     if is_small_formula_inline_candidate(item, policy=policy):
         return "small_inline"
+    if is_formula_dense_prose_candidate(item, policy=policy):
+        return "formula_dense_prose"
     if placeholder_count <= 3 and effective_segments <= 2:
+        return "none"
+    if (
+        placeholder_count <= _PROSE_HEAVY_PLAIN_MAX_PLACEHOLDERS
+        and effective_segments <= _PROSE_HEAVY_PLAIN_MAX_SEGMENTS
+        and prose_chars >= _PROSE_HEAVY_PLAIN_MIN_PROSE_CHARS
+        and formula_density <= _PROSE_HEAVY_PLAIN_MAX_DENSITY
+    ):
         return "none"
     if policy.prefer_plain_when_segment_count_leq > 0 and effective_segments <= policy.prefer_plain_when_segment_count_leq:
         return "none"

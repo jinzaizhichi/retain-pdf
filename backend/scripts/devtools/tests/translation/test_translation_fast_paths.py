@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import requests
 import sys
 import tempfile
 import types
@@ -752,6 +753,51 @@ class TranslationFastPathTests(unittest.TestCase):
         self.assertEqual(payload["translation_diagnostics"]["degradation_reason"], "english_residue_repeated")
         self.assertEqual(payload["translation_diagnostics"]["final_status"], "kept_origin")
 
+    def test_continuation_group_with_placeholders_prefers_tagged_first_path(self):
+        module = _load_module(
+            "services.translation.llm.fallbacks",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+        )
+        control_context = _load_module(
+            "services.translation.llm.control_context",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+        )
+        item = {
+            "item_id": "__cg__:cg-009-013",
+            "translation_unit_id": "__cg__:cg-009-013",
+            "page_idx": 8,
+            "block_type": "text",
+            "continuation_group": "cg-009-013",
+            "metadata": {"structure_role": "body"},
+            "protected_source_text": "This continuation group mentions <f1-c1b/> and <f2-a77/> inside a long body paragraph.",
+            "translation_unit_protected_source_text": "This continuation group mentions <f1-c1b/> and <f2-a77/> inside a long body paragraph.",
+            "formula_map": [{"placeholder": "<f1-c1b/>"}, {"placeholder": "<f2-a77/>"}],
+            "translation_unit_formula_map": [{"placeholder": "<f1-c1b/>"}, {"placeholder": "<f2-a77/>"}],
+        }
+        context = control_context.build_translation_control_context(mode="sci")
+
+        with mock.patch.object(module, "translate_single_item_stable_placeholder_text") as tagged_mock:
+            tagged_mock.return_value = {
+                item["item_id"]: {
+                    "decision": "translate",
+                    "translated_text": "该连续段落已经稳定保留占位符 <f1-c1b/> 与 <f2-a77/>。",
+                    "final_status": "translated",
+                }
+            }
+            with mock.patch.object(module, "translate_single_item_plain_text", side_effect=AssertionError("plain path should not run first")):
+                result = module.translate_single_item_plain_text_with_retries(
+                    item,
+                    api_key="",
+                    model="deepseek-chat",
+                    base_url="https://api.deepseek.com/v1",
+                    request_label="test",
+                    context=context,
+                    diagnostics=None,
+                )
+        tagged_mock.assert_called_once()
+        payload = result[item["item_id"]]
+        self.assertEqual(payload["translation_diagnostics"]["route_path"], ["block_level", "tagged_placeholder_first"])
+
     def test_domain_context_parser_salvages_fields_from_malformed_json(self):
         module = _load_module(
             "services.translation.llm.structured_parsers",
@@ -954,7 +1000,7 @@ class TranslationFastPathTests(unittest.TestCase):
         self.assertIn("extra-guidance", context.merged_guidance)
         self.assertIn("snippet", context.merged_guidance)
         self.assertEqual(context.engine_profile_name, "balanced")
-        self.assertEqual(context.batch_policy.plain_batch_size, 4)
+        self.assertEqual(context.batch_policy.plain_batch_size, 6)
 
     def test_build_translation_context_uses_model_profile_overrides(self):
         _load_module(
@@ -1038,6 +1084,165 @@ class TranslationFastPathTests(unittest.TestCase):
         auto_join, review = module._split_high_confidence_continuation_pairs(flat_payload, pairs)
         self.assertEqual(auto_join, [("a", "b")])
         self.assertEqual(review, [])
+
+    def test_single_item_transport_failure_degrades_to_keep_origin(self):
+        module = _load_module(
+            "services.translation.llm.fallbacks",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+        )
+        control_module = _load_module(
+            "services.translation.llm.control_context",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+        )
+        context = control_module.build_translation_control_context()
+        item = {
+            "item_id": "p001-b002",
+            "block_type": "text",
+            "metadata": {"structure_role": "body"},
+            "protected_source_text": "The advancement of complex computer programs with faster computing power remains important.",
+            "translation_unit_protected_source_text": "The advancement of complex computer programs with faster computing power remains important.",
+        }
+
+        with mock.patch.object(
+            module,
+            "translate_single_item_plain_text",
+            side_effect=requests.ConnectionError("Read timed out"),
+        ):
+            result = module.translate_single_item_plain_text_with_retries(
+                item,
+                api_key="sk-test",
+                model="deepseek-chat",
+                base_url="https://api.deepseek.com/v1",
+                request_label="test transport",
+                context=context,
+            )
+
+        self.assertEqual(result["p001-b002"]["decision"], "keep_origin")
+        self.assertEqual(result["p001-b002"]["error_taxonomy"], "transport")
+        self.assertEqual(
+            result["p001-b002"]["translation_diagnostics"]["route_path"],
+            ["block_level", "plain_text", "keep_origin"],
+        )
+
+    def test_batched_transport_failure_degrades_whole_batch_to_keep_origin(self):
+        module = _load_module(
+            "services.translation.llm.fallbacks",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+        )
+        control_module = _load_module(
+            "services.translation.llm.control_context",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+        )
+        context = control_module.build_translation_control_context()
+        batch = [
+            {
+                "item_id": "p001-b001",
+                "block_type": "text",
+                "metadata": {"structure_role": "body"},
+                "protected_source_text": "This sentence describes antibacterial activity and provides enough body text for translation.",
+                "translation_unit_protected_source_text": "This sentence describes antibacterial activity and provides enough body text for translation.",
+                "_batched_plain_candidate": True,
+            },
+            {
+                "item_id": "p001-b002",
+                "block_type": "text",
+                "metadata": {"structure_role": "body"},
+                "protected_source_text": "This paragraph keeps enough content for translation even when the network request times out.",
+                "translation_unit_protected_source_text": "This paragraph keeps enough content for translation even when the network request times out.",
+                "_batched_plain_candidate": True,
+            },
+        ]
+
+        with mock.patch.object(module, "split_cached_batch", return_value=({}, batch)):
+            with mock.patch.object(
+                module,
+                "translate_batch_once",
+                side_effect=requests.ConnectionError("Read timed out"),
+            ):
+                result = module.translate_items_plain_text(
+                    batch,
+                    api_key="sk-test",
+                    model="deepseek-chat",
+                    base_url="https://api.deepseek.com/v1",
+                    request_label="test batch transport",
+                    context=context,
+                )
+
+        self.assertEqual(result["p001-b001"]["decision"], "keep_origin")
+        self.assertEqual(result["p001-b002"]["decision"], "keep_origin")
+        self.assertEqual(
+            result["p001-b001"]["translation_diagnostics"]["route_path"],
+            ["block_level", "batched_plain", "keep_origin"],
+        )
+
+    def test_batched_plain_suspicious_keep_origin_only_retries_flagged_items(self):
+        module = _load_module(
+            "services.translation.llm.fallbacks",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+        )
+        control_module = _load_module(
+            "services.translation.llm.control_context",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+        )
+        placeholder_module = _load_module(
+            "services.translation.llm.placeholder_guard",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "placeholder_guard.py",
+        )
+        context = control_module.build_translation_control_context()
+        batch = [
+            {
+                "item_id": "p001-b001",
+                "block_type": "text",
+                "metadata": {"structure_role": "body"},
+                "protected_source_text": "This sentence describes antibacterial activity and provides enough body text for translation.",
+                "translation_unit_protected_source_text": "This sentence describes antibacterial activity and provides enough body text for translation.",
+                "_batched_plain_candidate": True,
+            },
+            {
+                "item_id": "p001-b002",
+                "block_type": "text",
+                "metadata": {"structure_role": "body"},
+                "protected_source_text": "This paragraph should survive the batch response and must not be retried.",
+                "translation_unit_protected_source_text": "This paragraph should survive the batch response and must not be retried.",
+                "_batched_plain_candidate": True,
+            },
+        ]
+        batch_result = {
+            "p001-b001": {"decision": "keep_origin", "translated_text": "", "final_status": "kept_origin"},
+            "p001-b002": {"decision": "translate", "translated_text": "这一段应该直接接受。", "final_status": "translated"},
+        }
+        suspicious_error = placeholder_module.SuspiciousKeepOriginError("p001-b001", batch_result)
+        retried_items: list[str] = []
+
+        def fake_single(item, **kwargs):
+            retried_items.append(item["item_id"])
+            return {
+                item["item_id"]: {
+                    "decision": "translate",
+                    "translated_text": "这段通过单条补跑得到译文。",
+                    "final_status": "translated",
+                }
+            }
+
+        with mock.patch.object(module, "split_cached_batch", return_value=({}, batch)):
+            with mock.patch.object(module, "translate_batch_once", side_effect=suspicious_error):
+                with mock.patch.object(module, "translate_single_item_plain_text_with_retries", side_effect=fake_single):
+                    result = module.translate_items_plain_text(
+                        batch,
+                        api_key="sk-test",
+                        model="deepseek-chat",
+                        base_url="https://api.deepseek.com/v1",
+                        request_label="test suspicious batch",
+                        context=context,
+                    )
+
+        self.assertEqual(retried_items, ["p001-b001"])
+        self.assertEqual(result["p001-b002"]["translated_text"], "这一段应该直接接受。")
+        self.assertEqual(
+            result["p001-b002"]["translation_diagnostics"]["route_path"],
+            ["block_level", "batched_plain"],
+        )
+        self.assertEqual(result["p001-b001"]["translated_text"], "这段通过单条补跑得到译文。")
 
 
 if __name__ == "__main__":

@@ -57,6 +57,7 @@ def translate_single_item_plain_text(
     mode: str = "fast",
     diagnostics: TranslationDiagnosticsCollector | None = None,
     timeout_s: int = 120,
+    http_retry_attempts: int | None = None,
 ) -> dict[str, dict[str, str]]:
     content = request_chat_content(
         build_single_item_fallback_messages(
@@ -73,6 +74,7 @@ def translate_single_item_plain_text(
         response_format=None,
         timeout=timeout_s,
         request_label=request_label,
+        max_attempts=http_retry_attempts,
     )
     translated_text = extract_single_item_translation_text(content, item["item_id"])
     result = {item["item_id"]: result_entry("translate", translated_text)}
@@ -92,6 +94,7 @@ def translate_single_item_plain_text_unstructured(
     mode: str = "fast",
     diagnostics: TranslationDiagnosticsCollector | None = None,
     timeout_s: int = 120,
+    http_retry_attempts: int | None = None,
 ) -> dict[str, dict[str, str]]:
     content = request_chat_content(
         build_single_item_fallback_messages(
@@ -108,6 +111,7 @@ def translate_single_item_plain_text_unstructured(
         response_format=None,
         timeout=timeout_s,
         request_label=request_label,
+        max_attempts=http_retry_attempts,
     )
     translated_text = extract_single_item_translation_text(content, item["item_id"])
     result = {item["item_id"]: result_entry("translate", translated_text)}
@@ -126,6 +130,7 @@ def translate_single_item_tagged_text(
     domain_guidance: str = "",
     diagnostics: TranslationDiagnosticsCollector | None = None,
     timeout_s: int = 120,
+    http_retry_attempts: int | None = None,
 ) -> dict[str, dict[str, str]]:
     content = request_chat_content(
         build_messages([item], domain_guidance=domain_guidance, mode="fast", response_style="tagged"),
@@ -136,6 +141,7 @@ def translate_single_item_tagged_text(
         response_format=None,
         timeout=timeout_s,
         request_label=request_label,
+        max_attempts=http_retry_attempts,
     )
     result = parse_translation_payload(content)
     result = canonicalize_batch_result([item], result)
@@ -154,6 +160,7 @@ def translate_single_item_with_decision(
     mode: str = "fast",
     diagnostics: TranslationDiagnosticsCollector | None = None,
     timeout_s: int = 120,
+    http_retry_attempts: int | None = None,
 ) -> dict[str, dict[str, str]]:
     content = request_chat_content(
         build_single_item_fallback_messages(
@@ -170,6 +177,7 @@ def translate_single_item_with_decision(
         response_format=TRANSLATION_SINGLE_DECISION_RESPONSE_SCHEMA,
         timeout=timeout_s,
         request_label=request_label,
+        max_attempts=http_retry_attempts,
     )
     try:
         payload = json.loads(extract_json_text(content))
@@ -197,6 +205,7 @@ def translate_batch_once(
     mode: str = "fast",
     diagnostics: TranslationDiagnosticsCollector | None = None,
     timeout_s: int = 120,
+    http_retry_attempts: int | None = None,
 ) -> dict[str, dict[str, str]]:
     content = request_chat_content(
         build_messages(batch, domain_guidance=domain_guidance, mode=mode, response_style="tagged"),
@@ -207,6 +216,7 @@ def translate_batch_once(
         response_format=None,
         timeout=timeout_s,
         request_label=request_label,
+        max_attempts=http_retry_attempts,
     )
     result = parse_translation_payload(content)
     result = canonicalize_batch_result(batch, result)

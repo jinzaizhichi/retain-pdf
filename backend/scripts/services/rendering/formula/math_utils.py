@@ -81,6 +81,19 @@ def normalize_plain_citation(formula_text: str) -> str:
 
 
 INLINE_MATH_BLOCK_RE = re.compile(r"(?<!\\)\$(?:\\.|[^$\\\n])+(?<!\\)\$")
+BARE_LATEX_COMMAND_RE = re.compile(r"(?P<expr>\\[A-Za-z]+(?:\s*\{[^{}]+\})+)")
+BARE_SUPERSCRIPT_CITATION_RE = re.compile(r"(?P<expr>\^\{\s*\d+[A-Za-z]?(?:\s*[-,]\s*\d+[A-Za-z]?)*\s*\})")
+SCRIPTED_CHEMISTRY_RE = re.compile(
+    r"(?P<expr>[A-Za-z][A-Za-z0-9]*(?:\([^()\n]+\)|\{[^{}\n]+\}|\^\{[^{}\n]+\}|_\{[^{}\n]+\}|[-/])+)"
+)
+INDEXED_TOKEN_RE = re.compile(r"(?P<expr>\[[A-Za-z0-9_]+\]_[A-Za-z0-9]+)")
+SUBSCRIPT_TOKEN_RE = re.compile(
+    r"(?<![$A-Za-zΑ-Ωα-ωβΔ0-9_])(?P<expr>[A-Za-zΑ-Ωα-ωβΔ]+_[A-Za-z0-9]+)(?![A-Za-zΑ-Ωα-ωβΔ0-9_])"
+)
+SET_POWER_TOKEN_RE = re.compile(r"(?P<expr>\{[0-9,\s]+\}\^[A-Za-z0-9]+)")
+INLINE_EXPR_RE = re.compile(
+    r"(?P<expr>\d+(?:\.\d+)?\s*[-+]\s*[A-Za-zΑ-Ωα-ωβΔ]+_[A-Za-z0-9]+)"
+)
 
 
 def _normalize_text_chunk(text: str) -> str:
@@ -92,6 +105,58 @@ def _surround_inline_math_with_spaces(markdown: str) -> str:
     text = INLINE_MATH_BLOCK_RE.sub(lambda m: f" {m.group(0)} ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+def _normalize_math_candidate(expr: str) -> str:
+    return normalize_formula_for_latex_math(expr.strip())
+
+
+def _wrap_math_candidate(match: re.Match[str]) -> str:
+    return f"${_normalize_math_candidate(match.group('expr'))}$"
+
+
+def _wrap_raw_math_candidate(match: re.Match[str]) -> str:
+    return f"${match.group('expr').strip()}$"
+
+
+def _wrap_indexed_math_candidate(match: re.Match[str]) -> str:
+    expr = match.group("expr").strip()
+    expr = re.sub(r"_([A-Za-z0-9]+)$", r"_{\1}", expr)
+    return f"${expr}$"
+
+
+def _apply_to_non_math_segments(text: str, replacer) -> str:
+    chunks: list[str] = []
+    last_end = 0
+    for match in INLINE_MATH_BLOCK_RE.finditer(text):
+        plain = text[last_end : match.start()]
+        if plain:
+            chunks.append(replacer(plain))
+        chunks.append(match.group(0))
+        last_end = match.end()
+    tail = text[last_end:]
+    if tail:
+        chunks.append(replacer(tail))
+    return "".join(chunks)
+
+
+def _normalize_plain_segment_for_math(text: str) -> str:
+    return re.sub(r"\\{2,}(?=[A-Za-z])", r"\\", text or "")
+
+
+def promote_inline_math_like_text(text: str) -> str:
+    if not text:
+        return ""
+
+    promoted = _apply_to_non_math_segments(text, _normalize_plain_segment_for_math)
+    promoted = _apply_to_non_math_segments(promoted, lambda plain: BARE_SUPERSCRIPT_CITATION_RE.sub(_wrap_raw_math_candidate, plain))
+    promoted = _apply_to_non_math_segments(promoted, lambda plain: BARE_LATEX_COMMAND_RE.sub(_wrap_math_candidate, plain))
+    promoted = _apply_to_non_math_segments(promoted, lambda plain: SCRIPTED_CHEMISTRY_RE.sub(_wrap_math_candidate, plain))
+    promoted = _apply_to_non_math_segments(promoted, lambda plain: INDEXED_TOKEN_RE.sub(_wrap_indexed_math_candidate, plain))
+    promoted = _apply_to_non_math_segments(promoted, lambda plain: INLINE_EXPR_RE.sub(_wrap_raw_math_candidate, plain))
+    promoted = _apply_to_non_math_segments(promoted, lambda plain: SUBSCRIPT_TOKEN_RE.sub(_wrap_raw_math_candidate, plain))
+    promoted = _apply_to_non_math_segments(promoted, lambda plain: SET_POWER_TOKEN_RE.sub(_wrap_raw_math_candidate, plain))
+    return promoted
 
 
 def build_markdown_paragraph(item: dict) -> str:
@@ -118,6 +183,7 @@ def build_markdown_from_parts(protected: str, formula_map: list[dict]) -> str:
                 chunks.append(text)
 
     markdown = "".join(chunks).strip()
+    markdown = promote_inline_math_like_text(markdown)
     markdown = _surround_inline_math_with_spaces(markdown)
     markdown = re.sub(
         r"\\textcircled\s*\{\s*\\scriptsize\s*\{\s*\\parallel\s*\}\s*\}",

@@ -6,6 +6,7 @@ import time
 
 from services.document_schema.semantics import is_body_structure_role
 from services.translation.diagnostics import TranslationDiagnosticsCollector
+from services.translation.llm.deepseek_client import is_transport_error
 from services.translation.payload.formula_protection import restore_tokens_by_type
 from services.translation.policy.metadata_filter import looks_like_hard_nontranslatable_metadata
 from services.translation.llm.cache import split_cached_batch
@@ -29,6 +30,7 @@ from services.translation.llm.placeholder_guard import placeholder_sequence
 from services.translation.llm.placeholder_guard import placeholder_stability_guidance
 from services.translation.llm.placeholder_guard import restore_placeholder_aliases
 from services.translation.llm.placeholder_guard import result_entry
+from services.translation.llm.placeholder_guard import strip_placeholders
 from services.translation.llm.placeholder_guard import should_force_translate_body_text
 from services.translation.llm.placeholder_guard import validate_batch_result
 from services.translation.llm.segment_routing import formula_segment_translation_route
@@ -36,6 +38,7 @@ from services.translation.llm.segment_routing import small_formula_risk_score
 from services.translation.llm.segment_routing import build_formula_segment_plan
 from services.translation.llm.segment_routing import effective_formula_segment_count
 from services.translation.llm.segment_routing import formula_segment_window_count
+from services.translation.llm.segment_routing import is_formula_dense_prose_candidate
 from services.translation.llm.segment_routing import translate_single_item_formula_segment_text_with_retries
 from services.translation.llm.segment_routing import translate_single_item_formula_segment_windows_with_retries
 from services.translation.llm.translation_client import translate_batch_once
@@ -142,10 +145,38 @@ def _formula_placeholder_count(text: str) -> int:
     return len(FORMULA_PLACEHOLDER_RE.findall(text or ""))
 
 
+def _is_continuation_or_group_unit(item: dict) -> bool:
+    item_id = str(item.get("item_id", "") or "")
+    unit_id = str(item.get("translation_unit_id", "") or "")
+    return bool(
+        item_id.startswith("__cg__:")
+        or unit_id.startswith("__cg__:")
+        or str(item.get("continuation_group", "") or "").strip()
+    )
+
+
+def _single_item_http_retry_attempts(item: dict) -> int | None:
+    if has_formula_placeholders(item) or _is_continuation_or_group_unit(item):
+        return 1
+    return None
+
+
+def _should_prefer_tagged_placeholder_first(item: dict, *, context: TranslationControlContext) -> bool:
+    if not context.fallback_policy.allow_tagged_placeholder_retry:
+        return False
+    if not has_formula_placeholders(item):
+        return False
+    if is_formula_dense_prose_candidate(item, policy=context.segmentation_policy):
+        return True
+    return _is_continuation_or_group_unit(item)
+
+
 def _heavy_formula_split_reason(item: dict, *, context: TranslationControlContext) -> str:
     source_text = str(item.get("translation_unit_protected_source_text") or item.get("protected_source_text") or "")
     placeholder_count = _formula_placeholder_count(source_text)
     if placeholder_count < HEAVY_FORMULA_SPLIT_PLACEHOLDERS:
+        return ""
+    if is_formula_dense_prose_candidate(item, policy=context.segmentation_policy):
         return ""
     _, segments = build_formula_segment_plan(source_text)
     effective_segments = effective_formula_segment_count(segments)
@@ -205,6 +236,7 @@ def _translate_heavy_formula_block(
         return None
 
     translated_parts: list[str] = []
+    degraded_chunks = 0
     for index, chunk in enumerate(chunks):
         chunk_item = dict(item)
         chunk_item["_heavy_formula_split_applied"] = True
@@ -212,18 +244,27 @@ def _translate_heavy_formula_block(
         chunk_item["protected_source_text"] = chunk
         chunk_item["continuation_prev_text"] = chunks[index - 1] if index > 0 else str(item.get("continuation_prev_text", "") or "")
         chunk_item["continuation_next_text"] = chunks[index + 1] if index < len(chunks) - 1 else str(item.get("continuation_next_text", "") or "")
-        chunk_result = translate_single_item_plain_text_with_retries(
-            chunk_item,
-            api_key=api_key,
-            model=model,
-            base_url=base_url,
-            request_label=f"{request_label} split#{index + 1}" if request_label else "",
-            context=context,
-            diagnostics=diagnostics,
-        )
-        translated = str(chunk_result.get(item["item_id"], {}).get("translated_text", "") or "").strip()
+        try:
+            chunk_result = translate_single_item_plain_text_with_retries(
+                chunk_item,
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                request_label=f"{request_label} split#{index + 1}" if request_label else "",
+                context=context,
+                diagnostics=diagnostics,
+            )
+            translated = str(chunk_result.get(item["item_id"], {}).get("translated_text", "") or "").strip()
+        except EmptyTranslationError:
+            translated = ""
         if not translated:
-            raise EmptyTranslationError(str(item.get("item_id", "") or ""))
+            degraded_chunks += 1
+            translated = chunk.strip()
+            if request_label:
+                print(
+                    f"{request_label} split#{index + 1}: empty translation chunk degraded to keep_origin chunk",
+                    flush=True,
+                )
         translated_parts.append(translated)
 
     payload = result_entry("translate", " ".join(translated_parts).strip())
@@ -232,14 +273,15 @@ def _translate_heavy_formula_block(
         "page_idx": item.get("page_idx"),
         "route_path": ["block_level", "heavy_formula_split"],
         "output_mode_path": ["plain_text"],
-        "fallback_to": "",
-        "degradation_reason": split_reason,
-        "final_status": "translated",
+        "fallback_to": "keep_origin" if degraded_chunks else "",
+        "degradation_reason": f"{split_reason}_chunk_keep_origin" if degraded_chunks else split_reason,
+        "final_status": "partially_translated" if degraded_chunks else "translated",
         "segment_stats": {
             "expected": len(chunks),
             "received": len(chunks),
             "missing_ids": [],
         },
+        "degraded_chunk_count": degraded_chunks,
         **_formula_route_diagnostics(item, context=context),
     }
     return {item["item_id"]: payload}
@@ -323,6 +365,93 @@ def _keep_origin_payload_for_repeated_empty_translation(item: dict) -> dict[str,
         **_formula_route_diagnostics(item),
     }
     return {str(item.get("item_id", "") or ""): payload}
+
+
+def _keep_origin_payload_for_transport_error(
+    item: dict,
+    *,
+    context: TranslationControlContext | None = None,
+    route_path: list[str] | None = None,
+    degradation_reason: str = "transport_timeout_budget_exceeded",
+    error_code: str = "TRANSPORT_ERROR",
+) -> dict[str, dict[str, str]]:
+    payload = internal_keep_origin_result(degradation_reason)
+    payload["error_taxonomy"] = "transport"
+    payload["translation_diagnostics"] = {
+        "item_id": item.get("item_id", ""),
+        "page_idx": item.get("page_idx"),
+        "route_path": route_path or ["block_level", "keep_origin"],
+        "error_trace": [{"type": "transport", "code": error_code}],
+        "fallback_to": "keep_origin",
+        "degradation_reason": degradation_reason,
+        "final_status": "kept_origin",
+        **_formula_route_diagnostics(item, context=context),
+    }
+    return {str(item.get("item_id", "") or ""): payload}
+
+
+def _keep_origin_results_for_batch_transport(
+    batch: list[dict],
+    *,
+    context: TranslationControlContext,
+    degradation_reason: str = "batch_transport_timeout_budget_exceeded",
+) -> dict[str, dict[str, str]]:
+    degraded: dict[str, dict[str, str]] = {}
+    for item in batch:
+        degraded.update(
+            _keep_origin_payload_for_transport_error(
+                item,
+                context=context,
+                route_path=["block_level", "batched_plain", "keep_origin"],
+                degradation_reason=degradation_reason,
+                error_code="BATCH_TRANSPORT_ERROR",
+            )
+        )
+    return degraded
+
+
+def _split_batched_plain_result_for_partial_retry(
+    batch: list[dict],
+    result: dict[str, dict[str, str]],
+    *,
+    context: TranslationControlContext,
+    diagnostics: TranslationDiagnosticsCollector | None,
+) -> tuple[dict[str, dict[str, str]], list[dict]]:
+    item_by_id = {item["item_id"]: item for item in batch}
+    accepted: dict[str, dict[str, str]] = {}
+    retry_items: list[dict] = []
+    for item in batch:
+        item_id = item["item_id"]
+        payload = result.get(item_id)
+        if payload is None:
+            retry_items.append(item)
+            continue
+        try:
+            canonical = canonicalize_batch_result([item], {item_id: payload})
+            validate_batch_result([item], canonical, diagnostics=diagnostics)
+            restored = _restore_runtime_term_tokens(canonical, item=item)
+            accepted.update(
+                _attach_result_metadata(
+                    restored,
+                    item=item_by_id[item_id],
+                    context=context,
+                    route_path=["block_level", "batched_plain"],
+                    output_mode_path=["tagged"],
+                )
+            )
+        except (
+            ValueError,
+            KeyError,
+            json.JSONDecodeError,
+            EnglishResidueError,
+            EmptyTranslationError,
+            UnexpectedPlaceholderError,
+            PlaceholderInventoryError,
+            TranslationProtocolError,
+            SuspiciousKeepOriginError,
+        ):
+            retry_items.append(item)
+    return accepted, retry_items
 
 
 def _sentence_level_fallback(
@@ -471,6 +600,7 @@ def translate_single_item_stable_placeholder_text(
         domain_guidance=merged_guidance,
         diagnostics=diagnostics,
         timeout_s=context.timeout_policy.plain_text_seconds,
+        http_retry_attempts=_single_item_http_retry_attempts(item),
     )
     restored = restore_placeholder_aliases(result, alias_to_original)
     restored = _restore_runtime_term_tokens(restored, item=item)
@@ -522,6 +652,10 @@ def translate_single_item_plain_text_with_retries(
                     degradation_reason=split_reason,
                 )
     formula_route = formula_segment_translation_route(item, policy=context.segmentation_policy)
+    dense_prose_route = formula_route == "formula_dense_prose"
+    plain_attempts = 1 if dense_prose_route else context.fallback_policy.plain_text_attempts
+    plain_timeout_s = min(context.timeout_policy.plain_text_seconds, 18) if dense_prose_route else context.timeout_policy.plain_text_seconds
+    route_prefix = ["block_level", "formula_dense_prose"] if dense_prose_route else ["block_level"]
     if formula_route in {"single", "small_inline"}:
         allow_windowed_fallback = formula_segment_window_count(item, policy=context.segmentation_policy) > 1
         try:
@@ -545,6 +679,21 @@ def translate_single_item_plain_text_with_retries(
                 output_mode_path=["tagged"],
             )
         except Exception as exc:
+            if is_transport_error(exc):
+                if request_label:
+                    print(
+                        f"{request_label}: formula route transport failure, degrade to keep_origin: {type(exc).__name__}: {exc}",
+                        flush=True,
+                    )
+                return _keep_origin_payload_for_transport_error(
+                    item,
+                    context=context,
+                    route_path=[
+                        "block_level",
+                        "small_formula_inline" if formula_route == "small_inline" else "segmented",
+                        "keep_origin",
+                    ],
+                )
             if request_label:
                 print(
                     f"{request_label}: {'small-inline-formula' if formula_route == 'small_inline' else 'segmented-formula'} route failed, fallback to plain-text path: {type(exc).__name__}: {exc}",
@@ -572,6 +721,17 @@ def translate_single_item_plain_text_with_retries(
                         output_mode_path=["json_schema"],
                     )
                 except Exception as windowed_exc:
+                    if is_transport_error(windowed_exc):
+                        if request_label:
+                            print(
+                                f"{request_label}: windowed-formula transport failure, degrade to keep_origin: {type(windowed_exc).__name__}: {windowed_exc}",
+                                flush=True,
+                            )
+                        return _keep_origin_payload_for_transport_error(
+                            item,
+                            context=context,
+                            route_path=["block_level", "windowed", "keep_origin"],
+                        )
                     if request_label:
                         print(
                             f"{request_label}: windowed-formula fallback failed, continue to plain-text path: {type(windowed_exc).__name__}: {windowed_exc}",
@@ -601,18 +761,73 @@ def translate_single_item_plain_text_with_retries(
                 output_mode_path=["json_schema"],
             )
         except Exception as exc:
+            if is_transport_error(exc):
+                if request_label:
+                    print(
+                        f"{request_label}: windowed-formula transport failure, degrade to keep_origin: {type(exc).__name__}: {exc}",
+                        flush=True,
+                    )
+                return _keep_origin_payload_for_transport_error(
+                    item,
+                    context=context,
+                    route_path=["block_level", "windowed", "keep_origin"],
+                )
             if request_label:
                 print(
                     f"{request_label}: windowed-formula route failed, fallback to plain-text path: {type(exc).__name__}: {exc}",
                     flush=True,
                 )
+    if _should_prefer_tagged_placeholder_first(item, context=context):
+        tagged_started = time.perf_counter()
+        try:
+            if request_label:
+                reason = "formula-dense-prose" if dense_prose_route else "continuation/group placeholder stability"
+                print(f"{request_label}: direct tagged single-item path for {reason}", flush=True)
+            result = translate_single_item_stable_placeholder_text(
+                item,
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                request_label=f"{request_label} tagged-first" if request_label else "",
+                context=context,
+                diagnostics=diagnostics,
+            )
+            if request_label:
+                tagged_elapsed = time.perf_counter() - tagged_started
+                print(f"{request_label}: tagged-first single-item ok in {tagged_elapsed:.2f}s", flush=True)
+            return _attach_result_metadata(
+                _restore_runtime_term_tokens(result, item=item),
+                item=item,
+                context=context,
+                route_path=route_prefix + ["tagged_placeholder_first"],
+                output_mode_path=["tagged"],
+            )
+        except Exception as exc:
+            if is_transport_error(exc):
+                if request_label:
+                    tagged_elapsed = time.perf_counter() - tagged_started
+                    print(
+                        f"{request_label}: tagged-first transport failure after {tagged_elapsed:.2f}s, degrade to keep_origin: {type(exc).__name__}: {exc}",
+                        flush=True,
+                    )
+                return _keep_origin_payload_for_transport_error(
+                    item,
+                    context=context,
+                    route_path=route_prefix + ["tagged_placeholder_first", "keep_origin"],
+                )
+            if request_label:
+                tagged_elapsed = time.perf_counter() - tagged_started
+                print(
+                    f"{request_label}: tagged-first path failed after {tagged_elapsed:.2f}s, fallback to plain-text path: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
     last_error: Exception | None = None
-    for attempt in range(1, context.fallback_policy.plain_text_attempts + 1):
+    for attempt in range(1, plain_attempts + 1):
         started = time.perf_counter()
         try:
             if request_label:
                 print(
-                    f"{request_label}: plain-text attempt {attempt}/{context.fallback_policy.plain_text_attempts} item={item['item_id']}",
+                    f"{request_label}: plain-text attempt {attempt}/{plain_attempts} item={item['item_id']}",
                     flush=True,
                 )
             result = translate_single_item_plain_text(
@@ -624,14 +839,15 @@ def translate_single_item_plain_text_with_retries(
                 domain_guidance=context.merged_guidance,
                 mode=context.mode,
                 diagnostics=diagnostics,
-                timeout_s=context.timeout_policy.plain_text_seconds,
+                timeout_s=plain_timeout_s,
+                http_retry_attempts=_single_item_http_retry_attempts(item),
             )
             result = _restore_runtime_term_tokens(result, item=item)
             result = _attach_result_metadata(
                 result,
                 item=item,
                 context=context,
-                route_path=["block_level"],
+                route_path=route_prefix,
                 output_mode_path=["plain_text"],
             )
             if request_label:
@@ -643,10 +859,15 @@ def translate_single_item_plain_text_with_retries(
             elapsed = time.perf_counter() - started
             if request_label:
                 print(
-                    f"{request_label}: plain-text placeholder failed attempt {attempt}/{context.fallback_policy.plain_text_attempts} after {elapsed:.2f}s: {type(exc).__name__}: {exc}",
+                    f"{request_label}: plain-text placeholder failed attempt {attempt}/{plain_attempts} after {elapsed:.2f}s: {type(exc).__name__}: {exc}",
                     flush=True,
                 )
                 log_placeholder_failure(request_label, item, exc, diagnostics=diagnostics)
+            if request_label and dense_prose_route:
+                print(
+                    f"{request_label}: formula-dense-prose route keeps single-item fallback chain short",
+                    flush=True,
+                )
             if has_formula_placeholders(item) and context.fallback_policy.allow_tagged_placeholder_retry:
                 tagged_started = time.perf_counter()
                 try:
@@ -673,10 +894,10 @@ def translate_single_item_plain_text_with_retries(
                     if request_label:
                         tagged_elapsed = time.perf_counter() - tagged_started
                         print(
-                                f"{request_label}: tagged single-item failed attempt {attempt}/{context.fallback_policy.plain_text_attempts} after {tagged_elapsed:.2f}s: {type(tagged_exc).__name__}: {tagged_exc}",
-                                flush=True,
+                            f"{request_label}: tagged single-item failed attempt {attempt}/{plain_attempts} after {tagged_elapsed:.2f}s: {type(tagged_exc).__name__}: {tagged_exc}",
+                            flush=True,
                         )
-            if attempt >= context.fallback_policy.plain_text_attempts and isinstance(last_error, (EmptyTranslationError, EnglishResidueError)):
+            if attempt >= plain_attempts and isinstance(last_error, (EmptyTranslationError, EnglishResidueError)):
                 raw_started = time.perf_counter()
                 try:
                     if request_label:
@@ -690,7 +911,8 @@ def translate_single_item_plain_text_with_retries(
                         domain_guidance=context.merged_guidance,
                         mode=context.mode,
                         diagnostics=diagnostics,
-                        timeout_s=context.timeout_policy.plain_text_seconds,
+                        timeout_s=plain_timeout_s,
+                        http_retry_attempts=_single_item_http_retry_attempts(item),
                     )
                     if request_label:
                         raw_elapsed = time.perf_counter() - raw_started
@@ -699,7 +921,7 @@ def translate_single_item_plain_text_with_retries(
                         result,
                         item=item,
                         context=context,
-                        route_path=["block_level", "plain_text_raw"],
+                        route_path=route_prefix + ["plain_text_raw"],
                         output_mode_path=["plain_text"],
                     )
                 except (ValueError, KeyError, json.JSONDecodeError, EnglishResidueError, EmptyTranslationError) as raw_exc:
@@ -710,7 +932,7 @@ def translate_single_item_plain_text_with_retries(
                             f"{request_label}: raw plain-text single-item failed after {raw_elapsed:.2f}s: {type(raw_exc).__name__}: {raw_exc}",
                             flush=True,
                         )
-            if attempt >= context.fallback_policy.plain_text_attempts:
+            if attempt >= plain_attempts:
                 if isinstance(last_error, EmptyTranslationError) and _should_keep_origin_on_empty_translation(item):
                     if request_label:
                         print(
@@ -734,6 +956,12 @@ def translate_single_item_plain_text_with_retries(
                             f"{request_label}: sentence-level fallback failed: {type(sentence_exc).__name__}: {sentence_exc}",
                             flush=True,
                         )
+                    if is_transport_error(sentence_exc):
+                        return _keep_origin_payload_for_transport_error(
+                            item,
+                            context=context,
+                            route_path=["block_level", "sentence_level", "keep_origin"],
+                        )
                 if isinstance(last_error, EnglishResidueError):
                     if diagnostics is not None:
                         diagnostics.emit(
@@ -754,7 +982,7 @@ def translate_single_item_plain_text_with_retries(
                     payload["translation_diagnostics"] = {
                         "item_id": item.get("item_id", ""),
                         "page_idx": item.get("page_idx"),
-                        "route_path": ["block_level", "keep_origin"],
+                        "route_path": route_prefix + ["keep_origin"],
                         "error_trace": [{"type": "validation", "code": "ENGLISH_RESIDUE"}],
                         "fallback_to": "keep_origin",
                         "degradation_reason": "english_residue_repeated",
@@ -800,7 +1028,7 @@ def translate_single_item_plain_text_with_retries(
                     payload["translation_diagnostics"] = {
                         "item_id": item.get("item_id", ""),
                         "page_idx": item.get("page_idx"),
-                        "route_path": ["block_level", "keep_origin"],
+                        "route_path": route_prefix + ["keep_origin"],
                         "error_trace": [{"type": "validation"}],
                         "fallback_to": "keep_origin",
                         "degradation_reason": "placeholder_unstable",
@@ -829,6 +1057,30 @@ def translate_single_item_plain_text_with_retries(
             if attempt >= context.fallback_policy.plain_text_attempts:
                 raise
             time.sleep(min(8, 2 * attempt))
+        except Exception as exc:
+            if not is_transport_error(exc):
+                raise
+            last_error = exc
+            elapsed = time.perf_counter() - started
+            if diagnostics is not None:
+                diagnostics.emit(
+                    kind="transport_degraded",
+                    item_id=str(item.get("item_id", "") or ""),
+                    page_idx=item.get("page_idx"),
+                    severity="warning",
+                    message=f"Degraded to keep_origin after transport failure: {type(exc).__name__}",
+                    retryable=True,
+                )
+            if request_label:
+                print(
+                    f"{request_label}: transport failure after {elapsed:.2f}s, degrade to keep_origin: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+            return _keep_origin_payload_for_transport_error(
+                item,
+                context=context,
+                route_path=["block_level", "plain_text", "keep_origin"],
+            )
 
     if last_error is not None:
         raise last_error
@@ -930,6 +1182,58 @@ def translate_items_plain_text(
             merged.update(result)
             return merged
         except Exception as exc:
+            if is_transport_error(exc):
+                if diagnostics is not None:
+                    for item in uncached_batch:
+                        diagnostics.emit(
+                            kind="batch_transport_degraded",
+                            item_id=str(item.get("item_id", "") or ""),
+                            page_idx=item.get("page_idx"),
+                            severity="warning",
+                            message=f"Degraded batched request to keep_origin after transport failure: {type(exc).__name__}",
+                            retryable=True,
+                        )
+                if request_label:
+                    print(
+                        f"{request_label}: batched plain transport failure, degrade whole batch to keep_origin: {type(exc).__name__}: {exc}",
+                        flush=True,
+                    )
+                merged.update(
+                    _keep_origin_results_for_batch_transport(
+                        uncached_batch,
+                        context=context,
+                    )
+                )
+                return merged
+            if getattr(exc, "item_id", None) and isinstance(getattr(exc, "result", None), dict):
+                partial_result = getattr(exc, "result", {}) or {}
+                accepted_result, retry_batch = _split_batched_plain_result_for_partial_retry(
+                    uncached_batch,
+                    partial_result,
+                    context=context,
+                    diagnostics=diagnostics,
+                )
+                if request_label:
+                    print(
+                        f"{request_label}: batched plain partial fallback, keep={len(accepted_result)} retry_items={len(retry_batch)}",
+                        flush=True,
+                    )
+                cacheable_batch = [
+                    item for item in uncached_batch if item["item_id"] in accepted_result and _should_store_translation_result(accepted_result.get(item["item_id"], {}))
+                ]
+                if cacheable_batch:
+                    store_cached_batch(
+                        cacheable_batch,
+                        accepted_result,
+                        model=model,
+                        base_url=base_url,
+                        domain_guidance=context.cache_guidance,
+                        mode=context.mode,
+                    )
+                merged.update(accepted_result)
+                uncached_batch = retry_batch
+                if not uncached_batch:
+                    return merged
             if request_label:
                 print(
                     f"{request_label}: batched plain fallback to single-item path: {type(exc).__name__}: {exc}",
@@ -981,18 +1285,17 @@ def _is_low_risk_deepseek_batch_item(item: dict, *, context: TranslationControlC
         return False
     if not is_body_structure_role(item.get("metadata", {}) or {}):
         return False
-    if item.get("continuation_group"):
-        return False
-    if item.get("formula_map") or item.get("translation_unit_formula_map"):
-        return False
-    if len(placeholder_sequence(str(item.get("translation_unit_protected_source_text") or item.get("protected_source_text") or ""))) > context.batch_policy.batch_low_risk_max_placeholders:
-        return False
-    if not should_force_translate_body_text(item):
-        return False
     source_text = str(item.get("translation_unit_protected_source_text") or item.get("protected_source_text") or "").strip()
     if not source_text:
         return False
-    compact_len = len(source_text)
-    if compact_len < 40 or compact_len > context.batch_policy.batch_low_risk_max_chars:
+    if len(placeholder_sequence(source_text)) > context.batch_policy.batch_low_risk_max_placeholders:
+        return False
+    if not should_force_translate_body_text(item):
+        return False
+    compact_len = len(" ".join(strip_placeholders(source_text).split()))
+    if (
+        compact_len < context.batch_policy.batch_low_risk_min_chars
+        or compact_len > context.batch_policy.batch_low_risk_max_chars
+    ):
         return False
     return True

@@ -34,8 +34,8 @@ class SegmentationPolicy:
 
 @dataclass(frozen=True)
 class FallbackPolicy:
-    plain_text_attempts: int = 4
-    formula_segment_attempts: int = 4
+    plain_text_attempts: int = 2
+    formula_segment_attempts: int = 2
     allow_tagged_placeholder_retry: bool = True
     allow_keep_origin_degradation: bool = True
 
@@ -50,9 +50,10 @@ class TimeoutPolicy:
 
 @dataclass(frozen=True)
 class BatchPolicy:
-    plain_batch_size: int = 4
-    batch_low_risk_max_chars: int = 600
-    batch_low_risk_max_placeholders: int = 4
+    plain_batch_size: int = 6
+    batch_low_risk_min_chars: int = 16
+    batch_low_risk_max_chars: int = 1200
+    batch_low_risk_max_placeholders: int = 8
 
 
 @dataclass(frozen=True)
@@ -208,6 +209,6 @@ def resolve_engine_profile(*, model: str = "", base_url: str = "") -> EngineProf
                 profile.fallback_policy,
                 formula_segment_attempts=2,
             ),
-            batch_policy=replace(profile.batch_policy, plain_batch_size=6),
+            batch_policy=replace(profile.batch_policy, plain_batch_size=8),
         )
     return profile

@@ -306,6 +306,18 @@ jobs:
           import requests, fitz, pikepdf
           print("python_bundle_import_check=ok")
           PY
+          otool -L "$bundle_root/bin/python3"
+          bad_refs="$( \
+            { otool -L "$bundle_root/bin/python3" 2>/dev/null; \
+              find "$bundle_root" \( -name '*.so' -o -name '*.dylib' \) -type f -print0 | \
+              xargs -0 -I{} sh -c 'otool -L "{}" 2>/dev/null || true'; } | \
+            rg '/Library/Frameworks/Python\\.framework|/opt/homebrew/Cellar|/usr/local/Cellar' || true \
+          )"
+          if [ -n "$bad_refs" ]; then
+            echo "Bundled macOS Python runtime still contains host-specific dylib references:" >&2
+            echo "$bad_refs" >&2
+            exit 1
+          fi
           du -sh "$bundle_root"
 
       - name: Install desktop dependencies
@@ -433,35 +445,15 @@ jobs:
         shell: bash
         run: |
           qpdf_prefix="$(brew --prefix qpdf)"
-          python_bin="$(python3 -c 'import sys; print(sys.executable)')"
-          python_root="$(PYTHON_BIN="$python_bin" python3 - <<'PY'
-          import os
-          from pathlib import Path
-
-          python_bin = Path(os.environ["PYTHON_BIN"]).resolve()
-          print(python_bin.parent.parent)
-          PY
-          )"
           bundle_root="$PWD/backend/python"
-          echo "Using Python executable: $python_bin"
-          echo "Python runtime root: $python_root"
+          echo "Using Python executable: $(python3 -c 'import sys; print(sys.executable)')"
           rm -rf "$bundle_root"
-          mkdir -p "$bundle_root"
-          rsync -aL --delete \
-            --exclude '__pycache__' \
-            "$python_root"/ "$bundle_root"/
+          python3 -m venv --copies "$bundle_root"
           export CPPFLAGS="-I$qpdf_prefix/include ${CPPFLAGS:-}"
           export LDFLAGS="-L$qpdf_prefix/lib ${LDFLAGS:-}"
           export PKG_CONFIG_PATH="$qpdf_prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
           "$bundle_root/bin/python3" -m pip install --upgrade pip
-          py_minor="$("$bundle_root/bin/python3" - <<'PY'
-          import sys
-          print(f"{sys.version_info.major}.{sys.version_info.minor}")
-          PY
-          )"
-          site_packages="$bundle_root/lib/python${py_minor}/site-packages"
-          mkdir -p "$site_packages"
-          "$bundle_root/bin/python3" -m pip install --target "$site_packages" -r desktop/requirements-desktop-macos.txt
+          "$bundle_root/bin/python3" -m pip install -r desktop/requirements-desktop-macos.txt
           "$bundle_root/bin/python3" - <<'PY'
           import requests, fitz, pikepdf
           print("python_bundle_import_check=ok")
@@ -499,6 +491,7 @@ jobs:
         env:
           RETAIN_PDF_VERSION: ${{ steps.version.outputs.version }}
           RETAIN_PDF_DESKTOP_PLATFORM: darwin
+          RETAIN_PDF_BUNDLE_MAC_PYTHON: "1"
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npm run dist:mac
 

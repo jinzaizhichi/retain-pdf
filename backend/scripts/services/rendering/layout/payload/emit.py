@@ -33,6 +33,7 @@ def payload_to_render_block(payload: dict) -> RenderBlock:
         render_kind=payload["render_kind"],
         font_size_pt=payload["font_size_pt"],
         leading_em=payload["leading_em"],
+        font_weight=payload.get("font_weight", "regular"),
         fit_to_box=fit_to_box and payload["render_kind"] == "markdown",
         fit_min_font_size_pt=fit_min_font_size_pt,
         fit_min_leading_em=fit_min_leading_em,

@@ -27,11 +27,11 @@ def _fit_markdown_typst_helpers() -> list[str]:
         "}",
         "#let pdftr_floor_size(value, floor) = if value < floor { floor } else { value }",
         "#let pdftr_floor_leading(value, floor) = if value < floor { floor } else { value }",
-        "#let pdftr_fit_markdown(markdown, max_size: 10pt, min_size: 9pt, max_leading: 0.66em, min_leading: 0.54em, fit_height: none, eps: 0.08pt) = {",
+        '#let pdftr_fit_markdown(markdown, max_size: 10pt, min_size: 9pt, max_leading: 0.66em, min_leading: 0.54em, fit_height: none, weight: "regular", eps: 0.08pt) = {',
         "  layout(size => {",
         "    let allowed-height = if fit_height == none { size.height } else { calc.min(size.height, fit_height) }",
         "    let render(text_size, leading) = block(width: size.width)[#{",
-        "      set text(size: text_size)",
+        "      set text(size: text_size, weight: weight)",
         "      set par(leading: leading)",
         "      cmarker.render(markdown, math: mitex)",
         "    }]",
@@ -80,6 +80,7 @@ def _build_typst_block(block_id: str, block: RenderBlock) -> str:
     height = max(8.0, y1 - y0)
     font_size = max(1.0, block.font_size_pt)
     leading = max(0.1, block.leading_em)
+    font_weight = block.font_weight if str(block.font_weight or "").strip() else "regular"
 
     if block.render_kind == "plain_line":
         text_name = f"{var_prefix}_txt"
@@ -88,11 +89,11 @@ def _build_typst_block(block_id: str, block: RenderBlock) -> str:
         plain_text = block.plain_text
         return (
             f'#let {text_name} = "{escape_typst_string(plain_text)}"\n'
-            f"#let {base_name} = box[#{{ set text(size: {font_size}pt); {text_name} }}]\n"
+            f'#let {base_name} = box[#{{ set text(size: {font_size}pt, weight: "{font_weight}"); {text_name} }}]\n'
             "#context {\n"
             f"  let base-size = measure({base_name})\n"
             f"  let scaled-font = if base-size.width > {width}pt {{ {font_size}pt * ({width}pt / base-size.width) }} else {{ {font_size}pt }}\n"
-            f"  let {scaled_name} = box[#{{ set text(size: scaled-font); {text_name} }}]\n"
+            f'  let {scaled_name} = box[#{{ set text(size: scaled-font, weight: "{font_weight}"); {text_name} }}]\n'
             f"  place(top + left, dx: {x0}pt, dy: {y0}pt, {scaled_name})\n"
             "}"
         )
@@ -106,14 +107,14 @@ def _build_typst_block(block_id: str, block: RenderBlock) -> str:
         fit_height = max(8.0, min(height, block.fit_max_height_pt or height))
         return (
             f'#let {markdown_name} = "{escape_typst_string(markdown)}"\n'
-            f"#let {body_name} = block(width: {width}pt, height: {height}pt)[#{{ pdftr_fit_markdown({markdown_name}, max_size: {font_size}pt, min_size: {fit_min_font}pt, max_leading: {leading}em, min_leading: {fit_min_leading}em, fit_height: {fit_height}pt) }}]\n"
+            f'#let {body_name} = block(width: {width}pt, height: {height}pt)[#{{ pdftr_fit_markdown({markdown_name}, max_size: {font_size}pt, min_size: {fit_min_font}pt, max_leading: {leading}em, min_leading: {fit_min_leading}em, fit_height: {fit_height}pt, weight: "{font_weight}") }}]\n'
             "#context {\n"
             f"  place(top + left, dx: {x0}pt, dy: {y0}pt, {body_name})\n"
             "}"
         )
     return (
         f'#let {markdown_name} = "{escape_typst_string(markdown)}"\n'
-        f"#let {body_name} = block(width: {width}pt)[#{{ set text(size: {font_size}pt); set par(leading: {leading}em); cmarker.render({markdown_name}, math: mitex) }}]\n"
+        f'#let {body_name} = block(width: {width}pt)[#{{ set text(size: {font_size}pt, weight: "{font_weight}"); set par(leading: {leading}em); cmarker.render({markdown_name}, math: mitex) }}]\n'
         "#context {\n"
         f"  place(top + left, dx: {x0}pt, dy: {y0}pt, {body_name})\n"
         "}"

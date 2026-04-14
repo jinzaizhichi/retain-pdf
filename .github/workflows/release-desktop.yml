@@ -306,15 +306,15 @@ jobs:
           import requests, fitz, pikepdf
           print("python_bundle_import_check=ok")
           PY
-          otool -L "$bundle_root/bin/python3"
+          ldd "$bundle_root/bin/python3"
           bad_refs="$( \
-            { otool -L "$bundle_root/bin/python3" 2>/dev/null; \
+            { ldd "$bundle_root/bin/python3" 2>/dev/null; \
               find "$bundle_root" \( -name '*.so' -o -name '*.dylib' \) -type f -print0 | \
-              xargs -0 -I{} sh -c 'otool -L "{}" 2>/dev/null || true'; } | \
-            rg '/Library/Frameworks/Python\\.framework|/opt/homebrew/Cellar|/usr/local/Cellar' || true \
+              xargs -0 -I{} sh -c 'ldd "{}" 2>/dev/null || true'; } | \
+            rg '/Library/Frameworks/Python\\.framework|/opt/homebrew/Cellar|/usr/local/Cellar|/usr/local/opt/' || true \
           )"
           if [ -n "$bad_refs" ]; then
-            echo "Bundled macOS Python runtime still contains host-specific dylib references:" >&2
+            echo "Bundled Linux Python runtime still contains host-specific library references:" >&2
             echo "$bad_refs" >&2
             exit 1
           fi

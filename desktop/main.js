@@ -477,6 +477,18 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(frontendRoot, "index.html"));
 
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    const detail = `code=${errorCode} url=${validatedURL || "unknown"} error=${errorDescription || "unknown"}`;
+    console.error(`[desktop] renderer load failed: ${detail}`);
+    dialog.showErrorBox("RetainPDF 页面加载失败", detail);
+  });
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    const detail = `reason=${details?.reason || "unknown"} exitCode=${details?.exitCode ?? "unknown"}`;
+    console.error(`[desktop] renderer process gone: ${detail}`);
+    dialog.showErrorBox("RetainPDF 渲染进程异常退出", detail);
+  });
+
   mainWindow.webContents.once("did-finish-load", () => {
     updateSplashProgress(100, "准备完成", "正在进入主界面");
     mainWindow.show();

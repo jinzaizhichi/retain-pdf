@@ -209,6 +209,26 @@ for (const entry of copyEntries) {
   fs.cpSync(from, to, { recursive: true, force: true });
 }
 
+const desktopPartialsRoot = path.join(outputFrontendRoot, "src", "partials");
+const desktopTemplatesPath = path.join(outputFrontendRoot, "src", "js", "templates.js");
+const desktopMainContent = fs.readFileSync(
+  path.join(desktopPartialsRoot, "main-content.html"),
+  "utf8",
+);
+const desktopDialogs = fs.readFileSync(
+  path.join(desktopPartialsRoot, "dialogs.html"),
+  "utf8",
+);
+const desktopTemplatesSource = `const MAIN_CONTENT_HTML = ${JSON.stringify(desktopMainContent)};
+const DIALOGS_HTML = ${JSON.stringify(desktopDialogs)};
+
+export async function renderPageShell() {
+  document.body.innerHTML = MAIN_CONTENT_HTML + DIALOGS_HTML;
+}
+`;
+
+fs.writeFileSync(desktopTemplatesPath, desktopTemplatesSource, "utf8");
+
 const desktopConstantsPath = path.join(outputFrontendRoot, "src", "js", "constants.js");
 if (fs.existsSync(desktopConstantsPath)) {
   let desktopConstants = fs.readFileSync(desktopConstantsPath, "utf8");

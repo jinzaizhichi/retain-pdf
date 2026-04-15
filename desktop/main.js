@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const http = require("http");
@@ -11,6 +11,60 @@ let backendStopping = false;
 let splashWindow = null;
 let mainWindow = null;
 let usingExternalBackend = false;
+
+function resolveDesktopConfigPath() {
+  return path.join(app.getPath("userData"), "desktop-config.json");
+}
+
+function loadDesktopConfig() {
+  const configPath = resolveDesktopConfigPath();
+  if (!fs.existsSync(configPath)) {
+    return {
+      firstRunCompleted: false,
+      mineruToken: "",
+      modelApiKey: "",
+    };
+  }
+  try {
+    const raw = fs.readFileSync(configPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return {
+      firstRunCompleted: !!parsed.firstRunCompleted,
+      mineruToken: typeof parsed.mineruToken === "string" ? parsed.mineruToken : "",
+      modelApiKey: typeof parsed.modelApiKey === "string" ? parsed.modelApiKey : "",
+    };
+  } catch (error) {
+    console.error(`[desktop] failed to load desktop config: ${error?.message || error}`);
+    return {
+      firstRunCompleted: false,
+      mineruToken: "",
+      modelApiKey: "",
+    };
+  }
+}
+
+function saveDesktopConfig(payload = {}) {
+  const nextConfig = {
+    firstRunCompleted: true,
+    mineruToken: typeof payload.mineruToken === "string" ? payload.mineruToken.trim() : "",
+    modelApiKey: typeof payload.modelApiKey === "string" ? payload.modelApiKey.trim() : "",
+  };
+  const configPath = resolveDesktopConfigPath();
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, "utf8");
+  return nextConfig;
+}
+
+function buildDesktopRuntimeConfig(config) {
+  return {
+    apiBase: "http://127.0.0.1:41000",
+    xApiKey: DESKTOP_API_KEY,
+    mineruToken: config.mineruToken || "",
+    modelApiKey: config.modelApiKey || "",
+    model: "deepseek-chat",
+    baseUrl: "https://api.deepseek.com/v1",
+  };
+}
 
 function updateSplashProgress(progress, title, detail) {
   if (!splashWindow || splashWindow.isDestroyed()) {
@@ -477,6 +531,12 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(frontendRoot, "index.html"));
 
+  mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    console.log(
+      `[desktop][renderer][level=${level}] ${sourceId || "unknown"}:${line || 0} ${message || ""}`,
+    );
+  });
+
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
     const detail = `code=${errorCode} url=${validatedURL || "unknown"} error=${errorDescription || "unknown"}`;
     console.error(`[desktop] renderer load failed: ${detail}`);
@@ -532,4 +592,45 @@ app.on("before-quit", () => {
     backendStopping = true;
     backendChild.kill();
   }
+});
+
+ipcMain.handle("desktop:invoke", async (_event, command, args = {}) => {
+  switch (command) {
+    case "load_desktop_config": {
+      const config = loadDesktopConfig();
+      return {
+        firstRunCompleted: config.firstRunCompleted,
+        runtimeConfig: buildDesktopRuntimeConfig(config),
+      };
+    }
+    case "save_desktop_config": {
+      const config = saveDesktopConfig(args?.payload || {});
+      return {
+        firstRunCompleted: config.firstRunCompleted,
+        runtimeConfig: buildDesktopRuntimeConfig(config),
+      };
+    }
+    case "open_output_directory": {
+      const outputDir = path.join(app.getPath("userData"), "data", "jobs");
+      fs.mkdirSync(outputDir, { recursive: true });
+      const result = await shell.openPath(outputDir);
+      if (result) {
+        throw new Error(result);
+      }
+      return { ok: true, outputDir };
+    }
+    default:
+      throw new Error(`unsupported desktop command: ${command}`);
+  }
+});
+
+ipcMain.on("desktop:renderer-issue", (_event, payload = {}) => {
+  const type = payload?.type || "unknown";
+  const message = payload?.message || "unknown renderer issue";
+  const filename = payload?.filename || "";
+  const lineno = payload?.lineno || 0;
+  const colno = payload?.colno || 0;
+  console.error(
+    `[desktop][renderer-issue] type=${type} file=${filename} line=${lineno} col=${colno} message=${message}`,
+  );
 });

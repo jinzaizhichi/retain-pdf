@@ -283,6 +283,16 @@ function rewriteDesktopFrontendRuntimeImports() {
     fs.writeFileSync(readerJsPath, readerJs, "utf8");
   }
 
+  const mainJsPath = path.join(outputFrontendRoot, "src", "js", "main.js");
+  if (fs.existsSync(mainJsPath)) {
+    let mainJs = fs.readFileSync(mainJsPath, "utf8");
+    mainJs = mainJs.replaceAll(
+      "../../node_modules/pdfjs-dist/",
+      "../../vendor/pdfjs-dist/",
+    );
+    fs.writeFileSync(mainJsPath, mainJs, "utf8");
+  }
+
   const readerDialogControllerPath = path.join(
     outputFrontendRoot,
     "src",

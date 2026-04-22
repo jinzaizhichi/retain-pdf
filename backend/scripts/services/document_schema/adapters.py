@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Callable
 
+from services.document_schema.contract_v1 import enrich_document_contract_v1
 from services.document_schema.defaults import apply_document_defaults_with_report
 from services.document_schema.providers import PROVIDER_GENERIC_FLAT_OCR
 from services.document_schema.providers import PROVIDER_MINERU
@@ -150,6 +151,7 @@ def adapt_payload_to_document_v1_with_report(
         raise RuntimeError(f"Unsupported OCR provider adapter: {provider}")
     document = builder(payload, document_id, source_json_path, provider_version)
     upgraded, defaults_report = apply_document_defaults_with_report(document)
+    upgraded = enrich_document_contract_v1(upgraded)
     validate_document_payload(upgraded)
     report = {
         "source_json_path": str(source_json_path),
@@ -159,6 +161,9 @@ def adapt_payload_to_document_v1_with_report(
         "defaults": defaults_report,
         "validation": build_validation_report(upgraded),
     }
+    provider_signals = dict((upgraded.get("derived") or {}).get("provider_signals") or {})
+    if provider_signals:
+        report["provider_signals"] = provider_signals
     return upgraded, report
 
 

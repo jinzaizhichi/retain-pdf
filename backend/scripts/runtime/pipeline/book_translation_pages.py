@@ -11,6 +11,7 @@ from services.translation.payload import ensure_translation_template
 from services.translation.payload import load_translations
 from services.translation.payload import save_translations
 from services.translation.payload import write_translation_manifest
+from services.translation.payload.parts.translation_units import refresh_payload_translation_units
 
 
 def translate_book_pages(
@@ -70,7 +71,7 @@ def load_page_payloads(
     data: dict,
     output_dir: Path,
     page_indices: range,
-    math_mode: str = "placeholder",
+    math_mode: str = "direct_typst",
 ) -> tuple[dict[int, Path], dict[int, list[dict]]]:
     translation_paths: dict[int, Path] = {}
     page_payloads: dict[int, list[dict]] = {}
@@ -92,4 +93,5 @@ def save_pages(
 ) -> None:
     targets = sorted(page_payloads) if page_indices is None else sorted(page_indices)
     for page_idx in targets:
+        refresh_payload_translation_units(page_payloads[page_idx])
         save_translations(translation_paths[page_idx], page_payloads[page_idx])

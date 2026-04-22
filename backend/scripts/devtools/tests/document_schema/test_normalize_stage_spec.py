@@ -14,8 +14,8 @@ from foundation.shared.stage_specs import build_stage_invocation_metadata
 from foundation.shared.stage_specs import BookStageSpec
 from foundation.shared.stage_specs import BOOK_STAGE_SCHEMA_VERSION
 from foundation.shared.stage_specs import NORMALIZE_STAGE_SCHEMA_VERSION
-from foundation.shared.stage_specs import MineruStageSpec
-from foundation.shared.stage_specs import MINERU_STAGE_SCHEMA_VERSION
+from foundation.shared.stage_specs import ProviderStageSpec
+from foundation.shared.stage_specs import PROVIDER_STAGE_SCHEMA_VERSION
 from foundation.shared.stage_specs import resolve_credential_ref
 from foundation.shared.stage_specs import TranslateStageSpec
 from foundation.shared.stage_specs import TRANSLATE_STAGE_SCHEMA_VERSION
@@ -164,6 +164,47 @@ def test_translate_stage_spec_loads_and_resolves_env_credential(tmp_path: Path, 
     assert resolve_credential_ref(spec.params.credential_ref) == "sk-stage-test"
 
 
+def test_translate_stage_spec_defaults_math_mode_to_direct_typst(tmp_path: Path) -> None:
+    job_root = tmp_path / "20260414-translatejob-default-math"
+    ensure_job_dirs(resolve_job_dirs(job_root))
+    source_json = tmp_path / "document.v1.json"
+    source_pdf = tmp_path / "source.pdf"
+    source_json.write_text("{}", encoding="utf-8")
+    source_pdf.write_bytes(b"%PDF-1.4\n")
+    spec_path = job_root / "specs" / "translate.spec.json"
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    spec_path.write_text(
+        json.dumps(
+            {
+                "schema_version": TRANSLATE_STAGE_SCHEMA_VERSION,
+                "stage": "translate",
+                "job": {
+                    "job_id": "20260414-translatejob-default-math",
+                    "job_root": str(job_root),
+                    "workflow": "translate",
+                },
+                "inputs": {
+                    "source_json": str(source_json),
+                    "source_pdf": str(source_pdf),
+                    "layout_json": "",
+                },
+                "params": {
+                    "model": "deepseek-chat",
+                    "base_url": "https://api.deepseek.com/v1",
+                    "credential_ref": "",
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    spec = TranslateStageSpec.load(spec_path)
+
+    assert spec.params.math_mode == "direct_typst"
+
+
 def test_render_stage_spec_loads_and_resolves_paths(tmp_path: Path) -> None:
     job_root = tmp_path / "20260414-renderjob"
     ensure_job_dirs(resolve_job_dirs(job_root))
@@ -279,24 +320,24 @@ def test_render_stage_spec_empty_font_family_uses_default_font(tmp_path: Path) -
     assert spec.params.typst_font_family == fonts.TYPST_DEFAULT_FONT_FAMILY
 
 
-def test_mineru_stage_spec_loads_and_resolves_credentials(tmp_path: Path, monkeypatch) -> None:
-    job_root = tmp_path / "20260414-minerujob"
+def test_provider_stage_spec_loads_and_resolves_credentials(tmp_path: Path, monkeypatch) -> None:
+    job_root = tmp_path / "20260414-providerjob"
     source_dir = job_root / "source"
     ensure_job_dirs(resolve_job_dirs(job_root))
     source_pdf = source_dir / "book.pdf"
     source_dir.mkdir(parents=True, exist_ok=True)
     source_pdf.write_bytes(b"%PDF-1.4\n")
-    spec_path = job_root / "specs" / "mineru.spec.json"
+    spec_path = job_root / "specs" / "provider.spec.json"
     spec_path.parent.mkdir(parents=True, exist_ok=True)
     spec_path.write_text(
         json.dumps(
             {
-                "schema_version": MINERU_STAGE_SCHEMA_VERSION,
-                "stage": "mineru",
+                "schema_version": PROVIDER_STAGE_SCHEMA_VERSION,
+                "stage": "provider",
                 "job": {
-                    "job_id": "20260414-minerujob",
+                    "job_id": "20260414-providerjob",
                     "job_root": str(job_root),
-                    "workflow": "mineru",
+                    "workflow": "book",
                 },
                 "source": {
                     "file_url": "",
@@ -359,11 +400,89 @@ def test_mineru_stage_spec_loads_and_resolves_credentials(tmp_path: Path, monkey
     monkeypatch.setenv("RETAIN_MINERU_API_TOKEN", "mineru-env-test")
     monkeypatch.setenv("RETAIN_TRANSLATION_API_KEY", "sk-stage-test")
 
-    spec = MineruStageSpec.load(spec_path)
+    spec = ProviderStageSpec.load(spec_path)
 
-    assert spec.stage == "mineru"
+    assert spec.stage == "provider"
     assert spec.source.file_path == source_pdf.resolve()
     assert resolve_credential_ref(spec.ocr.credential_ref) == "mineru-env-test"
+    assert resolve_credential_ref(spec.translation.credential_ref) == "sk-stage-test"
+
+
+def test_provider_stage_spec_loads_paddle_provider_fields(tmp_path: Path, monkeypatch) -> None:
+    job_root = tmp_path / "20260418-provider-paddle"
+    source_dir = job_root / "source"
+    ensure_job_dirs(resolve_job_dirs(job_root))
+    source_pdf = source_dir / "book.pdf"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    source_pdf.write_bytes(b"%PDF-1.4\n")
+    spec_path = job_root / "specs" / "provider.spec.json"
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    spec_path.write_text(
+        json.dumps(
+            {
+                "schema_version": PROVIDER_STAGE_SCHEMA_VERSION,
+                "stage": "provider",
+                "job": {
+                    "job_id": "20260418-provider-paddle",
+                    "job_root": str(job_root),
+                    "workflow": "book",
+                },
+                "source": {
+                    "file_url": "",
+                    "file_path": str(source_pdf),
+                },
+                "ocr": {
+                    "provider": "paddle",
+                    "credential_ref": "env:RETAIN_PADDLE_API_TOKEN",
+                    "model_version": "vlm",
+                    "paddle_api_url": "https://paddleocr.aistudio-app.com",
+                    "paddle_model": "PaddleOCR-VL-1.5",
+                    "is_ocr": False,
+                    "disable_formula": False,
+                    "disable_table": False,
+                    "language": "ch",
+                    "page_ranges": "",
+                    "data_id": "",
+                    "no_cache": False,
+                    "cache_tolerance": 900,
+                    "extra_formats": "",
+                    "poll_interval": 5,
+                    "poll_timeout": 1800,
+                },
+                "translation": {
+                    "model": "deepseek-chat",
+                    "base_url": "https://api.deepseek.com/v1",
+                    "credential_ref": "env:RETAIN_TRANSLATION_API_KEY",
+                    "glossary_entries": [],
+                },
+                "render": {
+                    "render_mode": "typst",
+                    "compile_workers": 0,
+                    "typst_font_family": "",
+                    "pdf_compress_dpi": 150,
+                    "translated_pdf_name": "out.pdf",
+                    "body_font_size_factor": 1.0,
+                    "body_leading_factor": 1.0,
+                    "inner_bbox_shrink_x": 0.0,
+                    "inner_bbox_shrink_y": 0.0,
+                    "inner_bbox_dense_shrink_x": 0.0,
+                    "inner_bbox_dense_shrink_y": 0.0,
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("RETAIN_PADDLE_API_TOKEN", "paddle-env-test")
+    monkeypatch.setenv("RETAIN_TRANSLATION_API_KEY", "sk-stage-test")
+
+    spec = ProviderStageSpec.load(spec_path)
+
+    assert spec.ocr.provider == "paddle"
+    assert spec.ocr.paddle_api_url == "https://paddleocr.aistudio-app.com"
+    assert spec.ocr.paddle_model == "PaddleOCR-VL-1.5"
+    assert resolve_credential_ref(spec.ocr.credential_ref) == "paddle-env-test"
     assert resolve_credential_ref(spec.translation.credential_ref) == "sk-stage-test"
 
 

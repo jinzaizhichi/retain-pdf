@@ -1,14 +1,13 @@
 use anyhow::Result;
 
-use crate::job_events::persist_runtime_job;
+use crate::job_events::persist_runtime_job_with_resources;
 use crate::models::{now_iso, JobRuntimeState, JobStatusKind};
 use crate::ocr_provider::parse_provider_kind;
-use crate::AppState;
 
 use super::{
     append_error_chain_log, attach_job_provider_failure, build_normalize_ocr_command,
     clear_canceled_runtime_artifacts, clear_job_failure, execute_process_job, format_error_chain,
-    is_cancel_requested, job_artifacts_mut, refresh_job_failure, sync_runtime_state,
+    job_artifacts_mut, refresh_job_failure, sync_runtime_state, ProcessRuntimeDeps,
 };
 
 mod artifacts;
@@ -18,6 +17,7 @@ mod mineru;
 mod mineru_polling;
 mod mineru_retry;
 mod paddle;
+mod paddle_markdown;
 mod page_subset;
 mod polling;
 mod provider_result;
@@ -25,27 +25,33 @@ mod status;
 mod transport;
 mod workspace;
 
+use super::cancel_registry::is_cancel_requested_with_registry;
 use transport::execute_transport;
 use workspace::OcrWorkspace;
 
 async fn save_ocr_job(
-    state: &AppState,
+    deps: &ProcessRuntimeDeps,
     job: &JobRuntimeState,
     parent_job_id: Option<&str>,
 ) -> Result<()> {
-    persist_runtime_job(state, job)?;
+    persist_runtime_job_with_resources(
+        deps.db.as_ref(),
+        &deps.config.data_root,
+        &deps.config.output_root,
+        job,
+    )?;
     if let Some(parent_job_id) = parent_job_id {
-        mirror_parent_ocr_status(state, parent_job_id, job).await?;
+        mirror_parent_ocr_status(deps, parent_job_id, job).await?;
     }
     Ok(())
 }
 
 async fn mirror_parent_ocr_status(
-    state: &AppState,
+    deps: &ProcessRuntimeDeps,
     parent_job_id: &str,
     ocr_job: &JobRuntimeState,
 ) -> Result<()> {
-    let mut parent_job = state.db.get_job(parent_job_id)?.into_runtime();
+    let mut parent_job = deps.db.get_job(parent_job_id)?.into_runtime();
     if matches!(
         parent_job.status,
         JobStatusKind::Succeeded | JobStatusKind::Failed | JobStatusKind::Canceled
@@ -80,7 +86,12 @@ async fn mirror_parent_ocr_status(
     parent_job.updated_at = now_iso();
     parent_job.replace_failure_info(None);
     parent_job.sync_runtime_state();
-    persist_runtime_job(state, &parent_job)?;
+    persist_runtime_job_with_resources(
+        deps.db.as_ref(),
+        &deps.config.data_root,
+        &deps.config.output_root,
+        &parent_job,
+    )?;
     Ok(())
 }
 
@@ -98,7 +109,7 @@ fn fail_missing_source_pdf(job: &mut JobRuntimeState, source_pdf_path: &std::pat
 }
 
 pub async fn execute_ocr_job(
-    state: AppState,
+    deps: ProcessRuntimeDeps,
     mut job: JobRuntimeState,
     output_job_id_override: Option<String>,
     parent_job_id: Option<String>,
@@ -113,14 +124,13 @@ pub async fn execute_ocr_job(
     job.stage_detail = Some("OCR provider transport 启动中".to_string());
     clear_job_failure(&mut job);
     sync_runtime_state(&mut job);
-    save_ocr_job(&state, &job, parent_job_id.as_deref()).await?;
+    save_ocr_job(&deps, &job, parent_job_id.as_deref()).await?;
 
-    let workspace =
-        OcrWorkspace::prepare(&state, &mut job, &provider_kind, output_job_id_override)?;
-    save_ocr_job(&state, &job, parent_job_id.as_deref()).await?;
+    let workspace = OcrWorkspace::prepare(&deps, &mut job, &provider_kind, output_job_id_override)?;
+    save_ocr_job(&deps, &job, parent_job_id.as_deref()).await?;
 
     let source_pdf_path = match execute_transport(
-        &state,
+        &deps,
         &mut job,
         &provider_kind,
         &workspace,
@@ -135,7 +145,7 @@ pub async fn execute_ocr_job(
         }
     };
 
-    if is_cancel_requested(&state, &job.job_id).await {
+    if is_cancel_requested_with_registry(deps.canceled_jobs.as_ref(), &job.job_id).await {
         job.status = JobStatusKind::Canceled;
         job.stage = Some("canceled".to_string());
         job.stage_detail = Some("OCR 任务已取消".to_string());
@@ -144,13 +154,13 @@ pub async fn execute_ocr_job(
         clear_canceled_runtime_artifacts(&mut job);
         clear_job_failure(&mut job);
         sync_runtime_state(&mut job);
-        save_ocr_job(&state, &job, parent_job_id.as_deref()).await?;
+        save_ocr_job(&deps, &job, parent_job_id.as_deref()).await?;
         return Ok(job);
     }
 
     if !source_pdf_path.exists() {
         fail_missing_source_pdf(&mut job, &source_pdf_path);
-        save_ocr_job(&state, &job, parent_job_id.as_deref()).await?;
+        save_ocr_job(&deps, &job, parent_job_id.as_deref()).await?;
         return Ok(job);
     }
 
@@ -158,7 +168,7 @@ pub async fn execute_ocr_job(
     job_artifacts_mut(&mut job).source_pdf = Some(source_pdf_string);
 
     job.command = build_normalize_ocr_command(
-        state.config.as_ref(),
+        deps.config.as_ref(),
         &job.request_payload,
         &workspace.job_paths,
         &workspace.layout_json_path,
@@ -171,9 +181,9 @@ pub async fn execute_ocr_job(
     job.stage_detail = Some("OCR provider 已完成，开始标准化 document.v1".to_string());
     job.updated_at = now_iso();
     sync_runtime_state(&mut job);
-    save_ocr_job(&state, &job, parent_job_id.as_deref()).await?;
+    save_ocr_job(&deps, &job, parent_job_id.as_deref()).await?;
 
-    execute_process_job(state, job, &[]).await
+    execute_process_job(deps, job, &[]).await
 }
 
 fn fail_ocr_transport(job: &mut JobRuntimeState, err: &anyhow::Error) {

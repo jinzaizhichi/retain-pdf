@@ -8,8 +8,7 @@ use crate::storage_paths::{
 };
 
 pub fn load_job_or_404(db: &Db, job_id: &str) -> Result<JobSnapshot, AppError> {
-    db
-        .get_job(job_id)
+    db.get_job(job_id)
         .map_err(|_| AppError::not_found(format!("job not found: {job_id}")))
 }
 

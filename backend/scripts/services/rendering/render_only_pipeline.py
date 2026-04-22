@@ -17,7 +17,7 @@ from foundation.shared.tee_output import enable_job_log_capture
 from runtime.pipeline.render_stage import run_render_stage
 from services.mineru.artifacts import save_json
 from services.mineru.contracts import format_stdout_kv
-from services.mineru.contracts import MINERU_PIPELINE_SUMMARY_FILE_NAME
+from services.mineru.contracts import PIPELINE_SUMMARY_FILE_NAME
 from services.mineru.contracts import STDOUT_LABEL_JOB_ROOT
 from services.mineru.contracts import STDOUT_LABEL_OUTPUT_PDF
 from services.mineru.contracts import STDOUT_LABEL_SOURCE_PDF
@@ -90,7 +90,7 @@ def main() -> None:
     )
     translated_pdf_name = args.translated_pdf_name.strip() or f"{source_pdf_path.stem}-translated.pdf"
     output_pdf_path = job_dirs.rendered_dir / translated_pdf_name
-    summary_path = job_dirs.artifacts_dir / MINERU_PIPELINE_SUMMARY_FILE_NAME
+    summary_path = job_dirs.artifacts_dir / PIPELINE_SUMMARY_FILE_NAME
 
     started = time.perf_counter()
     result = run_render_stage(

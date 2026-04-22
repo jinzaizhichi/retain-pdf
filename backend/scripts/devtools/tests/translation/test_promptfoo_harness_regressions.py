@@ -9,7 +9,7 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 import devtools.promptfoo.provider as promptfoo_provider
 import devtools.promptfoo.tests as promptfoo_tests
-from services.translation.payload.parts.policy_mutations import apply_ref_text_skip
+from services.translation.payload.parts.legacy_policy_mutations import apply_ref_text_skip
 
 
 def test_generate_tests_omits_none_vars_and_blank_math_expectations(monkeypatch) -> None:

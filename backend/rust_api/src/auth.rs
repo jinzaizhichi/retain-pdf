@@ -4,7 +4,19 @@ use axum::middleware::Next;
 use axum::response::Response;
 
 use crate::error::AppError;
+use crate::routes::common::{build_auth_route_deps, AuthRouteDeps};
 use crate::AppState;
+
+fn has_valid_api_key(deps: AuthRouteDeps<'_>, request: &Request<Body>) -> bool {
+    request
+        .headers()
+        .get("x-api-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|key| deps.api_keys.contains(key))
+        .unwrap_or(false)
+}
 
 pub async fn require_api_key(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -15,16 +27,7 @@ pub async fn require_api_key(
         return Ok(next.run(request).await);
     }
 
-    let is_valid = request
-        .headers()
-        .get("x-api-key")
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|key| state.config.api_keys.contains(key))
-        .unwrap_or(false);
-
-    if !is_valid {
+    if !has_valid_api_key(build_auth_route_deps(&state), &request) {
         return Err(AppError::unauthorized("missing or invalid X-API-Key"));
     }
 

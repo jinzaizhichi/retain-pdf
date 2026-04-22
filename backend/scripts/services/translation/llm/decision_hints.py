@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import re
 
-from services.document_schema.semantics import is_reference_entry_semantic
-from services.document_schema.semantics import structure_role
+from services.translation.item_reader import item_block_kind
+from services.translation.item_reader import item_effective_role
+from services.translation.item_reader import item_is_reference_like
+from services.translation.item_reader import item_layout_role
+from services.translation.item_reader import item_semantic_role
 
 YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
 AUTHOR_TOKEN_RE = re.compile(r"\b[A-Z][a-z]+(?:[-'][A-Za-z]+)?\b")
@@ -22,11 +25,17 @@ def _looks_like_short_fragment(text: str) -> bool:
 
 def build_decision_hints(item: dict) -> dict[str, object]:
     text = _normalized_text(item)
-    metadata = item.get("metadata", {}) or {}
+    block_kind = item_block_kind(item) or "unknown"
+    layout_role = item_layout_role(item) or ""
+    semantic_role = item_semantic_role(item) or ""
+    effective_role = item_effective_role(item) or "body"
     return {
-        "block_type": item.get("block_type", "unknown"),
-        "structure_role": structure_role(metadata) or "body",
-        "reference_like": is_reference_entry_semantic(metadata),
+        "block_type": block_kind,
+        "block_kind": block_kind,
+        "structure_role": effective_role,
+        "layout_role": layout_role or "unknown",
+        "semantic_role": semantic_role or "unknown",
+        "reference_like": item_is_reference_like(item),
         "short_fragment_like": _looks_like_short_fragment(text),
         "has_inline_formula": bool(item.get("formula_map") or item.get("translation_unit_formula_map")),
         "contains_year": bool(YEAR_RE.search(text)),

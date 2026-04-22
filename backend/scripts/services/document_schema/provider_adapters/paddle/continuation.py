@@ -42,6 +42,24 @@ def _group_id(block: dict) -> str:
         return f"provider-paddle-page-{page_index + 1:03d}-group-{local_group_id}"
     return ""
 
+def _suppressed_by_cross_column_merge(block: dict) -> bool:
+    metadata = block.get("metadata", {}) or {}
+    return bool(
+        metadata.get("provider_cross_column_merge_suspected")
+        or metadata.get("provider_reading_order_unreliable")
+        or metadata.get("provider_body_repair_applied")
+    )
+
+
+def _mark_provider_hint_suppressed(block: dict) -> None:
+    metadata = block.setdefault("metadata", {})
+    metadata["provider_continuation_suppressed"] = True
+    reason = "body_repair_applied" if metadata.get("provider_body_repair_applied") else "cross_column_merge_suspected"
+    metadata["provider_continuation_suppressed_reason"] = reason
+    metadata["continuation_suppressed"] = True
+    metadata["continuation_suppressed_reason"] = reason
+
+
 def assign_paddle_continuation_hints(pages: list[dict]) -> None:
     groups: dict[str, list[dict]] = {}
     for page in pages:
@@ -53,6 +71,10 @@ def assign_paddle_continuation_hints(pages: list[dict]) -> None:
             groups.setdefault(group_id, []).append(block)
 
     for group_id, blocks in groups.items():
+        if any(_suppressed_by_cross_column_merge(block) for block in blocks):
+            for block in blocks:
+                _mark_provider_hint_suppressed(block)
+            continue
         if len(blocks) > 1 and any(_raw_order(block) is None for block in blocks):
             continue
         ordered = sorted(

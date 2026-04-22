@@ -16,6 +16,7 @@ from runtime.pipeline.book_translation_batches import _effective_translation_bat
 from runtime.pipeline.book_translation_batches import _translate_batch_or_keep_origin
 from services.translation.llm.control_context import build_translation_control_context
 from services.translation.llm.control_context import resolve_engine_profile
+from services.translation.orchestration.units import finalize_payload_orchestration_metadata
 from services.translation.payload.parts.units import pending_translation_items
 
 
@@ -89,7 +90,85 @@ def test_heavy_continuation_group_is_split_back_to_single_units() -> None:
     assert [unit["item_id"] for unit in units] == ["a", "b"]
     assert all(unit["translation_unit_kind"] == "single" for unit in units)
     assert all(unit["group_split_reason"] == "formula_heavy_group" for unit in units)
+    assert all(unit["continuation_group"] == "" for unit in units)
     assert all(not unit.get("group_protected_source_text") for unit in units)
+
+
+def test_finalize_payload_orchestration_metadata_clears_orphan_group_state() -> None:
+    payload = [
+        {
+            "item_id": "a",
+            "continuation_group": "cg-orphan",
+            "classification_label": "",
+            "should_translate": True,
+            "protected_source_text": "orphan body text",
+            "formula_map": [],
+            "protected_map": [],
+            "translation_unit_id": "__cg__:cg-orphan",
+            "translation_unit_kind": "group",
+            "translation_unit_member_ids": ["a", "ghost"],
+            "translation_unit_protected_source_text": "stale combined",
+            "translation_unit_formula_map": [{"placeholder": "<f1-a7c/>"}],
+            "translation_unit_protected_map": [{"token_tag": "<f1-a7c/>"}],
+            "group_protected_source_text": "stale combined",
+            "group_formula_map": [{"placeholder": "<f1-a7c/>"}],
+            "group_protected_map": [{"token_tag": "<f1-a7c/>"}],
+            "group_protected_translated_text": "旧组结果",
+            "group_translated_text": "旧组结果",
+            "continuation_candidate_prev_id": "",
+            "continuation_candidate_next_id": "",
+        }
+    ]
+
+    finalize_payload_orchestration_metadata(payload)
+
+    assert payload[0]["translation_unit_id"] == "a"
+    assert payload[0]["translation_unit_kind"] == "single"
+    assert payload[0]["translation_unit_member_ids"] == ["a"]
+    assert payload[0]["translation_unit_protected_source_text"] == "orphan body text"
+    assert payload[0]["group_protected_source_text"] == ""
+    assert payload[0]["group_translated_text"] == ""
+
+
+def test_pending_translation_items_refreshes_member_ids_for_real_group() -> None:
+    payload = [
+        {
+            "item_id": "a",
+            "translation_unit_id": "__cg__:cg-real",
+            "translation_unit_kind": "group",
+            "translation_unit_member_ids": ["a"],
+            "block_type": "text",
+            "should_translate": True,
+            "protected_source_text": "left body text",
+            "source_text": "left body text",
+            "formula_map": [],
+            "protected_map": [],
+            "continuation_group": "cg-real",
+            "metadata": {"structure_role": "body"},
+        },
+        {
+            "item_id": "b",
+            "translation_unit_id": "b",
+            "translation_unit_kind": "single",
+            "translation_unit_member_ids": ["b"],
+            "block_type": "text",
+            "should_translate": True,
+            "protected_source_text": "right body text",
+            "source_text": "right body text",
+            "formula_map": [],
+            "protected_map": [],
+            "continuation_group": "cg-real",
+            "metadata": {"structure_role": "body"},
+        },
+    ]
+
+    units = pending_translation_items(payload)
+
+    assert [unit["item_id"] for unit in units] == ["__cg__:cg-real"]
+    assert payload[0]["translation_unit_member_ids"] == ["a", "b"]
+    assert payload[1]["translation_unit_member_ids"] == ["a", "b"]
+    assert payload[0]["translation_unit_kind"] == "group"
+    assert payload[1]["translation_unit_kind"] == "group"
 
 
 def test_fragmented_formula_continuation_group_stays_grouped() -> None:

@@ -18,6 +18,12 @@ from services.translation.payload import apply_translated_text_map
 from services.translation.payload import pending_translation_items
 from services.translation.payload.parts.common import GROUP_ITEM_PREFIX
 from services.translation.llm import translate_batch
+from services.translation.item_reader import item_block_kind
+from services.translation.item_reader import item_is_bodylike
+from services.translation.item_reader import item_is_caption_like
+from services.translation.item_reader import item_policy_translate
+from services.translation.item_reader import item_layout_role
+from services.translation.item_reader import item_semantic_role
 
 from runtime.pipeline.book_translation_pages import save_pages
 
@@ -73,7 +79,9 @@ def _dedupe_signature(item: dict) -> str | None:
     if not source:
         return None
     payload = {
-        "block_type": str(item.get("block_type", "") or ""),
+        "block_kind": item_block_kind(item),
+        "layout_role": item_layout_role(item),
+        "semantic_role": item_semantic_role(item),
         "source": source,
         "mixed_literal_action": str(item.get("mixed_literal_action", "") or ""),
         "mixed_literal_prefix": str(item.get("mixed_literal_prefix", "") or ""),
@@ -147,26 +155,26 @@ def _fast_path_keep_origin_result(item: dict, reason: str) -> dict[str, dict[str
 def _is_fast_path_keep_origin_item(item: dict) -> tuple[bool, str]:
     source = _source_text(item)
     compact = _normalized_text_without_placeholders(item)
-    block_type = str(item.get("block_type", "") or "").strip().lower()
-    metadata = item.get("metadata", {}) or {}
-    structure_role = str(metadata.get("structure_role", "") or "").strip().lower()
     layout_zone = str(item.get("layout_zone", "") or "").strip().lower()
+    policy_translate = item_policy_translate(item)
     if not source.strip():
         return True, "empty_source_text"
     if not compact:
         return True, "placeholder_only"
+    if policy_translate is False:
+        return True, "policy_skip"
     if looks_like_hard_nontranslatable_metadata(item):
         return True, "hard_metadata_fragment"
     if (
         len(compact) <= 4
         and compact.replace(" ", "").isalnum()
-        and block_type in {"image_caption", "table_caption", "table_footnote"}
+        and item_is_caption_like(item)
     ):
         return True, "short_non_body_label"
     if (
         len(compact) <= 4
         and compact.replace(" ", "").isalnum()
-        and structure_role in {"caption", "image_caption", "table_caption", "metadata"}
+        and not policy_translate
         and layout_zone == "non_flow"
     ):
         return True, "short_non_body_label"
@@ -182,7 +190,9 @@ def _is_low_risk_batchable_item(item: dict, *, translation_context: TranslationC
         return False
     if str(item.get("translation_unit_id", "") or "").startswith(GROUP_ITEM_PREFIX):
         return False
-    if str(item.get("block_type", "") or "") != "text":
+    if item_block_kind(item) != "text":
+        return False
+    if not item_is_bodylike(item):
         return False
     if not should_force_translate_body_text(item):
         return False
@@ -351,11 +361,29 @@ def _submit_parallel_translation_batches(
         }
 
 
+def _current_payload_page_indexes(flat_payload: list[dict], fallback_item_to_page: dict[str, int]) -> tuple[dict[str, int], dict[str, set[int]]]:
+    item_to_page: dict[str, int] = dict(fallback_item_to_page)
+    unit_to_pages: dict[str, set[int]] = {}
+    for item in flat_payload:
+        item_id = str(item.get("item_id", "") or "")
+        page_idx = item.get("page_idx")
+        if page_idx is None:
+            page_idx = fallback_item_to_page.get(item_id)
+        if page_idx is None:
+            continue
+        item_to_page[item_id] = int(page_idx)
+        unit_id = str(item.get("translation_unit_id") or item_id or "")
+        if unit_id:
+            unit_to_pages.setdefault(unit_id, set()).add(int(page_idx))
+    return item_to_page, unit_to_pages
+
+
 def touched_pages_for_batch(
     translated: dict[str, str],
-    item_to_page: dict[str, int],
-    unit_to_pages: dict[str, set[int]],
+    flat_payload: list[dict],
+    fallback_item_to_page: dict[str, int],
 ) -> set[int]:
+    item_to_page, unit_to_pages = _current_payload_page_indexes(flat_payload, fallback_item_to_page)
     touched_pages: set[int] = set()
     for item_id in translated:
         if item_id.startswith(GROUP_ITEM_PREFIX):
@@ -436,14 +464,10 @@ def translate_pending_units(
 ) -> dict[str, int]:
     flat_payload: list[dict] = []
     item_to_page: dict[str, int] = {}
-    unit_to_pages: dict[str, set[int]] = {}
     for page_idx in sorted(page_payloads):
         for item in page_payloads[page_idx]:
             flat_payload.append(item)
             item_to_page[item.get("item_id", "")] = page_idx
-            unit_id = str(item.get("translation_unit_id") or item.get("item_id") or "")
-            if unit_id:
-                unit_to_pages.setdefault(unit_id, set()).add(page_idx)
 
     pending = pending_translation_items(flat_payload)
     pending, duplicate_items_by_rep_id = _dedupe_pending_items(pending)
@@ -493,7 +517,7 @@ def translate_pending_units(
     for immediate in immediate_results:
         immediate = _expand_duplicate_results(immediate, duplicate_items_by_rep_id=duplicate_items_by_rep_id)
         apply_translated_text_map(flat_payload, immediate)
-        dirty_pages.update(touched_pages_for_batch(immediate, item_to_page, unit_to_pages))
+        dirty_pages.update(touched_pages_for_batch(immediate, flat_payload, item_to_page))
     if immediate_results and not batches and dirty_pages:
         save_started = time.perf_counter()
         save_pages(page_payloads, translation_paths, dirty_pages)
@@ -517,7 +541,7 @@ def translate_pending_units(
             )
             translated = _expand_duplicate_results(translated, duplicate_items_by_rep_id=duplicate_items_by_rep_id)
             apply_translated_text_map(flat_payload, translated)
-            dirty_pages.update(touched_pages_for_batch(translated, item_to_page, unit_to_pages))
+            dirty_pages.update(touched_pages_for_batch(translated, flat_payload, item_to_page))
             if index % flush_interval == 0 and dirty_pages:
                 save_started = time.perf_counter()
                 save_pages(page_payloads, translation_paths, dirty_pages)
@@ -598,7 +622,7 @@ def translate_pending_units(
             translated = _expand_duplicate_results(translated, duplicate_items_by_rep_id=duplicate_items_by_rep_id)
             apply_translated_text_map(flat_payload, translated)
             completed += 1
-            dirty_pages.update(touched_pages_for_batch(translated, item_to_page, unit_to_pages))
+            dirty_pages.update(touched_pages_for_batch(translated, flat_payload, item_to_page))
             if completed % flush_interval == 0 and dirty_pages:
                 save_started = time.perf_counter()
                 save_pages(page_payloads, translation_paths, dirty_pages)

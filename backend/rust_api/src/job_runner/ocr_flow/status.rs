@@ -2,14 +2,13 @@ use anyhow::Result;
 
 use crate::models::{now_iso, JobRuntimeState};
 use crate::ocr_provider::OcrTaskStatus;
-use crate::AppState;
 
-use crate::job_runner::{job_artifacts_mut, ocr_provider_diagnostics_mut};
+use crate::job_runner::{job_artifacts_mut, ocr_provider_diagnostics_mut, ProcessRuntimeDeps};
 
 use super::save_ocr_job;
 
 pub(super) async fn update_ocr_job_from_status(
-    state: &AppState,
+    deps: &ProcessRuntimeDeps,
     job: &mut JobRuntimeState,
     status: OcrTaskStatus,
     current: Option<i64>,
@@ -25,7 +24,7 @@ pub(super) async fn update_ocr_job_from_status(
     job.progress_total = total;
     record_provider_trace(job, status.trace_id.clone());
     job.updated_at = now_iso();
-    save_ocr_job(state, job, parent_job_id).await?;
+    save_ocr_job(deps, job, parent_job_id).await?;
     Ok(())
 }
 

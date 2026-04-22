@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
-use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, RANGE};
 use reqwest::Client;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -208,6 +208,22 @@ impl MineruClient {
         tokio::fs::write(dest_path, &bytes)
             .await
             .with_context(|| format!("failed to write bundle to {}", dest_path.display()))?;
+        Ok(())
+    }
+
+    pub async fn probe_bundle_available(&self, full_zip_url: &str) -> Result<()> {
+        self.http
+            .get(full_zip_url)
+            .header(AUTHORIZATION, self.auth_header())
+            .header(ACCEPT, "*/*")
+            // Probe only the first byte so we can cheaply wait for CDN availability.
+            .header(RANGE, "bytes=0-0")
+            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+            .send()
+            .await
+            .context("MinerU bundle readiness probe failed")?
+            .error_for_status()
+            .context("MinerU bundle readiness probe returned error status")?;
         Ok(())
     }
 

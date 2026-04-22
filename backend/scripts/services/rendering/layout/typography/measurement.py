@@ -6,8 +6,10 @@ from statistics import median
 
 from foundation.config import fonts
 from foundation.config import layout
-from services.document_schema.semantics import is_body_like_structure_role
-from services.document_schema.semantics import is_caption_like_block
+from services.translation.item_reader import item_block_kind
+from services.translation.item_reader import item_is_bodylike
+from services.translation.item_reader import item_is_caption_like
+from services.translation.item_reader import item_semantic_role
 
 
 MIN_FONT_SIZE_PT = 8.4
@@ -161,7 +163,8 @@ def _predicted_wrapped_line_count(item: dict, *, width: float, text_len: int) ->
         approx_chars_per_line = geometric_chars_per_line
     if formula_ratio(item) > 0:
         approx_chars_per_line *= FORMULA_CHARS_PER_LINE_PENALTY
-    if is_body_like_structure_role(item.get("metadata", {}) or {}):
+    semantic_role = item_semantic_role(item)
+    if semantic_role in {"body", "abstract"} or item_is_bodylike(item):
         approx_chars_per_line *= 0.96
     effective_chars_per_line = max(8.0, approx_chars_per_line * 1.02)
     return max(1, ceil(text_len / effective_chars_per_line))
@@ -295,15 +298,15 @@ def source_compactness_score(item: dict) -> float:
 
 
 def _is_caption_like(item: dict) -> bool:
-    return is_caption_like_block(item)
+    return item_is_caption_like(item)
 
 
 def candidate_text_items(items: list[dict]) -> list[dict]:
     candidates: list[dict] = []
-    widths = [bbox_width(item) for item in items if item.get("block_type") == "text" and not _is_caption_like(item)]
+    widths = [bbox_width(item) for item in items if item_block_kind(item) == "text" and not _is_caption_like(item)]
     page_text_width_med = median(widths) if widths else 0.0
     for item in items:
-        if item.get("block_type") != "text":
+        if item_block_kind(item) != "text":
             continue
         if _is_caption_like(item):
             continue

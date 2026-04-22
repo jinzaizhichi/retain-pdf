@@ -262,7 +262,9 @@ def rerender_job(job_root: Path, *, translated_pdf_name: str, render_mode: str) 
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Inspect or rerender an existing translation job.")
+    parser = argparse.ArgumentParser(
+        description="Inspect or rerun a strict-contract translation job that is backed by translation-manifest.json."
+    )
     parser.add_argument("job", help="Job id or absolute job root path.")
     parser.add_argument(
         "--action",
@@ -278,7 +280,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--render-mode",
         default="auto",
-        help="Render mode passed to render_only pipeline.",
+        help="Render mode passed to render_only pipeline. Render-only now resolves inputs through translation-manifest.json only.",
     )
     parser.add_argument("--mode", default="sci", help="Translation mode for retranslate/full.")
     parser.add_argument("--math-mode", default="direct_typst", help="Math mode for retranslate/full.")

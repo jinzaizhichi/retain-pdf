@@ -4,9 +4,16 @@
 
 Paddle OCR 的 provider API 边界，和 `document.v1` 的统一文档边界，必须分开。
 
+相关文档：
+
+- API 摘要：
+  [`API_SUMMARY.md`](/home/wxyhgk/tmp/Code/backend/rust_api/src/ocr_provider/paddle/API_SUMMARY.md)
+- 官方异步接口示例：
+  [`AsyncParse.md`](/home/wxyhgk/tmp/Code/backend/rust_api/src/ocr_provider/paddle/AsyncParse.md)
+
 ## 1. Paddle Provider API 的三段式边界
 
-根据 [AsyncParse.md](/home/wxyhgk/tmp/Code/rust_api/src/ocr_provider/paddle/AsyncParse.md)，Paddle 的异步接口天然分成三段：
+根据 [AsyncParse.md](/home/wxyhgk/tmp/Code/backend/rust_api/src/ocr_provider/paddle/AsyncParse.md)，Paddle 的异步接口天然分成三段：
 
 ### `submit`
 

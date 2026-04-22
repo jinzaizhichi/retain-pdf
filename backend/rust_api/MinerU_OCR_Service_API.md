@@ -1,6 +1,12 @@
-# MinerU OCR 微服务 API 说明
+# OCR-only API 说明（原 MinerU OCR 文档）
 
 这份文档只说明 OCR-only 微服务接口。
+
+说明：
+
+- 这是一份 OCR-only 专项说明，正式总入口先看 [README](/home/wxyhgk/tmp/Code/backend/rust_api/README.md)、[API_SPEC](/home/wxyhgk/tmp/Code/backend/rust_api/API_SPEC.md) 和 [CURRENT_API_MAP](/home/wxyhgk/tmp/Code/backend/rust_api/CURRENT_API_MAP.md)
+- 文档标题保留了 `MinerU` 历史命名，是为了方便检索；当前 OCR API 已经不是只服务于 MinerU
+- 当前 provider 选择看请求里的 `provider` / `ocr.provider`，实际支持集以健康检查和 `OCR_PROVIDER_CONTRACT.md` 为准
 
 它的目标很明确：
 
@@ -19,15 +25,37 @@
 - `/api/v1/ocr/jobs/{job_id}/normalization-report`
 - `/api/v1/ocr/jobs/{job_id}/cancel`
 
-当前首个 provider 是 `mineru`。
+当前示例仍以 `mineru` 为主，但后端 provider 已不止 `mineru`。
+
+这条 OCR-only 流程在整套系统中的位置是：
+
+1. OCR API 负责把 provider 原始结果收口成 `document.v1`
+2. 完整翻译链再由上层 `normalize -> translate -> render` 主流程继续消费
+3. OCR API 不是测试脚本，也不是翻译/渲染入口；它是正式生产链路里的 normalize 前半段
+
+当前 `document.v1` 交给下游时的正式消费口径是：
+
+- `geometry`
+- `content`
+- `layout_role`
+- `semantic_role`
+- `structure_role`
+- `policy`
+- `provenance`
+
+兼容字段 `type/sub_type/bbox/text/lines/segments` 可以保留，但不应再被下游当成主要语义入口。
 
 内部实现说明：
 
-- `routes/jobs.rs` 只负责 OCR 接口的 HTTP endpoint 编排
-- `routes/job_requests.rs` 负责 OCR `multipart/form-data` 字段解析
-- `routes/job_helpers.rs` 负责 OCR / 通用 job 的 response、下载和 loader 辅助逻辑
-- `services/job_validation.rs` 负责 OCR provider 参数与 MinerU 限制校验
-- `services/job_factory.rs` 负责 OCR job 的统一构建、命令组装与启动
+- `app/router.rs` 负责挂载 `/api/v1/ocr/jobs*` 路由
+- `routes/jobs/create.rs` 负责 OCR `multipart/form-data` 入口
+- `routes/jobs/query.rs` / `routes/jobs/control.rs` / `routes/jobs/download.rs` 负责查询、取消和产物下载
+- `routes/job_requests.rs` 负责 OCR 表单解析
+- `routes/jobs/common.rs` / `routes/job_helpers.rs` 负责 OCR / 通用 job 的公共 response 与下载辅助逻辑
+- `services/jobs/facade.rs` 负责稳定服务入口
+- `services/jobs/creation.rs` 与 `services/jobs/creation/bundle.rs` 负责 OCR job 构建
+- `services/job_validation.rs` 负责 provider 参数校验
+- `services/job_factory.rs` 负责 snapshot 组装与执行启动
 
 如果你在排查接口行为，请以这些拆分后的模块职责为准，而不是旧版集中式文件结构。
 
@@ -104,7 +132,7 @@ X-API-Key: your-rust-api-key
     "db": "ok",
     "queue_depth": 0,
     "running_jobs": 0,
-    "provider_backends": ["mineru"],
+    "provider_backends": ["mineru", "paddle"],
     "time": "2026-03-31T03:33:44Z"
   }
 }
@@ -126,9 +154,11 @@ X-API-Key: your-rust-api-key
 
 实现补充：
 
-- 表单字段到 `CreateJobInput` 的映射在 `routes/job_requests.rs`
+- 表单字段解析在 `routes/job_requests.rs`
+- 创建入口在 `routes/jobs/create.rs`
+- facade 收口在 `services/jobs/facade.rs`
 - 创建前的 provider / token / URL / timeout 校验在 `services/job_validation.rs`
-- OCR job 的命令拼装和初始化（例如 `ocr-{job_id}` trace）在 `services/job_factory.rs`
+- OCR job 的 snapshot 构建与启动由 `services/jobs/creation.rs` / `services/job_factory.rs` 协作完成
 
 支持两种提交方式，二选一：
 
@@ -138,9 +168,9 @@ X-API-Key: your-rust-api-key
 ### 必填字段
 
 - `provider`
-  当前固定填：`mineru`
+  当前常用值：`mineru`；其他 provider 以当前部署启用项为准
 - `mineru_token`
-  MinerU API key
+  当 `provider=mineru` 时必填
 - `timeout_seconds`
   OCR 任务总超时秒数
 
@@ -209,9 +239,9 @@ curl -X POST "http://127.0.0.1:41000/api/v1/ocr/jobs" \
 
 ### 校验规则
 
-- `provider` 目前只能是 `mineru`
-- `mineru_token` 不能为空
-- `mineru_token` 不能是 URL
+- `provider` 必须是当前服务支持的 OCR provider
+- 当 `provider=mineru` 时，`mineru_token` 不能为空
+- 当传入 `mineru_token` 时，它不能是 URL
 - `source_url` 如果提供，必须以 `http://` 或 `https://` 开头
 - `timeout_seconds` 必须大于 `0`
 
@@ -330,11 +360,11 @@ curl -H "X-API-Key: your-rust-api-key" \
 字段语义：
 
 - `provider_raw_dir`
-  MinerU 解包后的原始目录
+  provider 解包后的原始目录
 - `provider_zip`
-  MinerU 原始 zip
+  provider 原始 zip
 - `provider_summary_json`
-  MinerU 原始返回结果
+  provider 原始返回结果
 - `normalized_document`
   标准化后的 `document.v1.json`
 - `normalization_report`
@@ -399,16 +429,16 @@ output/20260331033736-c2bcda/
 说明：
 
 - `source/`：原始 PDF
-- `ocr/unpacked/`：MinerU 解包原始内容
+- `ocr/unpacked/`：provider 解包原始内容
 - `ocr/normalized/`：给主链路消费的标准化结果
 
 ## 11. 当前限制和边界
 
-当前这套 OCR 微服务接口已经能跑通 `MinerU -> document.v1`。
+当前这套 OCR 微服务接口已经能跑通 `provider raw -> document.v1`。
 
 但要注意：
 
-- 目前 provider 仍然只有 `mineru`
+- 当前 provider 已不止 `mineru`，但不同部署启用的 provider 集合可能不同
 - MinerU 的 submit/poll/download 目前还是通过 Python worker 执行
 - Rust 侧现在已经负责：
   - HTTP API

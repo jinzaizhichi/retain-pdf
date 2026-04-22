@@ -4,13 +4,16 @@
 
 配合主文档使用：
 
-- [API 文档总入口](/home/wxyhgk/tmp/Code/doc/API.md)
+- [Rust API README](/home/wxyhgk/tmp/Code/backend/rust_api/README.md)
+- [API_SPEC](/home/wxyhgk/tmp/Code/backend/rust_api/API_SPEC.md)
+- [CURRENT_API_MAP](/home/wxyhgk/tmp/Code/backend/rust_api/CURRENT_API_MAP.md)
 
 文档约定：
 
+- 这份文档是前端接入示例，不是协议规范源头；正式口径以 `API_SPEC.md` 为准
 - 前端请求示例统一以分组后的正式请求结构为准
 - 旧版扁平字段已经移除，不再接受
-- Rust 侧内部已经拆成 `job_requests`、`job_helpers`、`job_factory`、`job_validation` 四类辅助模块；前端只需要关心接口契约，不需要依赖这些内部模块名
+- 前端只需要关心接口契约，不需要依赖 Rust 内部模块名
 
 ## 1. 你必须准备的 5 个值
 
@@ -33,8 +36,8 @@
 可选但建议前端同步支持的字段：
 
 - `translation.math_mode`：公式翻译模式
-  - `placeholder`：默认模式，沿用旧的公式保护链
-  - `direct_typst`：实验模式，不做公式 placeholder 保护，直接让模型输出正文 + `$...$` 数学
+  - `direct_typst`：默认模式，直接让模型输出正文 + `$...$` 数学
+  - `placeholder`：兼容旧公式保护链的保守模式
 
 ## 2. 调用顺序
 
@@ -106,13 +109,22 @@ X-API-Key: your-rust-api-key
 Content-Type: application/json
 ```
 
+说明：
+
+- 这里的 `workflow: "book"` 才是当前 provider-backed 完整流程的正式协议值
+- OCR provider 选择看 `ocr.provider`，而不是看 `workflow`
+- 如果你只想跑 OCR-only，请走 `POST /api/v1/ocr/jobs`，不要向 `/api/v1/jobs` 传 `workflow="ocr"`
+- 本地人工调用时，优先使用中性入口名 `run_provider_case.py`
+- 如果输入已经是 OCR JSON + PDF，优先使用 `run_document_flow.py`
+- 如果只想跑 OCR-only，优先使用 `run_provider_ocr.py`
+
 ### 4.1 DeepSeek 示例
 
 推荐请求体：
 
 ```json
 {
-  "workflow": "mineru",
+  "workflow": "book",
   "source": {
     "upload_id": "20260327-abc123"
   },
@@ -125,7 +137,7 @@ Content-Type: application/json
     "api_key": "your-deepseek-api-key",
     "model": "deepseek-chat",
     "mode": "sci",
-    "math_mode": "placeholder",
+    "math_mode": "direct_typst",
     "workers": 50,
     "batch_size": 1,
     "glossary_id": "glossary-20260411-abc123",
@@ -143,7 +155,7 @@ Content-Type: application/json
 
 ```json
 {
-  "workflow": "mineru",
+  "workflow": "book",
   "source": {
     "upload_id": "20260327-abc123"
   },
@@ -156,7 +168,7 @@ Content-Type: application/json
     "api_key": "your-openai-compatible-api-key",
     "model": "Q3.5-turbo",
     "mode": "precise",
-    "math_mode": "placeholder",
+    "math_mode": "direct_typst",
     "workers": 4,
     "batch_size": 1,
     "glossary_id": "",
@@ -172,7 +184,7 @@ Content-Type: application/json
 
 ```ts
 type CreateJobPayload = {
-  workflow?: "mineru";
+  workflow?: "book" | "translate" | "render";
   source: {
     upload_id: string;
   };
@@ -238,7 +250,7 @@ async function createJob(payload: CreateJobPayload, backendKey: string) {
 
 `translation.math_mode` 当前约定：
 
-- 不传时默认 `placeholder`
+- 不传时默认 `direct_typst`
 - 前端若要开放实验开关，建议文案直接写成“公式直出实验模式”
 - `direct_typst` 只影响翻译阶段的公式处理链路，不改变渲染接口调用方式
 
@@ -348,7 +360,7 @@ async function runPdfTranslateFlow(file: File, config: {
   const upload = await uploadPdf(file, config.backendKey, false);
 
   const job = await createJob({
-    workflow: "mineru",
+    workflow: "book",
     source: {
       upload_id: upload.upload_id,
     },
@@ -361,7 +373,7 @@ async function runPdfTranslateFlow(file: File, config: {
       api_key: config.modelApiKey,
       model: config.model,
       mode: config.mode ?? "sci",
-      math_mode: config.mathMode ?? "placeholder",
+      math_mode: config.mathMode ?? "direct_typst",
       workers: 50,
       batch_size: 1,
     },
@@ -394,14 +406,14 @@ async function runPdfTranslateFlow(file: File, config: {
 - `modelBaseUrl`：模型服务 URL
 - `modelApiKey`：模型服务 key
 - `model`：模型名
-- `mathMode`：公式翻译模式，默认 `placeholder`
+- `mathMode`：公式翻译模式，默认 `direct_typst`
 
 ## 9. `math_mode` 什么时候该开
 
-建议前端先按“高级选项 / 实验开关”处理，不要默认打开。
+当前默认推荐就是 `direct_typst`。前端如果要暴露开关，可以把它放进高级选项，但不要再把 `placeholder` 当默认值。
 
-- 普通任务：传 `placeholder` 或干脆不传
-- 高公式密度文档，且你想减少 placeholder 校验失败 / 长尾重试：可试 `direct_typst`
+- 普通任务：不传，或显式传 `direct_typst`
+- 只有在你要回退旧公式保护链时，才传 `placeholder`
 - 如果后续前端要做开关，推荐直接传字符串，不要自己在前端推断文档是否“公式很多”
 
 这样后面接多服务商时不会乱。

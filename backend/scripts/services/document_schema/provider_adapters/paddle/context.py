@@ -14,6 +14,9 @@ class PaddlePageContext(TypedDict):
     markdown_text: str
     markdown_images: dict[str, str]
     classified_kinds: list[tuple[str, str, list[str], dict]]
+    column_signals: dict
+    repair_metadata: dict[int, dict]
+    repair_summary: dict
 
 
 class PaddleBlockContext(TypedDict):
@@ -24,6 +27,7 @@ class PaddleBlockContext(TypedDict):
     raw_label: str
     bbox: list[float]
     text: str
+    signal_metadata: dict
 
 
 __all__ = [

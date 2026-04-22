@@ -1,9 +1,12 @@
+use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::config::AppConfig;
+use crate::db::Db;
 use crate::error::AppError;
-use crate::job_events::persist_job;
-use crate::job_runner::{build_command, build_ocr_command, spawn_job};
+use crate::job_events::persist_job_with_resources;
+use crate::job_runner::{build_command, build_ocr_command, build_process_runtime_deps, spawn_job};
 use crate::models::{JobSnapshot, ResolvedJobSpec, UploadRecord};
 use crate::storage_paths::{attach_job_paths, build_job_paths};
 use crate::AppState;
@@ -49,20 +52,45 @@ pub fn build_job_snapshot(
     Ok(job)
 }
 
-pub fn start_job_execution(state: &AppState, job: JobSnapshot) -> Result<JobSnapshot, AppError> {
-    persist_job(state, &job)?;
-    spawn_job(state.clone(), job.job_id.clone());
+#[derive(Clone)]
+pub struct JobLaunchDeps<'a> {
+    pub db: &'a Db,
+    pub config: &'a AppConfig,
+    pub data_root: &'a Path,
+    pub output_root: &'a Path,
+    pub launch_job: Arc<dyn Fn(String) + Send + Sync + 'static>,
+}
+
+pub fn start_job_execution(
+    deps: &JobLaunchDeps<'_>,
+    job: JobSnapshot,
+) -> Result<JobSnapshot, AppError> {
+    persist_job_with_resources(deps.db, deps.data_root, deps.output_root, &job)?;
+    (deps.launch_job)(job.job_id.clone());
     Ok(job)
 }
 
+pub fn build_job_launch_deps<'a>(state: &'a AppState) -> JobLaunchDeps<'a> {
+    let runtime_state = state.clone();
+    JobLaunchDeps {
+        db: state.db.as_ref(),
+        config: state.config.as_ref(),
+        data_root: &state.config.data_root,
+        output_root: &state.config.output_root,
+        launch_job: Arc::new(move |job_id| {
+            spawn_job(build_process_runtime_deps(&runtime_state), job_id)
+        }),
+    }
+}
+
 pub fn build_and_start_job(
-    state: &AppState,
+    deps: &JobLaunchDeps<'_>,
     request: ResolvedJobSpec,
     command_kind: JobCommandKind,
     init: JobInit,
 ) -> Result<JobSnapshot, AppError> {
-    let job = build_job_snapshot(state.config.as_ref(), request, command_kind, init)?;
-    start_job_execution(state, job)
+    let job = build_job_snapshot(deps.config, request, command_kind, init)?;
+    start_job_execution(deps, job)
 }
 
 pub fn require_upload_path(upload: &UploadRecord) -> Result<PathBuf, AppError> {
@@ -133,6 +161,7 @@ mod tests {
     use crate::config::AppConfig;
     use crate::db::Db;
     use crate::models::{CreateJobInput, WorkflowKind};
+    use crate::AppState;
     use std::collections::HashSet;
     use std::sync::Arc;
     use tokio::sync::{Mutex, RwLock, Semaphore};
@@ -157,8 +186,8 @@ mod tests {
             rust_api_root,
             data_root: data_root.clone(),
             scripts_dir: scripts_dir.clone(),
-            run_mineru_case_script: scripts_dir.join("run_mineru_case.py"),
-            run_ocr_job_script: scripts_dir.join("run_ocr_job.py"),
+            run_provider_case_script: scripts_dir.join("run_provider_case.py"),
+            run_provider_ocr_script: scripts_dir.join("run_provider_ocr.py"),
             run_normalize_ocr_script: scripts_dir.join("run_normalize_ocr.py"),
             run_translate_from_ocr_script: scripts_dir.join("run_translate_from_ocr.py"),
             run_translate_only_script: scripts_dir.join("run_translate_only.py"),
@@ -249,7 +278,7 @@ mod tests {
         assert!(job
             .command
             .iter()
-            .any(|arg| arg.ends_with("mineru.spec.json")));
+            .any(|arg| arg.ends_with("provider.spec.json")));
         let artifacts = job.artifacts.as_ref().expect("artifacts");
         assert!(artifacts
             .job_root

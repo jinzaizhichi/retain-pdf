@@ -1,6 +1,7 @@
-"""Book worker entrypoint.
+"""Top-level book workflow entrypoint.
 
-Thin wrapper over the spec-driven from_ocr pipeline.
+Formal local entry for the production path:
+book.stage.v1 -> normalize -> translate -> render.
 """
 
 from pathlib import Path

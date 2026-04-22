@@ -1,5 +1,7 @@
 use crate::models::{JobArtifacts, JobSnapshot};
-use crate::ocr_provider::{parse_provider_kind, provider_capabilities, OcrProviderDiagnostics};
+use crate::ocr_provider::{
+    ensure_provider_diagnostics, parse_provider_kind, OcrProviderDiagnostics,
+};
 
 mod artifact_rules;
 mod failure;
@@ -49,21 +51,7 @@ fn job_artifacts_mut(job: &mut JobSnapshot) -> &mut JobArtifacts {
 fn ocr_provider_diagnostics_mut(job: &mut JobSnapshot) -> &mut OcrProviderDiagnostics {
     let provider_kind = parse_provider_kind(&job.request_payload.ocr.provider);
     let artifacts = job_artifacts_mut(job);
-    if artifacts.ocr_provider_diagnostics.is_none() {
-        let mut diagnostics = OcrProviderDiagnostics::new(provider_kind.clone());
-        diagnostics.capabilities = provider_capabilities(&provider_kind);
-        artifacts.ocr_provider_diagnostics = Some(diagnostics);
-    } else if artifacts
-        .ocr_provider_diagnostics
-        .as_ref()
-        .map(|diag| diag.capabilities.is_none() || diag.provider != provider_kind)
-        .unwrap_or(true)
-    {
-        let diagnostics = artifacts.ocr_provider_diagnostics.as_mut().unwrap();
-        diagnostics.provider = provider_kind.clone();
-        diagnostics.capabilities = provider_capabilities(&provider_kind);
-    }
-    artifacts.ocr_provider_diagnostics.as_mut().unwrap()
+    ensure_provider_diagnostics(artifacts, provider_kind)
 }
 
 #[cfg(test)]
@@ -150,7 +138,10 @@ mod tests {
         let mut job = build_job();
         apply_line(&mut job, "upload done: /tmp/source.pdf");
         assert_eq!(job.stage.as_deref(), Some("mineru_processing"));
-        assert_eq!(job.stage_detail.as_deref(), Some("文件上传完成，等待 MinerU 处理"));
+        assert_eq!(
+            job.stage_detail.as_deref(),
+            Some("文件上传完成，等待 MinerU 处理")
+        );
     }
 
     #[test]

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import re
 
-from services.document_schema.semantics import is_body_structure_role
 from services.rendering.formula.math_utils import build_plain_text
+from services.translation.item_reader import item_is_bodylike
 from services.translation.payload.formula_protection import PROTECTED_TOKEN_RE
 from services.translation.payload.formula_protection import protected_map_from_formula_map
 from services.translation.payload.formula_protection import restore_protected_tokens
@@ -27,8 +27,7 @@ def is_flag_like_plain_text_block(item: dict) -> bool:
         return False
     if len(item.get("formula_map", [])) > 0:
         return False
-    metadata = item.get("metadata") or {}
-    if is_body_structure_role(metadata):
+    if item_is_bodylike(item):
         return False
     line_count = len(item.get("lines", []))
     if line_count > 1:
@@ -66,6 +65,17 @@ def same_meaningful_render_text(source_text: str, translated_text: str) -> bool:
 
 
 def _render_protected_map(item: dict) -> list[dict]:
+    unit_kind = str(item.get("translation_unit_kind", "") or "").strip().lower()
+    if unit_kind == "single":
+        protected_map = (
+            item.get("render_formula_map")
+            or item.get("protected_map")
+            or item.get("formula_map")
+            or []
+        )
+        if protected_map and isinstance(protected_map, list) and any(isinstance(entry, dict) and "token_tag" in entry for entry in protected_map):
+            return list(protected_map)
+        return protected_map_from_formula_map(protected_map if isinstance(protected_map, list) else [])
     protected_map = (
         item.get("translation_unit_protected_map")
         or item.get("render_formula_map")
@@ -90,6 +100,17 @@ def restore_render_protected_text(text: str, item: dict) -> str:
 def get_render_protected_text(item: dict) -> str:
     if "render_protected_text" in item:
         return restore_render_protected_text(str(item.get("render_protected_text", "") or "").strip(), item)
+    unit_kind = str(item.get("translation_unit_kind", "") or "").strip().lower()
+    if unit_kind == "single":
+        return restore_render_protected_text(
+            str(
+                item.get("protected_translated_text")
+                or item.get("translated_text")
+                or item.get("translation_unit_protected_translated_text")
+                or ""
+            ).strip(),
+            item,
+        )
     return restore_render_protected_text(
         str(
         item.get("translation_unit_protected_translated_text")

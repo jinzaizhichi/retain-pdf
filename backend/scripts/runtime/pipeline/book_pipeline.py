@@ -11,6 +11,7 @@ from runtime.pipeline.render_stage import build_book_from_translations
 from runtime.pipeline.render_stage import build_book_pipeline
 from runtime.pipeline.render_stage import run_render_stage
 from runtime.pipeline.translation_stage import translate_book_pipeline
+from services.translation.diagnostics import write_translation_debug_index
 from services.translation.diagnostics import write_translation_diagnostics
 from services.translation.terms import GlossaryEntry
 
@@ -29,7 +30,7 @@ def run_book_pipeline(
     model: str,
     base_url: str,
     mode: str,
-    math_mode: str = "placeholder",
+    math_mode: str = "direct_typst",
     classify_batch_size: int = 12,
     skip_title_translation: bool,
     render_mode: str,
@@ -74,6 +75,7 @@ def run_book_pipeline(
     )
     translate_elapsed = time.perf_counter() - total_started
     diagnostics_path = output_dir.parent / ARTIFACTS_DIR_NAME / "translation_diagnostics.json"
+    debug_index_path = output_dir.parent / ARTIFACTS_DIR_NAME / "translation_debug_index.json"
     translation_run_diagnostics = translation_summary.get("translation_run_diagnostics")
     diagnostics_summary = (
         write_translation_diagnostics(
@@ -84,6 +86,10 @@ def run_book_pipeline(
         )
         if translation_run_diagnostics is not None
         else {}
+    )
+    write_translation_debug_index(
+        debug_index_path,
+        translation_summary.get("translated_pages_map", {}),
     )
 
     translated_pages = translation_summary["page_count"]
@@ -123,6 +129,7 @@ def run_book_pipeline(
         "total_elapsed": total_elapsed,
         "effective_render_mode": render_summary["effective_render_mode"],
         "translation_diagnostics_path": str(diagnostics_path) if diagnostics_summary else "",
+        "translation_debug_index_path": str(debug_index_path),
         "translation_provider_family": diagnostics_summary.get("provider_family", ""),
         "translation_peak_inflight_requests": diagnostics_summary.get("concurrency_observed", {}).get(
             "peak_inflight_all_llm_requests",

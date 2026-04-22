@@ -165,7 +165,6 @@ docker compose ps
 ### 代码与子模块说明
 
 - [后端脚本说明](backend/scripts/README.md)
-- [旧 FastAPI 包装层](backend/Fast_API/README.md)
 - `frontend/`：当前浏览器前端静态资源与桌面端打包输入目录
 
 ### 当前目录结构
@@ -173,7 +172,7 @@ docker compose ps
 - `frontend/`
   浏览器前端、桌面壳、预览实验页面。
 - `backend/`
-  Rust API、Python 脚本、嵌入式 Python、旧 FastAPI 包装层、历史工作区。
+  Rust API、Python 脚本、嵌入式 Python、历史工作区。
 - `docker/`
   Dockerfile、发布脚本、交付用 compose 配置。
 - `data/`

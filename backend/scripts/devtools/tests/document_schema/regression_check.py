@@ -22,6 +22,7 @@ from services.document_schema.providers import PROVIDER_PADDLE
 from services.translation.ocr.json_extractor import extract_text_items
 from services.translation.payload.translations import _default_translation_flags
 
+REPO_ROOT = Path(__file__).resolve().parents[5]
 
 # This regression is the final gate for new OCR provider onboarding.
 # Recommended sequence:
@@ -36,7 +37,7 @@ from services.translation.payload.translations import _default_translation_flags
 # - common trace layer: content_format/asset_*/markdown_match_*
 # - provider raw trace layer: source.raw_*, metadata.raw_*, layout_det_*
 # New provider adapters should avoid promoting raw provider fields into core semantics.
-DEFAULT_NEW_DOCUMENT = Path("output/20260330145544-14ab20/ocr/normalized/document.v1.json")
+DEFAULT_NEW_DOCUMENT = REPO_ROOT / "data" / "jobs" / "20260417103325-389667" / "ocr" / "normalized" / "document.v1.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -96,7 +97,11 @@ def _check_adapted_document(name: str, path: Path, *, document_id: str, expected
         f"OK {name} "
         f"schema={adapted['schema']} provider={expected_provider} "
         f"pages={summary['page_count']} blocks={summary['block_count']} "
-        f"defaults_pages={normalization_summary['defaults_pages']} defaults_blocks={normalization_summary['defaults_blocks']}"
+        f"pages_observed={normalization_summary['pages_observed']} "
+        f"blocks_observed={normalization_summary['blocks_observed']} "
+        f"defaulted_document_fields={normalization_summary['defaulted_document_fields']} "
+        f"defaulted_page_fields={normalization_summary['defaulted_page_fields']} "
+        f"defaulted_block_fields={normalization_summary['defaulted_block_fields']}"
     )
     print(
         f"OK {name}_detect "
@@ -230,10 +235,9 @@ def _check_paddle_extractor_roles(path: Path) -> dict:
         item for item in items if str(((item.metadata or {}).get("structure_role") or "")).strip().lower() == "heading"
     ]
 
-    _require(image_captions, "paddle_extractor_roles: image_caption should be seeded into extraction role")
-    _require(table_captions, "paddle_extractor_roles: table_caption should be seeded into extraction role")
-    _require(table_footnotes, "paddle_extractor_roles: table_footnote should be seeded into extraction role")
-    _require(headings, "paddle_extractor_roles: heading should be seeded into extraction role")
+    _require(not image_captions, "paddle_extractor_roles: image_caption should not enter body-only extraction items")
+    _require(not table_captions, "paddle_extractor_roles: table_caption should not enter body-only extraction items")
+    _require(not table_footnotes, "paddle_extractor_roles: table_footnote should not enter body-only extraction items")
     print(
         "OK paddle_extractor_roles "
         f"image_captions={len(image_captions)} table_captions={len(table_captions)} "
@@ -253,7 +257,14 @@ def _check_paddle_sci_semantics(path: Path) -> dict:
     blocks = [block for page in pages for block in page.get("blocks", [])]
 
     titles = [block for block in blocks if block.get("sub_type") == "title"]
-    abstracts = [block for block in blocks if block.get("sub_type") == "abstract"]
+    abstracts = [
+        block
+        for block in blocks
+        if (
+            block.get("sub_type") == "abstract"
+            or str(((block.get("derived", {}) or {}).get("role") or "")).strip().lower() == "abstract"
+        )
+    ]
     references = [block for block in blocks if block.get("sub_type") == "reference_entry"]
     formula_numbers = [block for block in blocks if block.get("sub_type") == "formula_number"]
     images = [block for block in blocks if block.get("type") == "image"]
@@ -297,7 +308,7 @@ def _check_paddle_sci_extractor_policy(path: Path) -> dict:
         items.extend(extract_text_items(adapted, page_idx))
 
     _require(items, "paddle_sci_extractor_policy: expected extracted items")
-    abstracts = [item for item in items if str(((item.metadata or {}).get("structure_role") or "")).strip().lower() == "abstract"]
+    abstracts = [item for item in items if str(((item.metadata or {}).get("semantic_role") or "")).strip().lower() == "abstract"]
     references = [item for item in items if str(((item.metadata or {}).get("structure_role") or "")).strip().lower() == "reference_entry"]
     formula_numbers = [
         item for item in items if str(((item.metadata or {}).get("normalized_sub_type") or "")).strip().lower() == "formula_number"

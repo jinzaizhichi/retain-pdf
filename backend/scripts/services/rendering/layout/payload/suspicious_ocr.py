@@ -6,6 +6,7 @@ from services.rendering.layout.payload.metrics import VERTICAL_COLLISION_GAP_PT
 from services.rendering.layout.payload.metrics import block_metrics
 from services.rendering.layout.payload.metrics import estimated_render_height_pt
 from services.rendering.layout.typography.geometry import inner_bbox
+from services.translation.item_reader import item_block_kind
 
 
 SUSPICIOUS_OCR_GLUE_MIN_CHARS = 1000
@@ -64,7 +65,7 @@ def detect_and_drop_suspicious_ocr_glued_blocks(
         (
             item
             for item in items
-            if str(item.get("block_type", "") or "") == "text" and (item.get("render_protected_text") or "").strip()
+            if item_block_kind(item) == "text" and (item.get("render_protected_text") or "").strip()
         ),
         key=lambda item: (
             inner_bbox(item)[1] if len(inner_bbox(item)) == 4 else 0.0,

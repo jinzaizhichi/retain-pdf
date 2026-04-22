@@ -33,6 +33,70 @@ def _validate_bbox(path: str, bbox) -> None:
             _fail(f"{path}[{index}]", f"expected number, got {type(value).__name__}")
 
 
+def _validate_geometry(path: str, geometry: dict) -> None:
+    _expect_type(path, geometry, dict)
+    if "bbox" not in geometry:
+        _fail(path, "missing key 'bbox'")
+    _validate_bbox(f"{path}.bbox", geometry["bbox"])
+
+
+def _validate_content(path: str, content: dict) -> None:
+    _expect_type(path, content, dict)
+    if "kind" not in content:
+        _fail(path, "missing key 'kind'")
+    _expect_type(f"{path}.kind", content["kind"], str)
+    if content["kind"] not in {"text", "image", "table", "formula", "code", "unknown"}:
+        _fail(f"{path}.kind", f"unexpected content kind '{content['kind']}'")
+    if "text" in content:
+        _expect_type(f"{path}.text", content["text"], str)
+    if "asset_id" in content:
+        _expect_type(f"{path}.asset_id", content["asset_id"], str)
+        if not content["asset_id"]:
+            _fail(f"{path}.asset_id", "expected non-empty string")
+
+
+def _validate_policy(path: str, policy: dict) -> None:
+    _expect_type(path, policy, dict)
+    for key in ("translate", "translate_reason"):
+        if key not in policy:
+            _fail(path, f"missing key '{key}'")
+    _expect_type(f"{path}.translate", policy["translate"], bool)
+    _expect_type(f"{path}.translate_reason", policy["translate_reason"], str)
+
+
+def _validate_role_string(path: str, value) -> str:
+    _expect_type(path, value, str)
+    return str(value).strip().lower()
+
+
+def _validate_provenance(path: str, provenance: dict) -> None:
+    _expect_type(path, provenance, dict)
+    for key in ("provider", "raw_label", "raw_sub_type", "raw_bbox", "raw_path"):
+        if key not in provenance:
+            _fail(path, f"missing key '{key}'")
+    _expect_type(f"{path}.provider", provenance["provider"], str)
+    if not provenance["provider"]:
+        _fail(f"{path}.provider", "expected non-empty string")
+    _expect_type(f"{path}.raw_label", provenance["raw_label"], str)
+    _expect_type(f"{path}.raw_sub_type", provenance["raw_sub_type"], str)
+    _validate_bbox(f"{path}.raw_bbox", provenance["raw_bbox"])
+    _expect_type(f"{path}.raw_path", provenance["raw_path"], str)
+
+
+def _validate_assets(path: str, assets: dict) -> None:
+    _expect_type(path, assets, dict)
+    for key, asset in assets.items():
+        _expect_type(f"{path}.{key}", asset, dict)
+        for required_key in ("kind", "uri", "source"):
+            if required_key not in asset:
+                _fail(f"{path}.{key}", f"missing key '{required_key}'")
+        _expect_type(f"{path}.{key}.kind", asset["kind"], str)
+        _expect_type(f"{path}.{key}.uri", asset["uri"], str)
+        if not asset["uri"]:
+            _fail(f"{path}.{key}.uri", "expected non-empty string")
+        _expect_type(f"{path}.{key}.source", asset["source"], str)
+
+
 def _validate_derived(path: str, derived: dict) -> None:
     _expect_type(path, derived, dict)
     for key in ("role", "by", "confidence"):
@@ -105,14 +169,13 @@ def _validate_block(path: str, block: dict, *, page_index: int) -> None:
         "block_id",
         "page_index",
         "order",
-        "type",
-        "sub_type",
-        "bbox",
-        "text",
-        "lines",
-        "segments",
-        "tags",
-        "derived",
+        "geometry",
+        "content",
+        "layout_role",
+        "semantic_role",
+        "structure_role",
+        "policy",
+        "provenance",
         "continuation_hint",
         "metadata",
         "source",
@@ -125,28 +188,52 @@ def _validate_block(path: str, block: dict, *, page_index: int) -> None:
     if block["page_index"] != page_index:
         _fail(f"{path}.page_index", f"expected {page_index}, got {block['page_index']}")
     _expect_type(f"{path}.order", block["order"], int)
-    _expect_type(f"{path}.type", block["type"], str)
-    if block["type"] not in {"text", "formula", "image", "table", "code", "unknown"}:
-        _fail(f"{path}.type", f"unexpected block type '{block['type']}'")
-    _expect_type(f"{path}.sub_type", block["sub_type"], str)
-    _validate_bbox(f"{path}.bbox", block["bbox"])
-    _expect_type(f"{path}.text", block["text"], str)
-    _expect_type(f"{path}.lines", block["lines"], list)
-    for index, line in enumerate(block["lines"]):
-        _validate_line(f"{path}.lines[{index}]", line)
-    _expect_type(f"{path}.segments", block["segments"], list)
-    for index, segment in enumerate(block["segments"]):
-        _validate_segment(f"{path}.segments[{index}]", segment)
-    _expect_type(f"{path}.tags", block["tags"], list)
-    for index, tag in enumerate(block["tags"]):
-        _expect_type(f"{path}.tags[{index}]", tag, str)
-    _validate_derived(f"{path}.derived", block["derived"])
+    _validate_geometry(f"{path}.geometry", block["geometry"])
+    _validate_content(f"{path}.content", block["content"])
+    layout_role = _validate_role_string(f"{path}.layout_role", block["layout_role"])
+    if layout_role not in {"title", "heading", "paragraph", "list_item", "caption", "header", "footer", "footnote", "page_number", "unknown"}:
+        _fail(f"{path}.layout_role", f"unexpected layout role '{block['layout_role']}'")
+    semantic_role = _validate_role_string(f"{path}.semantic_role", block["semantic_role"])
+    if semantic_role not in {"body", "abstract", "reference", "metadata", "affiliation", "acknowledgement", "unknown"}:
+        _fail(f"{path}.semantic_role", f"unexpected semantic role '{block['semantic_role']}'")
+    _validate_role_string(f"{path}.structure_role", block["structure_role"])
+    _validate_policy(f"{path}.policy", block["policy"])
+    _validate_provenance(f"{path}.provenance", block["provenance"])
     _validate_continuation_hint(f"{path}.continuation_hint", block["continuation_hint"])
     _expect_type(f"{path}.metadata", block["metadata"], dict)
     _expect_type(f"{path}.source", block["source"], dict)
     provider = block["source"].get("provider")
     if not isinstance(provider, str) or not provider:
         _fail(f"{path}.source.provider", "expected non-empty string")
+    if "reading_order" in block:
+        _expect_type(f"{path}.reading_order", block["reading_order"], int)
+        if block["reading_order"] < 0:
+            _fail(f"{path}.reading_order", f"expected >= 0, got {block['reading_order']}")
+
+    if "type" in block:
+        _expect_type(f"{path}.type", block["type"], str)
+        if block["type"] not in {"text", "formula", "image", "table", "code", "unknown"}:
+            _fail(f"{path}.type", f"unexpected block type '{block['type']}'")
+    if "sub_type" in block:
+        _expect_type(f"{path}.sub_type", block["sub_type"], str)
+    if "bbox" in block:
+        _validate_bbox(f"{path}.bbox", block["bbox"])
+    if "text" in block:
+        _expect_type(f"{path}.text", block["text"], str)
+    if "lines" in block:
+        _expect_type(f"{path}.lines", block["lines"], list)
+        for index, line in enumerate(block["lines"]):
+            _validate_line(f"{path}.lines[{index}]", line)
+    if "segments" in block:
+        _expect_type(f"{path}.segments", block["segments"], list)
+        for index, segment in enumerate(block["segments"]):
+            _validate_segment(f"{path}.segments[{index}]", segment)
+    if "tags" in block:
+        _expect_type(f"{path}.tags", block["tags"], list)
+        for index, tag in enumerate(block["tags"]):
+            _expect_type(f"{path}.tags[{index}]", tag, str)
+    if "derived" in block:
+        _validate_derived(f"{path}.derived", block["derived"])
 
 
 def _validate_page(path: str, page: dict, *, page_index: int) -> None:
@@ -158,6 +245,10 @@ def _validate_page(path: str, page: dict, *, page_index: int) -> None:
     _expect_type(f"{path}.page_index", page["page_index"], int)
     if page["page_index"] != page_index:
         _fail(f"{path}.page_index", f"expected {page_index}, got {page['page_index']}")
+    if "page" in page:
+        _expect_type(f"{path}.page", page["page"], int)
+        if page["page"] < 1:
+            _fail(f"{path}.page", f"expected >= 1, got {page['page']}")
     for key in ("width", "height"):
         if not isinstance(page[key], (int, float)):
             _fail(f"{path}.{key}", f"expected number, got {type(page[key]).__name__}")
@@ -185,9 +276,15 @@ def validate_document_payload(data: dict) -> None:
             f"expected one of {SUPPORTED_DOCUMENT_SCHEMA_VERSIONS}, got '{data['schema_version']}'",
         )
     _expect_type("$.document_id", data["document_id"], str)
+    if "doc_id" in data:
+        _expect_type("$.doc_id", data["doc_id"], str)
+        if not data["doc_id"]:
+            _fail("$.doc_id", "expected non-empty string")
     _expect_type("$.source", data["source"], dict)
     _expect_type("$.page_count", data["page_count"], int)
     _expect_type("$.pages", data["pages"], list)
+    if "assets" in data:
+        _validate_assets("$.assets", data["assets"])
     _expect_type("$.derived", data["derived"], dict)
     _expect_type("$.markers", data["markers"], dict)
     if data["page_count"] != len(data["pages"]):

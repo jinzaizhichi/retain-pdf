@@ -3,9 +3,17 @@ import json
 from pathlib import Path
 
 from services.document_schema.defaults import normalize_block_continuation_hint
+from services.document_schema.semantics import body_repair_applied
+from services.document_schema.semantics import body_repair_peer_block_id
+from services.document_schema.semantics import body_repair_role
 from services.document_schema.semantics import is_algorithm_semantic
-from services.document_schema.semantics import is_reference_entry_semantic
 from services.translation.ocr.models import TextItem
+from services.translation.item_reader import item_is_algorithm_like
+from services.translation.item_reader import item_block_kind
+from services.translation.item_reader import item_is_bodylike
+from services.translation.item_reader import item_is_title_like
+from services.translation.item_reader import item_policy_translate
+from services.translation.payload.parts.translation_units import refresh_payload_translation_units
 
 from .formula_protection import protect_inline_formulas_in_segments
 from .formula_protection import protected_map_from_formula_map
@@ -19,6 +27,17 @@ TRANSLATED_TEXT_FIELDS = (
     "translated_text",
     "group_protected_translated_text",
     "group_translated_text",
+)
+REQUIRED_CONTRACT_FIELDS = (
+    "block_kind",
+    "layout_role",
+    "semantic_role",
+    "structure_role",
+    "policy_translate",
+    "asset_id",
+    "reading_order",
+    "raw_block_type",
+    "normalized_sub_type",
 )
 
 
@@ -57,20 +76,64 @@ def _sanitize_loaded_translation_record(record: dict) -> bool:
     return changed
 
 
-def _is_algorithm_item(metadata: dict | None) -> bool:
+def _item_policy_payload(block_type: str, metadata: dict | None = None, *, contract_fields: dict | None = None) -> dict:
+    payload = {
+        "block_type": block_type,
+        "metadata": metadata or {},
+    }
+    if contract_fields:
+        payload.update(contract_fields)
+    return payload
+
+
+def _is_algorithm_item(block_type: str, metadata: dict | None = None, *, contract_fields: dict | None = None) -> bool:
+    payload = _item_policy_payload(block_type, metadata, contract_fields=contract_fields)
+    if item_is_algorithm_like(payload):
+        return True
     return is_algorithm_semantic(metadata or {})
 
 
-def _default_translation_flags(block_type: str, metadata: dict | None = None) -> tuple[str, bool, str]:
-    if _is_algorithm_item(metadata):
+def _is_default_translatable_text_block(
+    block_type: str,
+    metadata: dict | None = None,
+    *,
+    contract_fields: dict | None = None,
+) -> bool:
+    payload = _item_policy_payload(block_type, metadata, contract_fields=contract_fields)
+    explicit_policy = item_policy_translate(payload)
+    if explicit_policy is not None:
+        return explicit_policy
+    if item_block_kind(payload) != "text":
+        return False
+    return item_is_bodylike(payload)
+
+
+def _default_translation_flags(
+    block_type: str,
+    metadata: dict | None = None,
+    *,
+    contract_fields: dict | None = None,
+) -> tuple[str, bool, str]:
+    payload = _item_policy_payload(block_type, metadata, contract_fields=contract_fields)
+    normalized_block_type = item_block_kind(payload)
+    if _is_algorithm_item(block_type, metadata, contract_fields=contract_fields):
         return "skip_algorithm", False, "skip_algorithm"
-    if is_reference_entry_semantic(metadata):
+    semantic_role = str(payload.get("semantic_role", (metadata or {}).get("semantic_role", "")) or "").strip().lower()
+    if semantic_role == "reference":
         return "skip_reference_zone", False, "skip_reference_zone"
-    if block_type == "image_body":
+    if normalized_block_type == "image":
         return "skip_image_body", False, "skip_image_body"
-    if block_type == "code_body":
+    if normalized_block_type == "table":
+        return "skip_table_body", False, "skip_table_body"
+    if normalized_block_type == "code":
         return "code", False, "code"
-    return "", True, ""
+    if _is_default_translatable_text_block(normalized_block_type, metadata, contract_fields=contract_fields):
+        return "", True, ""
+    if item_is_title_like(payload):
+        return "skip_title", False, "skip_title"
+    if normalized_block_type:
+        return f"skip_{normalized_block_type}", False, f"skip_{normalized_block_type}"
+    return "skip_non_body_text", False, "skip_non_body_text"
 
 
 def _ocr_continuation_fields(metadata: dict | None) -> dict:
@@ -83,6 +146,80 @@ def _ocr_continuation_fields(metadata: dict | None) -> dict:
         "ocr_continuation_reading_order": hint["reading_order"],
         "ocr_continuation_confidence": hint["confidence"],
     }
+
+
+def _provider_layout_warning_fields(metadata: dict | None) -> dict:
+    metadata = metadata or {}
+    return {
+        "provider_cross_column_merge_suspected": bool(
+            metadata.get("cross_column_merge_suspected", metadata.get("provider_cross_column_merge_suspected"))
+        ),
+        "provider_reading_order_unreliable": bool(
+            metadata.get("reading_order_unreliable", metadata.get("provider_reading_order_unreliable"))
+        ),
+        "provider_structure_unreliable": bool(
+            metadata.get("structure_unreliable", metadata.get("provider_structure_unreliable"))
+        ),
+        "provider_text_missing_but_bbox_present": bool(
+            metadata.get("text_missing_but_bbox_present", metadata.get("provider_text_missing_but_bbox_present"))
+        ),
+        "provider_peer_block_absorbed_text": bool(
+            metadata.get("peer_block_absorbed_text", metadata.get("provider_peer_block_absorbed_text"))
+        ),
+        "provider_body_repair_applied": body_repair_applied(metadata),
+        "provider_body_repair_role": body_repair_role(metadata),
+        "provider_body_repair_strategy": str(
+            metadata.get("body_repair_strategy", metadata.get("provider_body_repair_strategy", "")) or ""
+        ),
+        "provider_suspected_peer_block_id": body_repair_peer_block_id(metadata),
+        "provider_continuation_suppressed": bool(
+            metadata.get("continuation_suppressed", metadata.get("provider_continuation_suppressed"))
+        ),
+        "provider_continuation_suppressed_reason": str(
+            metadata.get("continuation_suppressed_reason", metadata.get("provider_continuation_suppressed_reason", "")) or ""
+        ),
+        "provider_column_layout_mode": str(
+            metadata.get("column_layout_mode", metadata.get("provider_column_layout_mode", "")) or ""
+        ),
+        "provider_column_index_guess": str(
+            metadata.get("column_index_guess", metadata.get("provider_column_index_guess", "")) or ""
+        ),
+    }
+
+
+def _contract_fields_from_item(item: TextItem) -> dict:
+    return {
+        "block_kind": str(getattr(item, "block_kind", "") or item.block_type or "").strip().lower(),
+        "layout_role": str(getattr(item, "layout_role", "") or "").strip().lower(),
+        "semantic_role": str(getattr(item, "semantic_role", "") or "").strip().lower(),
+        "structure_role": str(getattr(item, "structure_role", "") or "").strip().lower(),
+        "policy_translate": getattr(item, "policy_translate", None),
+        "asset_id": str(getattr(item, "asset_id", "") or "").strip(),
+        "reading_order": int(getattr(item, "reading_order", item.block_idx) or 0),
+        "raw_block_type": str(getattr(item, "raw_block_type", "") or item.block_type or "").strip().lower(),
+        "normalized_sub_type": str(getattr(item, "normalized_sub_type", "") or "").strip().lower(),
+    }
+
+
+def _missing_contract_fields(record: dict) -> list[str]:
+    missing: list[str] = []
+    for key in REQUIRED_CONTRACT_FIELDS:
+        if key not in record:
+            missing.append(key)
+    return missing
+
+
+def _validate_translation_payload_contract(payload: list[dict], *, translation_path: Path) -> None:
+    for index, record in enumerate(payload):
+        if not isinstance(record, dict):
+            raise RuntimeError(f"invalid translation payload at {translation_path}: record[{index}] is not an object")
+        missing = _missing_contract_fields(record)
+        if missing:
+            item_id = str(record.get("item_id", "") or f"record[{index}]")
+            missing_joined = ", ".join(missing)
+            raise RuntimeError(
+                f"invalid translation payload at {translation_path}: {item_id} missing strict contract fields: {missing_joined}"
+            )
 
 
 def _resolve_translation_item_payload(item: TextItem, *, math_mode: str) -> tuple[str, list[dict], list[dict]]:
@@ -100,20 +237,28 @@ def export_translation_template(
 ) -> None:
     payload = []
     for item in items:
+        contract_fields = _contract_fields_from_item(item)
         protected_source_text, formula_map, protected_map = _resolve_translation_item_payload(item, math_mode=math_mode)
-        classification_label, should_translate, skip_reason = _default_translation_flags(item.block_type, item.metadata)
+        classification_label, should_translate, skip_reason = _default_translation_flags(
+            item.block_type,
+            item.metadata,
+            contract_fields=contract_fields,
+        )
         ocr_continuation_fields = _ocr_continuation_fields(item.metadata)
+        provider_layout_warning_fields = _provider_layout_warning_fields(item.metadata)
         payload.append(
             {
                 "item_id": item.item_id,
                 "page_idx": item.page_idx,
                 "block_idx": item.block_idx,
                 "block_type": item.block_type,
+                **contract_fields,
                 "bbox": item.bbox,
                 "source_text": item.text,
                 "lines": item.lines,
                 "metadata": item.metadata,
                 **ocr_continuation_fields,
+                **provider_layout_warning_fields,
                 "layout_mode": "",
                 "layout_split_x": 0.0,
                 "layout_zone": "",
@@ -160,15 +305,19 @@ def export_translation_template(
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
-def load_translations(translation_path: Path) -> list[dict]:
+def load_translations(translation_path: Path, *, strict_contract: bool = True) -> list[dict]:
     with translation_path.open("r", encoding="utf-8") as f:
         payload = json.load(f)
     changed = False
     for record in payload:
         if isinstance(record, dict):
             changed = _sanitize_loaded_translation_record(record) or changed
+    if refresh_payload_translation_units(payload):
+        changed = True
     if changed:
         save_translations(translation_path, payload)
+    if strict_contract:
+        _validate_translation_payload_contract(payload, translation_path=translation_path)
     return payload
 
 
@@ -189,16 +338,44 @@ def ensure_translation_template(
         export_translation_template(items, output_path, page_idx=page_idx, math_mode=math_mode)
         return output_path
 
-    payload = load_translations(output_path)
+    try:
+        payload = load_translations(output_path)
+    except RuntimeError as exc:
+        if "missing strict contract fields" not in str(exc):
+            raise
+        export_translation_template(items, output_path, page_idx=page_idx, math_mode=math_mode)
+        return output_path
     item_map = {item.item_id: item for item in items}
     changed = False
     for record in payload:
         item = item_map.get(record.get("item_id"))
         if not item:
             continue
-        classification_label, should_translate, skip_reason = _default_translation_flags(item.block_type, item.metadata)
+        contract_fields = _contract_fields_from_item(item)
+        classification_label, should_translate, skip_reason = _default_translation_flags(
+            item.block_type,
+            item.metadata,
+            contract_fields=contract_fields,
+        )
         ocr_continuation_fields = _ocr_continuation_fields(item.metadata)
+        provider_layout_warning_fields = _provider_layout_warning_fields(item.metadata)
         protected_source_text, formula_map, protected_map = _resolve_translation_item_payload(item, math_mode=math_mode)
+        for key, value in contract_fields.items():
+            if record.get(key) != value:
+                record[key] = value
+                changed = True
+        if record.get("bbox") != item.bbox:
+            record["bbox"] = item.bbox
+            changed = True
+        if record.get("source_text") != item.text:
+            record["source_text"] = item.text
+            changed = True
+        if record.get("lines") != item.lines:
+            record["lines"] = item.lines
+            changed = True
+        if record.get("metadata") != item.metadata:
+            record["metadata"] = item.metadata
+            changed = True
         if (
             "protected_source_text" not in record
             or "formula_map" not in record
@@ -208,7 +385,9 @@ def ensure_translation_template(
             record["source_text"] = item.text
             record["lines"] = item.lines
             record["metadata"] = item.metadata
+            record.update(contract_fields)
             record.update(ocr_continuation_fields)
+            record.update(provider_layout_warning_fields)
             record["math_mode"] = math_mode
             record["protected_source_text"] = protected_source_text
             record["formula_map"] = formula_map
@@ -286,13 +465,17 @@ def ensure_translation_template(
             if record.get(key) != value:
                 record[key] = value
                 changed = True
+        for key, value in provider_layout_warning_fields.items():
+            if record.get(key) != value:
+                record[key] = value
+                changed = True
         if "should_translate" not in record:
             record["should_translate"] = should_translate
             changed = True
         if "skip_reason" not in record:
             record["skip_reason"] = skip_reason
             changed = True
-        if item.block_type == "image_body" or _is_algorithm_item(item.metadata):
+        if not should_translate:
             if record.get("classification_label") != classification_label:
                 record["classification_label"] = classification_label
                 changed = True
@@ -392,6 +575,8 @@ def ensure_translation_template(
                 record.get("formula_map", []),
             )
             changed = True
+    if refresh_payload_translation_units(payload):
+        changed = True
     if changed:
         save_translations(output_path, payload)
     return output_path

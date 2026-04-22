@@ -26,10 +26,10 @@
 
 ## 推荐入口
 
-- `scripts/entrypoints/run_mineru_case.py`
-  推荐的一条命令入口，适合日常使用。输入 PDF 后，会按“解析 -> 解包 -> 翻译 -> 渲染”的顺序串起来。
+- `scripts/entrypoints/run_provider_case.py`
+  本地人工使用时优先走这个通用入口名。当前底层仍复用 MinerU pipeline，但入口不再把 provider 名字写死。
 - `mineru_pipeline.py`
-  `entrypoints/run_mineru_case.py` 背后的稳定实现。
+  `entrypoints/run_provider_case.py` 背后的稳定实现。
 - `mineru_job.py`
   只做解析和解包，适合先拿 MinerU 结果再手动接翻译。
 - `mineru_api.py`
@@ -91,13 +91,13 @@
 
 也就是说，这一层的职责是“把 PDF 变成主链路可消费的 OCR 输入”，而不是承担后续业务。
 
-## MinerU Stage Spec
+## Provider Stage Spec
 
 Rust API 侧当前会优先通过：
 
-`python -u scripts/entrypoints/run_mineru_case.py --spec <job_root>/specs/mineru.spec.json`
+`python -u scripts/entrypoints/run_provider_case.py --spec <job_root>/specs/provider.spec.json`
 
-驱动完整流程，对应 schema 为 `mineru.stage.v1`。
+驱动完整流程，对应 schema 为 `provider.stage.v1`。
 
 当前约定：
 
@@ -117,10 +117,10 @@ Rust API 侧当前会优先通过：
 - 翻译 key 同样使用 `credential_ref=env:RETAIN_TRANSLATION_API_KEY`
 - 运行时由 Rust 注入环境变量，Python worker 再解析
 
-兼容说明：
+运行说明：
 
 - Rust 主工作流调用的 MinerU worker 现在要求 `--spec`
-- 如果只是本地手动试跑，应继续走 `scripts/entrypoints/run_mineru_case.py` 的 stage spec 调用方式
+- 如果只是本地手动试跑，走 `scripts/entrypoints/run_provider_case.py`
 
 兼容说明：
 

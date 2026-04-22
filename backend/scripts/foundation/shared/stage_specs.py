@@ -13,7 +13,7 @@ from foundation.shared.job_dirs import resolve_job_dirs
 NORMALIZE_STAGE_SCHEMA_VERSION = "normalize.stage.v1"
 TRANSLATE_STAGE_SCHEMA_VERSION = "translate.stage.v1"
 RENDER_STAGE_SCHEMA_VERSION = "render.stage.v1"
-MINERU_STAGE_SCHEMA_VERSION = "mineru.stage.v1"
+PROVIDER_STAGE_SCHEMA_VERSION = "provider.stage.v1"
 BOOK_STAGE_SCHEMA_VERSION = "book.stage.v1"
 
 
@@ -220,7 +220,7 @@ class TranslateStageSpec:
             batch_size=int(params_payload.get("batch_size", 1) or 1),
             workers=int(params_payload.get("workers", 1) or 1),
             mode=str(params_payload.get("mode", "sci") or "sci"),
-            math_mode=str(params_payload.get("math_mode", "placeholder") or "placeholder"),
+            math_mode=str(params_payload.get("math_mode", "direct_typst") or "direct_typst"),
             skip_title_translation=bool(params_payload.get("skip_title_translation", False)),
             classify_batch_size=int(params_payload.get("classify_batch_size", 12) or 12),
             rule_profile_name=str(params_payload.get("rule_profile_name", "general_sci") or "general_sci"),
@@ -347,15 +347,18 @@ class RenderStageSpec:
 
 
 @dataclass(frozen=True)
-class MineruStageSource:
+class ProviderStageSource:
     file_url: str
     file_path: Path | None
 
 
 @dataclass(frozen=True)
-class MineruStageOcrParams:
+class ProviderStageOcrParams:
+    provider: str
     credential_ref: str
     model_version: str
+    paddle_api_url: str
+    paddle_model: str
     is_ocr: bool
     disable_formula: bool
     disable_table: bool
@@ -370,7 +373,7 @@ class MineruStageOcrParams:
 
 
 @dataclass(frozen=True)
-class MineruStageTranslationParams:
+class ProviderStageTranslationParams:
     start_page: int
     end_page: int
     batch_size: int
@@ -393,7 +396,7 @@ class MineruStageTranslationParams:
 
 
 @dataclass(frozen=True)
-class MineruStageRenderParams:
+class ProviderStageRenderParams:
     render_mode: str
     compile_workers: int
     typst_font_family: str
@@ -408,26 +411,26 @@ class MineruStageRenderParams:
 
 
 @dataclass(frozen=True)
-class MineruStageSpec:
+class ProviderStageSpec:
     schema_version: str
     stage: str
     job: StageJobRef
-    source: MineruStageSource
-    ocr: MineruStageOcrParams
-    translation: MineruStageTranslationParams
-    render: MineruStageRenderParams
+    source: ProviderStageSource
+    ocr: ProviderStageOcrParams
+    translation: ProviderStageTranslationParams
+    render: ProviderStageRenderParams
 
     @classmethod
-    def load(cls, path: Path) -> "MineruStageSpec":
+    def load(cls, path: Path) -> "ProviderStageSpec":
         spec_path = path.resolve()
         if not spec_path.exists():
             raise RuntimeError(f"stage spec not found: {spec_path}")
         payload = _load_json(spec_path)
         schema_version = _require_text(payload, "schema_version")
-        if schema_version != MINERU_STAGE_SCHEMA_VERSION:
-            raise RuntimeError(f"unsupported mineru stage schema_version: {schema_version}")
+        if schema_version != PROVIDER_STAGE_SCHEMA_VERSION:
+            raise RuntimeError(f"unsupported provider stage schema_version: {schema_version}")
         stage = _require_text(payload, "stage")
-        if stage != "mineru":
+        if stage != "provider":
             raise RuntimeError(f"unexpected stage spec kind: {stage}")
         job_payload = _require_object(payload, "job")
         source_payload = _require_object(payload, "source")
@@ -442,11 +445,14 @@ class MineruStageSpec:
         file_url = str(source_payload.get("file_url", "") or "").strip()
         file_path = _optional_path(source_payload.get("file_path"))
         if not file_url and file_path is None:
-            raise RuntimeError("mineru stage spec requires source.file_url or source.file_path")
-        source = MineruStageSource(file_url=file_url, file_path=file_path)
-        ocr = MineruStageOcrParams(
+            raise RuntimeError("provider stage spec requires source.file_url or source.file_path")
+        source = ProviderStageSource(file_url=file_url, file_path=file_path)
+        ocr = ProviderStageOcrParams(
+            provider=str(ocr_payload.get("provider", "mineru") or "mineru").strip().lower(),
             credential_ref=str(ocr_payload.get("credential_ref", "") or ""),
             model_version=str(ocr_payload.get("model_version", "vlm") or "vlm"),
+            paddle_api_url=str(ocr_payload.get("paddle_api_url", "") or ""),
+            paddle_model=str(ocr_payload.get("paddle_model", "PaddleOCR-VL-1.5") or "PaddleOCR-VL-1.5"),
             is_ocr=bool(ocr_payload.get("is_ocr", False)),
             disable_formula=bool(ocr_payload.get("disable_formula", False)),
             disable_table=bool(ocr_payload.get("disable_table", False)),
@@ -462,13 +468,13 @@ class MineruStageSpec:
         glossary_entries = translation_payload.get("glossary_entries") or []
         if not isinstance(glossary_entries, list):
             raise RuntimeError("stage spec field 'translation.glossary_entries' must be a list")
-        translation = MineruStageTranslationParams(
+        translation = ProviderStageTranslationParams(
             start_page=int(translation_payload.get("start_page", 0) or 0),
             end_page=int(translation_payload.get("end_page", -1) or -1),
             batch_size=int(translation_payload.get("batch_size", 1) or 1),
             workers=int(translation_payload.get("workers", 1) or 1),
             mode=str(translation_payload.get("mode", "sci") or "sci"),
-            math_mode=str(translation_payload.get("math_mode", "placeholder") or "placeholder"),
+            math_mode=str(translation_payload.get("math_mode", "direct_typst") or "direct_typst"),
             skip_title_translation=bool(translation_payload.get("skip_title_translation", False)),
             classify_batch_size=int(translation_payload.get("classify_batch_size", 12) or 12),
             rule_profile_name=str(translation_payload.get("rule_profile_name", "general_sci") or "general_sci"),
@@ -483,7 +489,7 @@ class MineruStageSpec:
             base_url=str(translation_payload.get("base_url", "") or ""),
             credential_ref=str(translation_payload.get("credential_ref", "") or ""),
         )
-        render = MineruStageRenderParams(
+        render = ProviderStageRenderParams(
             render_mode=str(render_payload.get("render_mode", "typst") or "typst"),
             compile_workers=int(render_payload.get("compile_workers", 0) or 0),
             typst_font_family=str(render_payload.get("typst_font_family", "") or "").strip()
@@ -605,7 +611,7 @@ class BookStageSpec:
             batch_size=int(translation_payload.get("batch_size", 1) or 1),
             workers=int(translation_payload.get("workers", 1) or 1),
             mode=str(translation_payload.get("mode", "sci") or "sci"),
-            math_mode=str(translation_payload.get("math_mode", "placeholder") or "placeholder"),
+            math_mode=str(translation_payload.get("math_mode", "direct_typst") or "direct_typst"),
             skip_title_translation=bool(translation_payload.get("skip_title_translation", False)),
             classify_batch_size=int(translation_payload.get("classify_batch_size", 12) or 12),
             rule_profile_name=str(translation_payload.get("rule_profile_name", "general_sci") or "general_sci"),

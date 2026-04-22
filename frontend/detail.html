@@ -22,6 +22,8 @@
           <div class="detail-actions">
             <a id="detail-reader-btn" class="button-link secondary disabled" href="#" target="_blank" rel="noopener noreferrer">对照阅读</a>
             <a id="detail-pdf-btn" class="button-link secondary disabled" href="#" target="_blank" rel="noopener noreferrer">下载 PDF</a>
+            <a id="detail-markdown-raw-btn" class="button-link secondary disabled" href="#" target="_blank" rel="noopener noreferrer">Markdown</a>
+            <a id="detail-markdown-json-btn" class="button-link secondary disabled" href="#" target="_blank" rel="noopener noreferrer">Markdown JSON</a>
           </div>
         </div>
         <div class="detail-meta-list">
@@ -64,6 +66,32 @@
         <article class="detail-card">
           <h2>提示 / 错误</h2>
           <pre id="detail-error-box" class="detail-log">-</pre>
+        </article>
+
+        <article class="detail-card">
+          <div class="detail-trigger-head">
+            <h2>产物清单</h2>
+            <span id="detail-artifacts-summary" class="detail-inline-note">尚未加载</span>
+          </div>
+          <div id="detail-artifacts-list" class="detail-artifact-list">
+            <div class="detail-empty">暂无产物清单</div>
+          </div>
+        </article>
+
+        <article class="detail-card">
+          <div class="detail-trigger-head">
+            <h2>Markdown 预览</h2>
+            <span id="detail-markdown-status" class="detail-inline-note">未请求</span>
+          </div>
+          <div class="detail-meta-list">
+            <div class="detail-meta-row"><span class="label">JSON 接口</span><span id="detail-markdown-json-url" class="value mono">-</span></div>
+            <div class="detail-meta-row"><span class="label">Raw 接口</span><span id="detail-markdown-raw-url" class="value mono">-</span></div>
+            <div class="detail-meta-row"><span class="label">Images Base URL</span><span id="detail-markdown-images-base-url" class="value mono">-</span></div>
+            <div class="detail-meta-row"><span class="label">图片引用数</span><span id="detail-markdown-image-count" class="value">-</span></div>
+          </div>
+          <div id="detail-markdown-image-grid" class="detail-markdown-image-grid hidden"></div>
+          <div id="detail-markdown-image-empty" class="detail-empty">暂无 Markdown 图片引用</div>
+          <pre id="detail-markdown-preview" class="detail-log">-</pre>
         </article>
 
         <article class="detail-card">

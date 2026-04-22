@@ -29,9 +29,19 @@ def attach_layout_trace(*, metadata: dict, bbox: list[float], layout_box_lookup:
     return metadata
 
 
-def build_page_trace(*, page_payload: dict, pruned: dict, preprocessed_image: str) -> dict:
+def build_page_trace(
+    *,
+    page_payload: dict,
+    pruned: dict,
+    preprocessed_image: str,
+    column_signals: dict | None = None,
+    block_ids: list[str] | None = None,
+) -> dict:
     markdown = page_payload.get("markdown") or {}
     layout_boxes = ((pruned.get("layout_det_res") or {}).get("boxes") or [])
+    column_signals = dict(column_signals or {})
+    suspected_orders = list(column_signals.get("suspected_orders", []) or [])
+    block_ids = list(block_ids or [])
     return {
         "input_image": str(page_payload.get("inputImage", "") or ""),
         "preprocessed_image": str(preprocessed_image or ""),
@@ -44,6 +54,14 @@ def build_page_trace(*, page_payload: dict, pruned: dict, preprocessed_image: st
             "images": dict(markdown.get("images", {}) or {}),
         },
         "output_images": dict(page_payload.get("outputImages", {}) or {}),
+        "column_layout_mode": str(column_signals.get("column_layout_mode", "") or "unknown"),
+        "column_split_x": float(column_signals.get("split_x", 0.0) or 0.0),
+        "suspected_cross_column_merge_block_count": int(column_signals.get("suspected_count", 0) or 0),
+        "suspected_block_ids": [
+            block_ids[order]
+            for order in suspected_orders
+            if isinstance(order, int) and 0 <= order < len(block_ids)
+        ],
         "layout_det_res": {
             "box_count": len(layout_boxes),
             "boxes": [

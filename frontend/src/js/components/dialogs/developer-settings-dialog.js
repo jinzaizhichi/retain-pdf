@@ -36,7 +36,7 @@ class DeveloperSettingsDialog extends HTMLElement {
                   <label>
                     <span>任务工作流</span>
                     <select id="developer-workflow">
-                      <option value="mineru">mineru · OCR + 翻译 + 渲染</option>
+                      <option value="book">book · OCR + 翻译 + 渲染</option>
                       <option value="translate">translate · OCR + 翻译</option>
                       <option value="render">render · 复用已有任务产物重新渲染</option>
                     </select>
@@ -45,7 +45,7 @@ class DeveloperSettingsDialog extends HTMLElement {
                     <span>Render 源任务 ID</span>
                     <input id="developer-render-source-job-id" type="text" autocomplete="off" placeholder="填写已有 job_id" />
                   </label>
-                  <p id="developer-workflow-note" class="muted">\`mineru\` 会完整执行 OCR、翻译与 PDF 渲染。</p>
+                  <p id="developer-workflow-note" class="muted">\`book\` 会完整执行 OCR、翻译与 PDF 渲染。</p>
                   <label>
                     <span>模型 Base URL</span>
                     <input id="developer-base-url" type="text" autocomplete="off" placeholder="例如 https://api.deepseek.com/v1" />

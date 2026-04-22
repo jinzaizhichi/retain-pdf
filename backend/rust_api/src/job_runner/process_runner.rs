@@ -1,34 +1,32 @@
-#[cfg(unix)]
-use std::io;
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Instant;
 
-#[cfg(windows)]
-use anyhow::anyhow;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use tokio::time::{sleep, timeout, Duration};
+use tokio::time::{timeout, Duration};
 use tracing::info;
 
 use crate::job_events::{
-    persist_job_with_resources, persist_runtime_job, persist_runtime_job_with_resources,
+    persist_job_with_resources, persist_runtime_job_with_resources,
     record_custom_runtime_event_with_resources,
 };
 #[cfg(test)]
 use crate::models::JobArtifacts;
-use crate::models::{now_iso, JobAiDiagnostic, JobRuntimeState, JobStatusKind, ProcessResult};
+use crate::models::{
+    now_iso, public_request_payload, JobAiDiagnostic, JobRuntimeState, JobStatusKind, ProcessResult,
+};
 use crate::storage_paths::resolve_data_path;
-use crate::AppState;
 
-use super::lifecycle::is_cancel_requested_any;
+use super::cancel_registry::is_cancel_requested_any;
 use super::runtime_state::apply_job_stdout_line;
 use super::{
     attach_job_provider_failure, clear_canceled_runtime_artifacts, clear_job_failure,
-    refresh_job_failure, sync_runtime_state,
+    refresh_job_failure, sync_runtime_state, terminate_job_process_tree,
+    worker_process::spawn_worker_process, ProcessRuntimeDeps,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,7 +47,7 @@ struct FailureAiDiagnosisRequest<'a> {
     failure: &'a crate::models::JobFailureInfo,
     error: Option<&'a str>,
     log_tail: &'a [String],
-    request_payload: &'a crate::models::ResolvedJobSpec,
+    request_payload: &'a crate::models::PublicResolvedJobSpec,
     runtime: Option<&'a crate::models::JobRuntimeInfo>,
     ocr_provider_diagnostics: Option<&'a crate::ocr_provider::OcrProviderDiagnostics>,
 }
@@ -65,7 +63,7 @@ struct FailureAiDiagnosisResponse {
 }
 
 pub(crate) async fn execute_process_job(
-    state: AppState,
+    deps: ProcessRuntimeDeps,
     mut job: JobRuntimeState,
     extra_cancel_job_ids: &[String],
 ) -> Result<JobRuntimeState> {
@@ -80,39 +78,17 @@ pub(crate) async fn execute_process_job(
     job.updated_at = now_iso();
     sync_runtime_state(&mut job);
 
-    let mut command = Command::new(&job.command[0]);
-    command
-        .args(&job.command[1..])
-        .env("RUST_API_DATA_ROOT", &state.config.data_root)
-        .env("RUST_API_OUTPUT_ROOT", &state.config.output_root)
-        .env("OUTPUT_ROOT", &state.config.output_root)
-        .env("PYTHONUNBUFFERED", "1")
-        .current_dir(&state.config.project_root)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if !job.request_payload.translation.api_key.trim().is_empty() {
-        command.env(
-            "RETAIN_TRANSLATION_API_KEY",
-            job.request_payload.translation.api_key.trim(),
-        );
-    }
-    if !job.request_payload.ocr.mineru_token.trim().is_empty() {
-        command.env(
-            "RETAIN_MINERU_API_TOKEN",
-            job.request_payload.ocr.mineru_token.trim(),
-        );
-    }
-    configure_child_process(&mut command);
-
-    let program = job.command.first().cloned().unwrap_or_default();
-    let mut child = command
-        .spawn()
-        .with_context(|| format!("failed to spawn python worker: {program}"))?;
+    let mut child = spawn_worker_process(&deps, &job)?;
     job.pid = child.id();
-    persist_runtime_job(&state, &job)?;
+    persist_runtime_job_with_resources(
+        deps.db.as_ref(),
+        &deps.config.data_root,
+        &deps.config.output_root,
+        &job,
+    )?;
     info!("started job {} pid={:?}", job.job_id, job.pid);
 
-    if is_cancel_requested_any(&state, &job.job_id, extra_cancel_job_ids).await {
+    if is_cancel_requested_any(&deps.canceled_jobs, &job.job_id, extra_cancel_job_ids).await {
         if let Some(pid) = job.pid {
             terminate_job_process_tree(pid).await?;
         }
@@ -123,7 +99,7 @@ pub(crate) async fn execute_process_job(
     let child_pid = job.pid;
     let timeout_secs = job.request_payload.runtime.timeout_seconds;
     let stdout_handle = tokio::spawn(read_stdout(
-        state.clone(),
+        deps.clone(),
         job,
         stdout,
         extra_cancel_job_ids.to_vec(),
@@ -138,12 +114,12 @@ pub(crate) async fn execute_process_job(
                 if let Some(pid) = child_pid {
                     let _ = terminate_job_process_tree(pid).await;
                 }
-                let mut timed_out_job = state.db.get_job(&stdout_handle.await??.1.job_id)?;
+                let mut timed_out_job = deps.db.get_job(&stdout_handle.await??.1.job_id)?;
                 apply_timeout_failure(&mut timed_out_job, now_iso());
                 persist_job_with_resources(
-                    state.db.as_ref(),
-                    &state.config.data_root,
-                    &state.config.output_root,
+                    deps.db.as_ref(),
+                    &deps.config.data_root,
+                    &deps.config.output_root,
                     &timed_out_job,
                 )?;
                 return Ok(timed_out_job.into_runtime());
@@ -164,23 +140,24 @@ pub(crate) async fn execute_process_job(
         return_code: status.code().unwrap_or(-1),
         duration_seconds: started.elapsed().as_secs_f64(),
         command: latest_job.command.clone(),
-        cwd: state.config.project_root.to_string_lossy().to_string(),
+        cwd: deps.config.project_root.to_string_lossy().to_string(),
         stdout: stdout_text,
         stderr: stderr_text.clone(),
     });
 
     let completion = classify_process_completion(
-        is_cancel_requested_any(&state, &latest_job.job_id, extra_cancel_job_ids).await,
+        is_cancel_requested_any(
+            &deps.canceled_jobs,
+            &latest_job.job_id,
+            extra_cancel_job_ids,
+        )
+        .await,
         status.success(),
         should_treat_shutdown_noise_as_success(&latest_job, &stderr_text),
     );
     apply_process_completion(&mut latest_job, completion, &stderr_text);
-    maybe_attach_ai_failure_diagnosis(
-        state.db.as_ref(),
-        state.config.as_ref(),
-        &mut latest_job,
-    )
-    .await;
+    maybe_attach_ai_failure_diagnosis(deps.db.as_ref(), deps.config.as_ref(), &mut latest_job)
+        .await;
     Ok(latest_job)
 }
 
@@ -331,6 +308,7 @@ async fn maybe_attach_ai_failure_diagnosis(
         return;
     }
 
+    let public_request_payload = public_request_payload(&job.request_payload);
     let request_payload = FailureAiDiagnosisRequest {
         job_id: &job.job_id,
         workflow: &job.workflow,
@@ -340,7 +318,7 @@ async fn maybe_attach_ai_failure_diagnosis(
         failure: &failure_snapshot,
         error: job.error.as_deref(),
         log_tail: &job.log_tail,
-        request_payload: &job.request_payload,
+        request_payload: &public_request_payload,
         runtime: job.runtime.as_ref(),
         ocr_provider_diagnostics: job
             .artifacts
@@ -362,8 +340,6 @@ async fn maybe_attach_ai_failure_diagnosis(
         .arg(script_path)
         .arg("--input-json")
         .arg(&request_path)
-        .arg("--api-key")
-        .arg(&job.request_payload.translation.api_key)
         .arg("--model")
         .arg(&job.request_payload.translation.model)
         .arg("--base-url")
@@ -375,6 +351,12 @@ async fn maybe_attach_ai_failure_diagnosis(
         .current_dir(&config.project_root)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if !job.request_payload.translation.api_key.trim().is_empty() {
+        command.env(
+            "RETAIN_TRANSLATION_API_KEY",
+            job.request_payload.translation.api_key.trim(),
+        );
+    }
 
     let output = match timeout(Duration::from_secs(60), command.output()).await {
         Ok(Ok(value)) => value,
@@ -449,7 +431,7 @@ where
 }
 
 async fn read_stdout(
-    state: AppState,
+    deps: ProcessRuntimeDeps,
     mut job: JobRuntimeState,
     stdout: tokio::process::ChildStdout,
     extra_cancel_job_ids: Vec<String>,
@@ -457,7 +439,7 @@ async fn read_stdout(
     let mut out = String::new();
     let mut lines = BufReader::new(stdout).lines();
     while let Some(line) = lines.next_line().await? {
-        if is_cancel_requested_any(&state, &job.job_id, &extra_cancel_job_ids).await
+        if is_cancel_requested_any(&deps.canceled_jobs, &job.job_id, &extra_cancel_job_ids).await
             && !should_continue_after_cancel(&job)
         {
             break;
@@ -465,16 +447,16 @@ async fn read_stdout(
         out.push_str(&line);
         out.push('\n');
         apply_job_stdout_line(&mut job, &line);
-        if is_cancel_requested_any(&state, &job.job_id, &extra_cancel_job_ids).await
+        if is_cancel_requested_any(&deps.canceled_jobs, &job.job_id, &extra_cancel_job_ids).await
             && !should_continue_after_cancel(&job)
         {
             break;
         }
         job.updated_at = now_iso();
         persist_runtime_job_with_resources(
-            state.db.as_ref(),
-            &state.config.data_root,
-            &state.config.output_root,
+            deps.db.as_ref(),
+            &deps.config.data_root,
+            &deps.config.output_root,
             &job,
         )?;
     }
@@ -491,80 +473,6 @@ fn is_shutdown_noise(stderr: &str) -> bool {
         || stderr.contains("Exception ignored in sys.unraisablehook")
 }
 
-#[cfg(unix)]
-fn configure_child_process(command: &mut Command) {
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setpgid(0, 0) != 0 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
-}
-
-#[cfg(windows)]
-fn configure_child_process(_command: &mut Command) {}
-
-pub async fn terminate_job_process_tree(pid: u32) -> Result<()> {
-    #[cfg(windows)]
-    {
-        let status = Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await
-            .context("failed to invoke taskkill")?;
-        if status.success() {
-            return Ok(());
-        }
-        return Err(anyhow!("taskkill failed for pid {pid}"));
-    }
-
-    #[cfg(unix)]
-    {
-        let pgid = pid as i32;
-        signal_process_group(pgid, libc::SIGTERM)?;
-        for _ in 0..15 {
-            if !process_group_exists(pgid) {
-                return Ok(());
-            }
-            sleep(Duration::from_millis(200)).await;
-        }
-        signal_process_group(pgid, libc::SIGKILL)?;
-        for _ in 0..10 {
-            if !process_group_exists(pgid) {
-                return Ok(());
-            }
-            sleep(Duration::from_millis(100)).await;
-        }
-        Ok(())
-    }
-}
-
-#[cfg(unix)]
-fn signal_process_group(pgid: i32, signal: i32) -> Result<()> {
-    let rc = unsafe { libc::kill(-pgid, signal) };
-    if rc == 0 {
-        return Ok(());
-    }
-    let err = io::Error::last_os_error();
-    if matches!(err.raw_os_error(), Some(libc::ESRCH)) {
-        return Ok(());
-    }
-    Err(err.into())
-}
-
-#[cfg(unix)]
-fn process_group_exists(pgid: i32) -> bool {
-    let rc = unsafe { libc::kill(-pgid, 0) };
-    if rc == 0 {
-        return true;
-    }
-    !matches!(io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH))
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -574,6 +482,7 @@ mod tests {
     use super::*;
     use crate::config::AppConfig;
     use crate::db::Db;
+    use crate::job_events::persist_runtime_job_with_resources;
     use crate::models::CreateJobInput;
     use crate::AppState;
     use tokio::sync::{Mutex, RwLock, Semaphore};
@@ -612,8 +521,8 @@ mod tests {
             rust_api_root,
             data_root: data_root.clone(),
             scripts_dir: scripts_dir.clone(),
-            run_mineru_case_script: scripts_dir.join("run_mineru_case.py"),
-            run_ocr_job_script: scripts_dir.join("run_ocr_job.py"),
+            run_provider_case_script: scripts_dir.join("run_provider_case.py"),
+            run_provider_ocr_script: scripts_dir.join("run_provider_ocr.py"),
             run_normalize_ocr_script: scripts_dir.join("run_normalize_ocr.py"),
             run_translate_from_ocr_script: scripts_dir.join("run_translate_from_ocr.py"),
             run_translate_only_script: scripts_dir.join("run_translate_only.py"),
@@ -751,17 +660,22 @@ mod tests {
         let script = r#"#!/usr/bin/env python3
 import argparse
 import json
+import os
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input-json", required=True)
-parser.add_argument("--api-key")
 parser.add_argument("--model")
 parser.add_argument("--base-url")
 args = parser.parse_args()
 
 payload = json.loads(Path(args.input_json).read_text(encoding="utf-8"))
 assert payload["failure"]["category"] == "unknown"
+assert payload["request_payload"]["translation"]["api_key"] == ""
+assert payload["request_payload"]["translation"]["api_key_configured"] is True
+assert payload["request_payload"]["ocr"]["mineru_token"] == ""
+assert payload["request_payload"]["ocr"]["mineru_token_configured"] is False
+assert os.environ.get("RETAIN_TRANSLATION_API_KEY") == "sk-test"
 print(json.dumps({
     "status": "ok",
     "summary": "AI diagnosis summary",
@@ -802,7 +716,13 @@ print(json.dumps({
             job_root: Some(format!("jobs/{}", job.job_id)),
             ..JobArtifacts::default()
         });
-        persist_runtime_job(&state, &job).expect("persist runtime job");
+        persist_runtime_job_with_resources(
+            state.db.as_ref(),
+            &state.config.data_root,
+            &state.config.output_root,
+            &job,
+        )
+        .expect("persist runtime job");
 
         maybe_attach_ai_failure_diagnosis(state.db.as_ref(), state.config.as_ref(), &mut job).await;
 
@@ -832,6 +752,28 @@ print(json.dumps({
             .join("failure-ai-diagnosis.response.json");
         assert!(request_log.exists());
         assert!(response_log.exists());
+        let request_payload: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&request_log).expect("read request log"))
+                .expect("parse request log");
+        assert_eq!(
+            request_payload["request_payload"]["translation"]["api_key"],
+            ""
+        );
+        assert_eq!(
+            request_payload["request_payload"]["translation"]["api_key_configured"],
+            true
+        );
+        assert_eq!(
+            request_payload["request_payload"]["ocr"]["mineru_token"],
+            ""
+        );
+        assert_eq!(
+            request_payload["request_payload"]["ocr"]["mineru_token_configured"],
+            false
+        );
+        assert!(!fs::read_to_string(&request_log)
+            .expect("request log text")
+            .contains("sk-test"));
 
         let events = state
             .db
@@ -845,5 +787,42 @@ print(json.dumps({
         assert_eq!(payload["category"], "unknown");
         assert_eq!(payload["summary"], "任务失败，但暂未识别出明确根因");
         assert_eq!(payload["ai_diagnostic"]["summary"], "AI diagnosis summary");
+    }
+
+    #[tokio::test]
+    async fn execute_process_job_injects_provider_and_translation_envs() {
+        let state = test_state("provider-envs");
+        let mut job = crate::models::JobSnapshot::new(
+            "job-provider-envs".to_string(),
+            CreateJobInput::default(),
+            vec![
+                "python3".to_string(),
+                "-c".to_string(),
+                r#"import json, os
+print(json.dumps({
+  "translation": os.environ.get("RETAIN_TRANSLATION_API_KEY", ""),
+  "paddle": os.environ.get("RETAIN_PADDLE_API_TOKEN", ""),
+  "mineru": os.environ.get("RETAIN_MINERU_API_TOKEN", "")
+}, ensure_ascii=False))"#
+                    .to_string(),
+            ],
+        )
+        .into_runtime();
+        job.request_payload.runtime.job_id = job.job_id.clone();
+        job.request_payload.translation.api_key = "sk-env-test".to_string();
+        job.request_payload.ocr.provider = "paddle".to_string();
+        job.request_payload.ocr.paddle_token = "paddle-env-test".to_string();
+        job.request_payload.ocr.mineru_token = String::new();
+
+        let finished = execute_process_job(ProcessRuntimeDeps::from_state(&state), job, &[])
+            .await
+            .expect("execute process job");
+
+        assert_eq!(finished.status, JobStatusKind::Succeeded);
+        let result = finished.result.as_ref().expect("process result");
+        assert!(result.success);
+        assert!(result.stdout.contains("\"translation\": \"sk-env-test\""));
+        assert!(result.stdout.contains("\"paddle\": \"paddle-env-test\""));
+        assert!(result.stdout.contains("\"mineru\": \"\""));
     }
 }

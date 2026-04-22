@@ -27,3 +27,7 @@ lopdf = "0.32"
 fastrand = "2"
 libc = "0.2"
 csv = "1"
+base64 = "0.22"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

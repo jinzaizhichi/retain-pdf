@@ -6,7 +6,6 @@ from pathlib import Path
 
 from services.translation.ocr.json_extractor import extract_text_items
 from services.translation.ocr.json_extractor import get_pages
-from services.translation.policy.reference_section import resolve_reference_cutoff
 from services.translation.policy.rule_profiles import DEFAULT_RULE_PROFILE_NAME
 from services.translation.policy.rule_profiles import build_rule_profile_context
 
@@ -14,15 +13,14 @@ from services.translation.policy.rule_profiles import build_rule_profile_context
 @dataclass(frozen=True)
 class TranslationPolicyConfig:
     mode: str
-    math_mode: str = "placeholder"
+    math_mode: str = "direct_typst"
     enable_title_skip: bool = False
+    # Deprecated compatibility fields. The default translation mainline no longer
+    # uses these flags to reconstruct legacy skip heuristics.
     enable_reference_tail_skip: bool = False
     enable_reference_zone_skip: bool = False
-    # Deprecated compatibility flag. Defaults off, but explicit overrides are honored.
     enable_narrow_body_noise_skip: bool = False
-    # Deprecated compatibility flag. Defaults off; safe metadata rules remain narrow.
     enable_metadata_fragment_skip: bool = False
-    # Deprecated compatibility field retained for old callers.
     metadata_fragment_max_page_idx: int = 1
     enable_candidate_continuation_review: bool = True
     enable_domain_inference: bool = False
@@ -73,7 +71,7 @@ def should_apply_after_last_title_cutoff(mode: str) -> bool:
 
 
 def should_apply_reference_zone_skip(mode: str) -> bool:
-    return True
+    return False
 
 
 def should_apply_narrow_body_noise_skip(mode: str) -> bool:
@@ -106,7 +104,7 @@ def extract_ocr_preview_text(data: dict, max_pages: int = 2) -> str:
 def build_translation_policy_config(
     *,
     mode: str,
-    math_mode: str = "placeholder",
+    math_mode: str = "direct_typst",
     skip_title_translation: bool,
     sci_cutoff_page_idx: int | None = None,
     sci_cutoff_block_idx: int | None = None,
@@ -137,7 +135,7 @@ def build_translation_policy_config(
     )
     return TranslationPolicyConfig(
         mode=mode,
-        math_mode=str(math_mode or "placeholder").strip() or "placeholder",
+        math_mode=str(math_mode or "direct_typst").strip() or "direct_typst",
         enable_title_skip=should_skip_title_translation(mode, skip_title_translation)
         if enable_title_skip is None
         else enable_title_skip,
@@ -189,7 +187,6 @@ def build_book_translation_policy_config(
 ) -> TranslationPolicyConfig:
     sci_cutoff_page_idx = None
     sci_cutoff_block_idx = None
-    sci_cutoff_page_idx, sci_cutoff_block_idx = resolve_reference_cutoff(data)
 
     domain_context: dict[str, str] = {}
     infer_domain = should_infer_domain_context(mode, source_pdf_path) if enable_domain_inference is None else enable_domain_inference

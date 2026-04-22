@@ -306,8 +306,15 @@ def replay_translation_case_artifact(case_artifact_path: Path, item_id: str | No
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Replay a single translated item without mutating job artifacts.")
-    parser.add_argument("--job-root", type=str, required=True, help="Absolute job root path or job id under data/jobs.")
+    parser = argparse.ArgumentParser(
+        description="Replay a single translated item from a manifest-backed strict-contract job without mutating artifacts."
+    )
+    parser.add_argument(
+        "--job-root",
+        type=str,
+        required=True,
+        help="Absolute job root path or job id under data/jobs. Job must contain translated/translation-manifest.json.",
+    )
     parser.add_argument("--item-id", type=str, required=True, help="Translation item id.")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")
     return parser.parse_args()

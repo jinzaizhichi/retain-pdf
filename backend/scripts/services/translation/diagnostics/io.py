@@ -43,11 +43,31 @@ def aggregate_payload_diagnostics(translated_pages_map: dict[int, list[dict]]) -
     for page_idx, items in sorted(translated_pages_map.items()):
         for item in items:
             payload = dict(item.get("translation_diagnostics") or {})
-            if not payload:
+            item_final_status = str(item.get("final_status", "") or "").strip()
+            final_status = str(payload.get("final_status", "") or item_final_status or "").strip()
+            has_translation_artifact = bool(
+                str(
+                    item.get("translated_text")
+                    or item.get("protected_translated_text")
+                    or item.get("translation_unit_translated_text")
+                    or item.get("translation_unit_protected_translated_text")
+                    or ""
+                ).strip()
+            )
+            if not payload and not final_status and not has_translation_artifact:
                 continue
+            # Payload-level diagnostics can still say "translated" even when policy has already
+            # settled the item to kept_origin/failed. Use the item terminal state as the source
+            # of truth when no translated artifact exists.
+            if (
+                item_final_status
+                and item_final_status != FinalStatus.TRANSLATED.value
+                and not has_translation_artifact
+            ):
+                final_status = item_final_status
             payload.setdefault("item_id", item.get("item_id", ""))
             payload.setdefault("page_idx", page_idx)
-            final_status = str(payload.get("final_status", "") or item.get("final_status", "") or FinalStatus.TRANSLATED.value)
+            final_status = final_status or FinalStatus.TRANSLATED.value
             payload["final_status"] = final_status
             status_summary[final_status] = status_summary.get(final_status, 0) + 1
             route_path = payload.get("route_path") or []

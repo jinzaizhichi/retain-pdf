@@ -45,6 +45,8 @@
 4. [03_semantics_rules.md](./03_semantics_rules.md)
 5. [04_continuation_hint.md](./04_continuation_hint.md)
 6. [05_adapter_checklist.md](./05_adapter_checklist.md)
+7. [06_job_artifact_boundary.md](./06_job_artifact_boundary.md)
+8. [official/README.md](./official/README.md)
 
 ## 对接原则
 
@@ -52,3 +54,4 @@
 2. 下游主链路只消费 `document.v1.json`。
 3. 如果 Paddle 已经识别出连续段落组，写入 `continuation_hint`，不要把 `group_id` 之类的私有字段直接泄漏给 translation。
 4. 先保证 schema 正确，再做语义增强；不要一上来就堆规则。
+5. `provider raw -> normalized_document -> artifact export -> download API` 是四层边界，不要混用。

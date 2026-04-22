@@ -2,7 +2,7 @@ pub(crate) fn default_mode() -> String {
     "sci".to_string()
 }
 pub(crate) fn default_math_mode() -> String {
-    "placeholder".to_string()
+    "direct_typst".to_string()
 }
 pub(crate) fn default_ocr_provider() -> String {
     "mineru".to_string()
@@ -32,7 +32,7 @@ pub(crate) fn default_model_version() -> String {
     "vlm".to_string()
 }
 pub(crate) fn default_paddle_model() -> String {
-    "PaddleOCR-VL".to_string()
+    "PaddleOCR-VL-1.5".to_string()
 }
 pub(crate) fn default_language() -> String {
     "ch".to_string()

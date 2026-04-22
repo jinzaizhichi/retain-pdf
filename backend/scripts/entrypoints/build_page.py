@@ -43,8 +43,8 @@ def parse_args() -> argparse.Namespace:
         "--render-mode",
         type=str,
         default="default",
-        choices=["default", "overlay", "direct", "typst"],
-        help="Rendering mode for translated overlay. direct is a compatibility alias for overlay.",
+        choices=["default", "overlay", "typst"],
+        help="Rendering mode for translated overlay.",
     )
     parser.add_argument(
         "--source-json",
@@ -84,7 +84,7 @@ def main() -> None:
             output_pdf_path=output_pdf_path,
             page_idx=args.page,
         )
-    elif args.single_page and args.render_mode in {"typst", "overlay", "direct"}:
+    elif args.single_page and args.render_mode in {"typst", "overlay"}:
         build_single_page_typst_pdf(
             source_pdf_path=source_pdf,
             output_pdf_path=output_pdf_path,

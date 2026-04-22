@@ -2,30 +2,31 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 
-use crate::job_events::{persist_runtime_job, record_custom_runtime_event};
+use crate::job_events::{
+    persist_runtime_job_with_resources, record_custom_runtime_event_with_resources,
+};
 use crate::models::{now_iso, JobRuntimeState, JobSnapshot, JobStatusKind};
 use crate::storage_paths::build_job_paths;
-use crate::AppState;
 
 use super::commands::{build_ocr_command, build_translate_only_command};
 use super::ocr_flow::{execute_ocr_job, sync_parent_with_ocr_child};
 use super::{
     attach_job_paths, build_render_only_command, clear_job_failure, execute_process_job,
-    refresh_job_failure, sync_runtime_state,
+    refresh_job_failure, sync_runtime_state, ProcessRuntimeDeps,
 };
 
 pub(super) async fn run_translation_job_with_ocr(
-    state: AppState,
+    deps: ProcessRuntimeDeps,
     parent_job: JobRuntimeState,
 ) -> Result<JobRuntimeState> {
-    run_job_with_ocr(state, parent_job, OcrContinuation::FullPipeline).await
+    run_job_with_ocr(deps, parent_job, OcrContinuation::FullPipeline).await
 }
 
 pub(super) async fn run_translate_only_job_with_ocr(
-    state: AppState,
+    deps: ProcessRuntimeDeps,
     parent_job: JobRuntimeState,
 ) -> Result<JobRuntimeState> {
-    run_job_with_ocr(state, parent_job, OcrContinuation::TranslateOnly).await
+    run_job_with_ocr(deps, parent_job, OcrContinuation::TranslateOnly).await
 }
 
 #[derive(Clone, Copy)]
@@ -35,18 +36,18 @@ enum OcrContinuation {
 }
 
 async fn run_job_with_ocr(
-    state: AppState,
+    deps: ProcessRuntimeDeps,
     mut parent_job: JobRuntimeState,
     continuation: OcrContinuation,
 ) -> Result<JobRuntimeState> {
-    let parent_job_paths = build_job_paths(&state.config.output_root, &parent_job.job_id)?;
+    let parent_job_paths = build_job_paths(&deps.config.output_root, &parent_job.job_id)?;
     attach_job_paths(&mut parent_job, &parent_job_paths);
     let upload_id = parent_job
         .upload_id
         .clone()
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| anyhow!("parent translation job is missing upload_id"))?;
-    let upload = state.db.get_upload(&upload_id)?;
+    let upload = deps.db.get_upload(&upload_id)?;
     let upload_path = Path::new(&upload.stored_path);
     if !upload_path.exists() {
         return Err(anyhow!("uploaded file missing: {}", upload.stored_path));
@@ -59,7 +60,12 @@ async fn run_job_with_ocr(
     parent_job.stage_detail = Some("正在启动 OCR 子任务".to_string());
     clear_job_failure(&mut parent_job);
     sync_runtime_state(&mut parent_job);
-    persist_runtime_job(&state, &parent_job)?;
+    persist_runtime_job_with_resources(
+        deps.db.as_ref(),
+        &deps.config.data_root,
+        &deps.config.output_root,
+        &parent_job,
+    )?;
 
     let ocr_job_id = format!("{}-ocr", parent_job.job_id);
     let mut ocr_request = parent_job.request_payload.clone();
@@ -70,7 +76,7 @@ async fn run_job_with_ocr(
         ocr_job_id.clone(),
         ocr_request.clone(),
         build_ocr_command(
-            state.config.as_ref(),
+            deps.config.as_ref(),
             Some(upload_path),
             &ocr_request,
             &parent_job_paths,
@@ -85,7 +91,12 @@ async fn run_job_with_ocr(
     ocr_child.stage = Some("queued".to_string());
     ocr_child.stage_detail = Some("OCR 子任务已创建".to_string());
     sync_runtime_state(&mut ocr_child);
-    persist_runtime_job(&state, &ocr_child)?;
+    persist_runtime_job_with_resources(
+        deps.db.as_ref(),
+        &deps.config.data_root,
+        &deps.config.output_root,
+        &ocr_child,
+    )?;
 
     if let Some(artifacts) = parent_job.artifacts.as_mut() {
         artifacts.ocr_job_id = Some(ocr_job_id.clone());
@@ -93,10 +104,17 @@ async fn run_job_with_ocr(
         artifacts.ocr_status = Some(JobStatusKind::Queued);
     }
     sync_runtime_state(&mut parent_job);
-    persist_runtime_job(&state, &parent_job)?;
-    record_custom_runtime_event(
-        &state,
+    persist_runtime_job_with_resources(
+        deps.db.as_ref(),
+        &deps.config.data_root,
+        &deps.config.output_root,
         &parent_job,
+    )?;
+    record_custom_runtime_event_with_resources(
+        deps.db.as_ref(),
+        &deps.config.data_root,
+        &deps.config.output_root,
+        &parent_job.snapshot(),
         "info",
         "ocr_child_created",
         "OCR 子任务已创建",
@@ -104,18 +122,25 @@ async fn run_job_with_ocr(
     );
 
     let ocr_finished = execute_ocr_job(
-        state.clone(),
+        deps.clone(),
         ocr_child,
         Some(parent_job.job_id.clone()),
         Some(parent_job.job_id.clone()),
     )
     .await?;
-    persist_runtime_job(&state, &ocr_finished)?;
+    persist_runtime_job_with_resources(
+        deps.db.as_ref(),
+        &deps.config.data_root,
+        &deps.config.output_root,
+        &ocr_finished,
+    )?;
     sync_parent_with_ocr_child(&mut parent_job, &ocr_finished);
     let ocr_finished_status = ocr_finished.status.clone();
-    record_custom_runtime_event(
-        &state,
-        &parent_job,
+    record_custom_runtime_event_with_resources(
+        deps.db.as_ref(),
+        &deps.config.data_root,
+        &deps.config.output_root,
+        &parent_job.snapshot(),
         if matches!(ocr_finished_status, JobStatusKind::Failed) {
             "error"
         } else {
@@ -139,7 +164,7 @@ async fn run_job_with_ocr(
     let layout_json_path = translate_inputs.layout_json_path.map(Path::to_path_buf);
 
     parent_job.command = build_translate_only_command(
-        state.config.as_ref(),
+        deps.config.as_ref(),
         &parent_job.request_payload,
         &parent_job_paths,
         &normalized_path,
@@ -153,9 +178,14 @@ async fn run_job_with_ocr(
     });
     parent_job.updated_at = now_iso();
     sync_runtime_state(&mut parent_job);
-    persist_runtime_job(&state, &parent_job)?;
+    persist_runtime_job_with_resources(
+        deps.db.as_ref(),
+        &deps.config.data_root,
+        &deps.config.output_root,
+        &parent_job,
+    )?;
 
-    let translated_job = execute_process_job(state.clone(), parent_job, &[]).await?;
+    let translated_job = execute_process_job(deps.clone(), parent_job, &[]).await?;
     if !matches!(translated_job.status, JobStatusKind::Succeeded) {
         return Ok(translated_job);
     }
@@ -163,7 +193,7 @@ async fn run_job_with_ocr(
         OcrContinuation::TranslateOnly => Ok(translated_job),
         OcrContinuation::FullPipeline => {
             run_render_stage_after_translation(
-                state,
+                deps,
                 translated_job,
                 &parent_job_paths,
                 &source_pdf_path,
@@ -174,13 +204,13 @@ async fn run_job_with_ocr(
 }
 
 async fn run_render_stage_after_translation(
-    state: AppState,
+    deps: ProcessRuntimeDeps,
     mut job: JobRuntimeState,
     job_paths: &crate::storage_paths::JobPaths,
     source_pdf_path: &Path,
 ) -> Result<JobRuntimeState> {
     job.command = build_render_only_command(
-        state.config.as_ref(),
+        deps.config.as_ref(),
         &job.request_payload,
         job_paths,
         source_pdf_path,
@@ -192,8 +222,13 @@ async fn run_render_stage_after_translation(
     job.updated_at = now_iso();
     clear_job_failure(&mut job);
     sync_runtime_state(&mut job);
-    persist_runtime_job(&state, &job)?;
-    execute_process_job(state, job, &[]).await
+    persist_runtime_job_with_resources(
+        deps.db.as_ref(),
+        &deps.config.data_root,
+        &deps.config.output_root,
+        &job,
+    )?;
+    execute_process_job(deps, job, &[]).await
 }
 
 struct TranslationInputs<'a> {

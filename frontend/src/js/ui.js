@@ -1,6 +1,10 @@
 import { $ } from "./dom.js";
 import { buildFrontendPageUrl } from "./config.js";
 import { DEFAULT_FILE_LABEL } from "./constants.js";
+import {
+  hasReadyManifestArtifact,
+  resolveManifestArtifactUrl,
+} from "./job-artifacts.js";
 import { state } from "./state.js";
 import {
   formatEventTimestamp,
@@ -688,25 +692,6 @@ function setActionLink(id, url, enabled) {
   el.setAttribute("aria-disabled", enabled ? "false" : "true");
 }
 
-function resolveManifestArtifactUrl(manifestPayload, artifactKey) {
-  const items = Array.isArray(manifestPayload?.items) ? manifestPayload.items : [];
-  const item = items.find((entry) => entry?.artifact_key === artifactKey && entry?.ready);
-  const rawUrl = item?.resource_url || item?.resource_path || "";
-  if (!rawUrl) {
-    return "";
-  }
-  if (artifactKey !== "markdown_bundle_zip") {
-    return rawUrl;
-  }
-  const separator = rawUrl.includes("?") ? "&" : "?";
-  return `${rawUrl}${separator}include_job_dir=true`;
-}
-
-function hasManifestArtifact(manifestPayload, artifactKey) {
-  const items = Array.isArray(manifestPayload?.items) ? manifestPayload.items : [];
-  return items.some((entry) => entry?.artifact_key === artifactKey && entry?.ready);
-}
-
 function buildReaderPageUrl(jobId) {
   const normalizedJobId = `${jobId || ""}`.trim();
   if (!normalizedJobId) {
@@ -720,17 +705,19 @@ function buildReaderPageUrl(jobId) {
 export function updateActionButtons(job, manifestPayload = null) {
   const actions = resolveJobActions(job);
   setActionLink("download-btn", actions.bundle, actions.bundleEnabled && !!actions.bundle);
-  const markdownBundleUrl = resolveManifestArtifactUrl(manifestPayload, "markdown_bundle_zip");
+  const markdownBundleUrl = resolveManifestArtifactUrl(manifestPayload, "markdown_bundle_zip", {
+    includeJobDir: true,
+  });
   setActionLink("markdown-bundle-btn", markdownBundleUrl, !!markdownBundleUrl);
   setActionLink("pdf-btn", actions.pdf, actions.pdfEnabled && !!actions.pdf);
   setActionLink("markdown-btn", actions.markdownJson, actions.markdownJsonEnabled && !!actions.markdownJson);
   setActionLink("markdown-raw-btn", actions.markdownRaw, actions.markdownRawEnabled && !!actions.markdownRaw);
   const readerEnabled = Boolean(
     job?.job_id
-    && hasManifestArtifact(manifestPayload, "source_pdf")
-    && (hasManifestArtifact(manifestPayload, "pdf")
-      || hasManifestArtifact(manifestPayload, "translated_pdf")
-      || hasManifestArtifact(manifestPayload, "result_pdf")
+    && hasReadyManifestArtifact(manifestPayload, "source_pdf")
+    && (hasReadyManifestArtifact(manifestPayload, "pdf")
+      || hasReadyManifestArtifact(manifestPayload, "translated_pdf")
+      || hasReadyManifestArtifact(manifestPayload, "result_pdf")
       || actions.pdfEnabled),
   );
   setActionLink("reader-btn", buildReaderPageUrl(job?.job_id), readerEnabled);
@@ -888,10 +875,10 @@ export function renderJob(payload, eventsPayload = null, manifestPayload = null)
   const actions = resolveJobActions(job);
   const readerEnabled = Boolean(
     job?.job_id
-    && hasManifestArtifact(manifestPayload, "source_pdf")
-    && (hasManifestArtifact(manifestPayload, "pdf")
-      || hasManifestArtifact(manifestPayload, "translated_pdf")
-      || hasManifestArtifact(manifestPayload, "result_pdf")
+    && hasReadyManifestArtifact(manifestPayload, "source_pdf")
+    && (hasReadyManifestArtifact(manifestPayload, "pdf")
+      || hasReadyManifestArtifact(manifestPayload, "translated_pdf")
+      || hasReadyManifestArtifact(manifestPayload, "result_pdf")
       || actions.pdfEnabled),
   );
   const stageText = summarizeStageDetail(job);

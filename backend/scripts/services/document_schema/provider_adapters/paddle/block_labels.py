@@ -6,7 +6,7 @@ def map_block_kind(raw_label: str, *, text: str = "") -> tuple[str, str, list[st
     if label == "doc_title":
         return "text", "title", ["title"], {}
     if label == "abstract":
-        return "text", "abstract", ["abstract"], {}
+        return "text", "body", ["abstract"], {"source_text_role": "abstract"}
     if label == "text":
         return "text", "body", [], {}
     if label == "paragraph_title":

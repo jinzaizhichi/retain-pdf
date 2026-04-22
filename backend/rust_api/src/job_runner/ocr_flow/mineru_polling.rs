@@ -1,11 +1,11 @@
 use anyhow::{anyhow, Result};
 
+use crate::job_runner::ProcessRuntimeDeps;
 use crate::models::{now_iso, JobRuntimeState};
 use crate::ocr_provider::mineru::{
     client::MineruTrace, find_extract_result_in_batch, map_task_status, MineruClient,
 };
 use crate::ocr_provider::OcrTaskHandle;
-use crate::AppState;
 
 use super::artifacts::{download_and_unpack_after_success, persist_provider_result};
 use super::mineru_retry::query_with_retry;
@@ -16,7 +16,7 @@ use super::status::{record_provider_trace, update_ocr_job_from_status};
 const MINERU_WAITING_FILE_GRACE_SECS: u64 = 90;
 
 pub(super) async fn poll_uploaded_batch_until_ready(
-    state: &AppState,
+    deps: &ProcessRuntimeDeps,
     job: &mut JobRuntimeState,
     client: &MineruClient,
     batch_id: &str,
@@ -29,11 +29,11 @@ pub(super) async fn poll_uploaded_batch_until_ready(
     let started = std::time::Instant::now();
 
     loop {
-        if should_stop_polling(state, &job.job_id).await {
+        if should_stop_polling(deps, &job.job_id).await {
             return Ok(());
         }
         let Some(batch) = query_with_retry(
-            state,
+            deps,
             job,
             "batch",
             batch_id,
@@ -50,7 +50,7 @@ pub(super) async fn poll_uploaded_batch_until_ready(
             continue;
         };
         if process_batch_status(
-            state,
+            deps,
             job,
             client,
             batch_id,
@@ -72,7 +72,7 @@ pub(super) async fn poll_uploaded_batch_until_ready(
 }
 
 pub(super) async fn poll_remote_task_until_ready(
-    state: &AppState,
+    deps: &ProcessRuntimeDeps,
     job: &mut JobRuntimeState,
     client: &MineruClient,
     task_id: &str,
@@ -84,11 +84,11 @@ pub(super) async fn poll_remote_task_until_ready(
     let started = std::time::Instant::now();
 
     loop {
-        if should_stop_polling(state, &job.job_id).await {
+        if should_stop_polling(deps, &job.job_id).await {
             return Ok(());
         }
         let Some(task) = query_with_retry(
-            state,
+            deps,
             job,
             "task",
             task_id,
@@ -105,7 +105,7 @@ pub(super) async fn poll_remote_task_until_ready(
             continue;
         };
         if process_remote_task_status(
-            state,
+            deps,
             job,
             client,
             task_id,
@@ -125,7 +125,7 @@ pub(super) async fn poll_remote_task_until_ready(
 }
 
 async fn process_batch_status(
-    state: &AppState,
+    deps: &ProcessRuntimeDeps,
     job: &mut JobRuntimeState,
     client: &MineruClient,
     batch_id: &str,
@@ -142,14 +142,14 @@ async fn process_batch_status(
             None => {
                 job.append_log(&format!("batch {batch_id}: waiting for extract_result"));
                 job.updated_at = now_iso();
-                save_ocr_job(state, job, parent_job_id).await?;
+                save_ocr_job(deps, job, parent_job_id).await?;
                 return Ok(false);
             }
         };
 
     job.append_log(&format!("batch {batch_id}: state={}", item.state));
     update_ocr_job_from_status(
-        state,
+        deps,
         job,
         map_task_status(
             &item.state,
@@ -188,7 +188,7 @@ async fn process_batch_status(
         });
         persist_provider_result(job, provider_result_json_path, &result).await?;
         download_and_unpack_after_success(
-            state,
+            deps,
             job,
             client,
             result["data"]["full_zip_url"].as_str().unwrap_or_default(),
@@ -217,7 +217,7 @@ mod tests {
 }
 
 async fn process_remote_task_status(
-    state: &AppState,
+    deps: &ProcessRuntimeDeps,
     job: &mut JobRuntimeState,
     client: &MineruClient,
     task_id: &str,
@@ -229,7 +229,7 @@ async fn process_remote_task_status(
     let item = task.data;
     job.append_log(&format!("task {task_id}: state={}", item.state));
     update_ocr_job_from_status(
-        state,
+        deps,
         job,
         map_task_status(
             &item.state,
@@ -260,7 +260,7 @@ async fn process_remote_task_status(
         });
         persist_provider_result(job, provider_result_json_path, &result).await?;
         download_and_unpack_after_success(
-            state,
+            deps,
             job,
             client,
             result["data"]["full_zip_url"].as_str().unwrap_or_default(),

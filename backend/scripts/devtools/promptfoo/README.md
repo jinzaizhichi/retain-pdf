@@ -23,11 +23,37 @@ curl -H 'X-API-Key: retain-pdf-desktop' \
   'http://127.0.0.1:41000/api/v1/jobs/<job_id>/translation/items?final_status=kept_origin&q=protocol'
 ```
 
+如果不想手写 curl，也可以直接用：
+
+```bash
+python backend/scripts/devtools/translation_debug_api.py \
+  items \
+  --job-id <job_id> \
+  --final-status kept_origin \
+  --q protocol
+```
+
 或者直接看单个 item：
 
 ```bash
 curl -H 'X-API-Key: retain-pdf-desktop' \
   'http://127.0.0.1:41000/api/v1/jobs/<job_id>/translation/items/<item_id>'
+```
+
+```bash
+python backend/scripts/devtools/translation_debug_api.py \
+  item \
+  --job-id <job_id> \
+  --item-id <item_id>
+```
+
+需要直接重放当前翻译链路时：
+
+```bash
+python backend/scripts/devtools/translation_debug_api.py \
+  replay \
+  --job-id <job_id> \
+  --item-id <item_id>
 ```
 
 ## 2. 先扫一遍 saved vs replay 的策略漂移

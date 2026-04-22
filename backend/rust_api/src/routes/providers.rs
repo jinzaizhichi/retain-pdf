@@ -1,4 +1,3 @@
-use axum::extract::State;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +8,6 @@ use crate::ocr_provider::mineru::{
     map_provider_error_code, MineruClient,
 };
 use crate::ocr_provider::OcrErrorCategory;
-use crate::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct MineruTokenValidationRequest {
@@ -35,7 +33,6 @@ pub struct MineruTokenValidationView {
 }
 
 pub async fn validate_mineru_token(
-    State(_state): State<AppState>,
     Json(payload): Json<MineruTokenValidationRequest>,
 ) -> Result<Json<ApiResponse<MineruTokenValidationView>>, AppError> {
     let token = payload.mineru_token.trim();

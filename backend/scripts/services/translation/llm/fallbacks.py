@@ -4,7 +4,6 @@ import json
 import re
 import time
 
-from services.document_schema.semantics import is_body_structure_role
 from services.translation.diagnostics import TranslationDiagnosticsCollector
 from services.translation.llm.deepseek_client import is_transport_error
 from services.translation.llm.deepseek_client import unwrap_translation_shell
@@ -45,6 +44,11 @@ from services.translation.llm.translation_client import translate_batch_once
 from services.translation.llm.translation_client import translate_single_item_plain_text
 from services.translation.llm.translation_client import translate_single_item_plain_text_unstructured
 from services.translation.llm.translation_client import translate_single_item_tagged_text
+from services.translation.item_reader import item_block_kind
+from services.translation.item_reader import item_is_bodylike
+from services.translation.item_reader import item_is_caption_like
+from services.translation.item_reader import item_policy_translate
+from services.translation.item_reader import item_raw_block_type
 
 
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?;:])\s+")
@@ -60,8 +64,6 @@ HEAVY_FORMULA_CHUNK_PLACEHOLDERS = 8
 HEAVY_FORMULA_CHUNK_CHARS = 900
 DIRECT_TYPTST_LONG_TEXT_MAX_CHARS = 4000
 DIRECT_TYPTST_LONG_TEXT_TARGET_CHARS = 2200
-
-
 def _formula_density(source_text: str, placeholder_count: int) -> float:
     if not source_text or placeholder_count <= 0:
         return 0.0
@@ -226,7 +228,7 @@ def _should_split_direct_typst_long_text(item: dict) -> bool:
         return False
     if item.get("_direct_typst_long_split_applied"):
         return False
-    if str(item.get("block_type", "") or "").strip().lower() != "text":
+    if item_raw_block_type(item) != "text":
         return False
     source_text = str(item.get("translation_unit_protected_source_text") or item.get("protected_source_text") or "")
     compact = " ".join(source_text.split())
@@ -432,20 +434,17 @@ def _should_keep_origin_on_empty_translation(item: dict) -> bool:
         return False
     if not compact.replace(" ", "").isalnum():
         return False
-    block_type = str(item.get("block_type", "") or "").strip().lower()
-    metadata = item.get("metadata", {}) or {}
-    structure_role = str(metadata.get("structure_role", "") or "").strip().lower()
     layout_zone = str(item.get("layout_zone", "") or "").strip().lower()
-    if block_type in {"image_caption", "table_caption", "table_footnote"}:
+    policy_translate = item_policy_translate(item)
+    if item_is_caption_like(item):
         return True
-    return structure_role in {"caption", "image_caption", "table_caption", "metadata"} and layout_zone == "non_flow"
+    return policy_translate is False and layout_zone == "non_flow"
 
 
 def _looks_like_cjk_dominant_body_text(item: dict) -> bool:
-    if str(item.get("block_type", "") or "").strip().lower() != "text":
+    if item_block_kind(item) != "text":
         return False
-    metadata = item.get("metadata", {}) or {}
-    if not is_body_structure_role(metadata):
+    if not item_is_bodylike(item):
         return False
     source_text = str(item.get("translation_unit_protected_source_text") or item.get("protected_source_text") or item.get("source_text") or "")
     compact = " ".join(source_text.split())
@@ -723,6 +722,40 @@ def _keep_origin_results_for_batch_transport(
             )
         )
     return degraded
+
+
+def _sentence_level_fallback_or_keep_origin(
+    item: dict,
+    *,
+    api_key: str,
+    model: str,
+    base_url: str,
+    request_label: str,
+    context: TranslationControlContext,
+    diagnostics: TranslationDiagnosticsCollector | None,
+    route_path: list[str],
+) -> dict[str, dict[str, str]]:
+    try:
+        return _sentence_level_fallback(
+            item,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            request_label=request_label,
+            context=context,
+            diagnostics=diagnostics,
+        )
+    except Exception as sentence_exc:
+        if request_label:
+            print(
+                f"{request_label}: sentence-level fallback failed, degrade to keep_origin: {type(sentence_exc).__name__}: {sentence_exc}",
+                flush=True,
+            )
+        return _keep_origin_payload_for_transport_error(
+            item,
+            context=context,
+            route_path=route_path,
+        )
 
 
 def _split_batched_plain_result_for_partial_retry(
@@ -1143,6 +1176,19 @@ def _translate_direct_typst_plain_text_with_retries(
                         f"{request_label}: direct_typst raw transport failure after {raw_elapsed:.2f}s, degrade to keep_origin: {type(raw_exc).__name__}: {raw_exc}",
                         flush=True,
                     )
+                if should_force_translate_body_text(item) and _sentence_level_fallback_allowed(item):
+                    if request_label:
+                        print(f"{request_label}: direct_typst raw transport fallback to sentence-level", flush=True)
+                    return _sentence_level_fallback_or_keep_origin(
+                        item,
+                        api_key=api_key,
+                        model=model,
+                        base_url=base_url,
+                        request_label=request_label,
+                        context=context,
+                        diagnostics=diagnostics,
+                        route_path=route_prefix + ["plain_text_raw", "keep_origin"],
+                    )
                 return _keep_origin_payload_for_transport_error(
                     item,
                     context=context,
@@ -1170,6 +1216,19 @@ def _translate_direct_typst_plain_text_with_retries(
                 print(
                     f"{request_label}: direct_typst transport failure after {elapsed:.2f}s, degrade to keep_origin: {type(exc).__name__}: {exc}",
                     flush=True,
+                )
+            if should_force_translate_body_text(item) and _sentence_level_fallback_allowed(item):
+                if request_label:
+                    print(f"{request_label}: direct_typst transport fallback to sentence-level", flush=True)
+                return _sentence_level_fallback_or_keep_origin(
+                    item,
+                    api_key=api_key,
+                    model=model,
+                    base_url=base_url,
+                    request_label=request_label,
+                    context=context,
+                    diagnostics=diagnostics,
+                    route_path=route_prefix + ["keep_origin"],
                 )
             return _keep_origin_payload_for_transport_error(
                 item,
@@ -1848,9 +1907,9 @@ def _should_use_direct_deepseek_batch(
 
 
 def _is_low_risk_deepseek_batch_item(item: dict, *, context: TranslationControlContext) -> bool:
-    if str(item.get("block_type", "") or "") != "text":
+    if item_raw_block_type(item) != "text":
         return False
-    if not is_body_structure_role(item.get("metadata", {}) or {}):
+    if not item_is_bodylike(item):
         return False
     source_text = str(item.get("translation_unit_protected_source_text") or item.get("protected_source_text") or "").strip()
     if not source_text:

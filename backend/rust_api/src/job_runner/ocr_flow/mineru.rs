@@ -1,19 +1,17 @@
 use anyhow::{anyhow, Context, Result};
 use std::path::Path;
 
+use crate::job_runner::{ocr_provider_diagnostics_mut, ProcessRuntimeDeps};
 use crate::models::{now_iso, JobRuntimeState};
 use crate::ocr_provider::mineru::{parse_extra_formats, MineruClient};
-use crate::AppState;
 
 use super::mineru_polling::{poll_remote_task_until_ready, poll_uploaded_batch_until_ready};
 use super::mineru_retry::acquire_upload_target_with_retry;
-use super::status::record_provider_trace;
-use crate::job_runner::ocr_provider_diagnostics_mut;
-
 use super::save_ocr_job;
+use super::status::record_provider_trace;
 
 pub(super) async fn run_local_ocr_transport_mineru(
-    state: &AppState,
+    deps: &ProcessRuntimeDeps,
     job: &mut JobRuntimeState,
     client: &MineruClient,
     upload_path: &Path,
@@ -26,7 +24,7 @@ pub(super) async fn run_local_ocr_transport_mineru(
         .ok_or_else(|| anyhow!("invalid upload filename"))?;
     let timeout_secs = std::cmp::max(job.request_payload.ocr.poll_timeout, 1) as u64;
     let upload_target = acquire_upload_target_with_retry(
-        state,
+        deps,
         job,
         client,
         upload_file_name,
@@ -45,9 +43,9 @@ pub(super) async fn run_local_ocr_transport_mineru(
     }
     job.append_log(&format!("batch_id: {}", upload_target.batch_id));
     job.stage = Some("mineru_upload".to_string());
-    job.stage_detail = Some("已获取 MinerU 上传地址，开始上传文件".to_string());
+    job.stage_detail = Some("已获取 OCR provider 上传地址，开始上传文件".to_string());
     job.updated_at = now_iso();
-    save_ocr_job(state, job, parent_job_id).await?;
+    save_ocr_job(deps, job, parent_job_id).await?;
 
     client
         .upload_file(&upload_target.upload_url, upload_path)
@@ -55,9 +53,9 @@ pub(super) async fn run_local_ocr_transport_mineru(
         .with_context(|| format!("failed to upload file {}", upload_path.display()))?;
     job.append_log(&format!("upload done: {}", upload_path.display()));
     job.stage = Some("mineru_processing".to_string());
-    job.stage_detail = Some("文件上传完成，等待 MinerU 解析".to_string());
+    job.stage_detail = Some("文件上传完成，等待 OCR provider 解析".to_string());
     job.updated_at = now_iso();
-    save_ocr_job(state, job, parent_job_id).await?;
+    save_ocr_job(deps, job, parent_job_id).await?;
 
     let file_name = upload_path
         .file_name()
@@ -65,7 +63,7 @@ pub(super) async fn run_local_ocr_transport_mineru(
         .ok_or_else(|| anyhow!("invalid upload filename"))?
         .to_string();
     poll_uploaded_batch_until_ready(
-        state,
+        deps,
         job,
         client,
         &upload_target.batch_id,
@@ -77,7 +75,7 @@ pub(super) async fn run_local_ocr_transport_mineru(
 }
 
 pub(super) async fn run_remote_ocr_transport_mineru(
-    state: &AppState,
+    deps: &ProcessRuntimeDeps,
     job: &mut JobRuntimeState,
     client: &MineruClient,
     provider_result_json_path: &Path,
@@ -102,11 +100,11 @@ pub(super) async fn run_remote_ocr_transport_mineru(
     ocr_provider_diagnostics_mut(job).handle.task_id = Some(created.task_id.clone());
     job.append_log(&format!("task_id: {}", created.task_id));
     job.stage = Some("mineru_processing".to_string());
-    job.stage_detail = Some("远程 PDF 已提交到 MinerU，等待解析".to_string());
+    job.stage_detail = Some("远程 PDF 已提交到 OCR provider，等待解析".to_string());
     job.updated_at = now_iso();
-    save_ocr_job(state, job, parent_job_id).await?;
+    save_ocr_job(deps, job, parent_job_id).await?;
     poll_remote_task_until_ready(
-        state,
+        deps,
         job,
         client,
         &created.task_id,

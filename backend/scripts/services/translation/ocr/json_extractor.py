@@ -6,19 +6,27 @@ from pathlib import Path
 from services.document_schema.defaults import normalize_block_continuation_hint
 from services.document_schema.adapters import adapt_path_to_document_v1
 from services.document_schema.semantics import is_algorithm_semantic
+from services.document_schema.semantics import is_caption_semantic
 from services.document_schema.semantics import is_reference_entry_semantic
 from services.document_schema.semantics import normalize_tags
-from services.document_schema.semantics import normalized_sub_type as _normalized_sub_type
+from services.document_schema.semantics import semantic_role as _semantic_role
 from services.document_schema.semantics import structure_role as _structure_role
 from services.translation.ocr.models import TextItem
 from services.translation.ocr.normalized_reader import (
+    block_asset_id as _block_asset_id,
+    block_bbox as _block_bbox,
     block_children as _block_children,
+    block_kind as _block_kind,
+    block_layout_role as _block_layout_role,
+    block_policy_translate as _block_policy_translate,
+    block_reading_order as _block_reading_order,
+    block_semantic_role as _block_semantic_role,
     block_sub_type as _block_sub_type,
+    raw_block_type as _raw_block_type,
     ensure_normalized_document,
+    get_pages as _get_pages,
     iter_page_blocks as _iter_page_blocks,
     is_normalized_document,
-    normalized_block_kind as _normalized_block_kind,
-    raw_block_type as _raw_block_type,
 )
 from services.document_schema.validator import validate_document_payload
 
@@ -37,7 +45,7 @@ def load_ocr_json(json_path: Path) -> dict:
 
 def get_pages(data: dict) -> list[dict]:
     normalized = ensure_normalized_document(data)
-    return normalized.get("pages", []) or []
+    return _get_pages(normalized)
 
 
 def get_page_count(data: dict) -> int:
@@ -62,7 +70,15 @@ ROLE_CODE_CAPTION = "code_caption"
 ROLE_FOOTNOTE = "footnote"
 ROLE_IMAGE_FOOTNOTE = "image_footnote"
 ROLE_TABLE_FOOTNOTE = "table_footnote"
-
+PRIMARY_TRANSLATABLE_STRUCTURE_ROLES = {
+    ROLE_BODY,
+    ROLE_ABSTRACT,
+    ROLE_HEADING,
+    ROLE_OPTION_HEADER,
+    ROLE_OPTION_DESCRIPTION,
+    ROLE_EXAMPLE_INTRO,
+    ROLE_EXAMPLE_LINE,
+}
 DERIVED_STRUCTURE_ROLE_MAP = {
     "title": ROLE_TITLE,
     "heading": ROLE_HEADING,
@@ -76,14 +92,57 @@ DERIVED_STRUCTURE_ROLE_MAP = {
     "abstract": ROLE_ABSTRACT,
     "reference_entry": ROLE_REFERENCE_ENTRY,
 }
+_TRANSLATION_METADATA_BRIDGE_KEYS = {
+    "continuation_hint",
+    "cross_column_merge_suspected",
+    "provider_cross_column_merge_suspected",
+    "reading_order_unreliable",
+    "provider_reading_order_unreliable",
+    "structure_unreliable",
+    "provider_structure_unreliable",
+    "text_missing_but_bbox_present",
+    "provider_text_missing_but_bbox_present",
+    "peer_block_absorbed_text",
+    "provider_peer_block_absorbed_text",
+    "body_repair_applied",
+    "provider_body_repair_applied",
+    "body_repair_role",
+    "provider_body_repair_role",
+    "body_repair_strategy",
+    "provider_body_repair_strategy",
+    "body_repair_peer_block_id",
+    "provider_suspected_peer_block_id",
+    "continuation_suppressed",
+    "provider_continuation_suppressed",
+    "continuation_suppressed_reason",
+    "provider_continuation_suppressed_reason",
+    "column_layout_mode",
+    "provider_column_layout_mode",
+    "column_index_guess",
+    "provider_column_index_guess",
+}
 
 
 def _get_structure_role(item: TextItem) -> str:
-    return _structure_role(item.metadata)
+    explicit = str(getattr(item, "structure_role", "") or "").strip().lower()
+    if explicit:
+        return explicit
+    return ""
 
 
 def _set_structure_role(item: TextItem, role: str) -> None:
-    item.metadata["structure_role"] = role
+    item.structure_role = role
+
+
+def _translation_metadata_bridge(block: dict) -> dict:
+    metadata = dict(block.get("metadata", {}) or {})
+    bridged = {
+        key: value
+        for key, value in metadata.items()
+        if key in _TRANSLATION_METADATA_BRIDGE_KEYS
+    }
+    bridged["continuation_hint"] = normalize_block_continuation_hint(block.get("continuation_hint"))
+    return bridged
 
 
 def _repair_math_control_chars(text: str, next_text: str = "") -> str:
@@ -265,10 +324,11 @@ def _looks_like_structured_example_line(item: TextItem) -> bool:
 
 def _apply_page_structure(items: list[TextItem]) -> list[TextItem]:
     for item in items:
-        existing_role = str(((item.metadata or {}).get("structure_role") or "")).strip().lower()
+        existing_role = _get_structure_role(item)
+        item.structure_role = existing_role or ROLE_BODY
         item.metadata = {
             **(item.metadata or {}),
-            "structure_role": existing_role or ROLE_BODY,
+            "structure_role": item.structure_role,
             "structure_group": "",
             "pair_with": "",
         }
@@ -354,26 +414,57 @@ def _apply_page_structure(items: list[TextItem]) -> list[TextItem]:
     return items
 
 
-SKIP_BLOCK_TYPES = {
-    "interline_equation",
-    "code",
-    "table",
-    "ref_text",
-    "image",
-    "image_body",
-    "formula_number",
-}
+def _is_translatable_page_item(item: TextItem) -> bool:
+    return _get_structure_role(item) in PRIMARY_TRANSLATABLE_STRUCTURE_ROLES
 
 
-def should_translate_block(block: dict, data: dict, text: str, *, inside_algorithm: bool = False) -> bool:
-    block_type = _normalized_block_kind(block, data)
+PRIMARY_TRANSLATABLE_SEMANTIC_ROLES = {"body", "abstract"}
+PRIMARY_TRANSLATABLE_STRUCTURE_HINTS = {"body"}
+
+
+def _is_primary_translatable_text_block(block: dict, data: dict) -> bool:
+    explicit_policy = _block_policy_translate(block)
+    if explicit_policy is not None:
+        return explicit_policy
+    del data
+    if _block_kind(block) != "text":
+        return False
+    layout_role = _block_layout_role(block)
+    semantic_role = _semantic_role(block)
+    structure_role = _structure_role(block)
+    if semantic_role == "abstract":
+        return True
+    if semantic_role not in PRIMARY_TRANSLATABLE_SEMANTIC_ROLES:
+        return False
+    if structure_role not in PRIMARY_TRANSLATABLE_STRUCTURE_HINTS:
+        return False
+    return layout_role in {"paragraph", "unknown", ""}
+
+
+def should_translate_block(
+    block: dict,
+    data: dict,
+    text: str,
+    *,
+    inside_algorithm: bool = False,
+    page_blocks: list[dict] | None = None,
+    current_block_idx: int = -1,
+) -> bool:
+    explicit_policy = _block_policy_translate(block)
+    del text, page_blocks, current_block_idx
+    if explicit_policy is not None:
+        if not explicit_policy:
+            return False
+        if inside_algorithm or is_algorithm_semantic(block):
+            return False
+        return True
     if inside_algorithm or is_algorithm_semantic(block):
         return False
     if "skip_translation" in normalize_tags(block.get("tags", [])):
         return False
-    if block_type in SKIP_BLOCK_TYPES:
+    if _block_kind(block) != "text":
         return False
-    return True
+    return _is_primary_translatable_text_block(block, data)
 
 
 def extract_block_item(
@@ -383,51 +474,67 @@ def extract_block_item(
     block_idx: int,
     item_suffix: str = "",
     inside_algorithm: bool = False,
+    page_blocks: list[dict] | None = None,
 ) -> TextItem | None:
     segments = block_segments(block)
     lines = block_lines(block)
     text = merge_segments_text(segments)
     if not text:
         return None
-    if not should_translate_block(block, data, text, inside_algorithm=inside_algorithm):
+    if not should_translate_block(
+        block,
+        data,
+        text,
+        inside_algorithm=inside_algorithm,
+        page_blocks=page_blocks,
+        current_block_idx=block_idx,
+    ):
         return None
-    block_type = _normalized_block_kind(block, data)
-    raw_type = _raw_block_type(block)
-    raw_sub_type = _block_sub_type(block, data)
+    block_type = _block_kind(block)
     structure_role = _seed_structure_role(block)
+    layout_role = _block_layout_role(block)
+    semantic_role = _block_semantic_role(block)
+    policy_translate = _block_policy_translate(block)
     return TextItem(
         item_id=f"p{page_idx + 1:03d}-b{block_idx:03d}{item_suffix}",
         page_idx=page_idx,
         block_idx=block_idx,
         block_type=block_type,
-        bbox=block.get("bbox", []),
+        bbox=_block_bbox(block),
         text=text,
         segments=segments,
         lines=lines,
         metadata={
-            "ocr_sub_type": raw_sub_type,
-            "normalized_sub_type": str(block.get("sub_type", "") or ""),
-            "structure_role": structure_role,
-            "raw_type": raw_type,
-            "tags": list(block.get("tags", []) or []),
-            "derived": dict(block.get("derived", {}) or {}),
-            "continuation_hint": normalize_block_continuation_hint(block.get("continuation_hint")),
-            "source": block.get("source", {}) or {},
+            **_translation_metadata_bridge(block),
         },
+        block_kind=block_type,
+        layout_role=layout_role,
+        semantic_role=semantic_role,
+        structure_role=structure_role,
+        policy_translate=policy_translate,
+        asset_id=_block_asset_id(block),
+        reading_order=_block_reading_order(block),
+        raw_block_type=_raw_block_type(block),
+        normalized_sub_type=_block_sub_type(block),
     )
 
 
 def _seed_structure_role(block: dict) -> str:
-    derived_role = str(((block.get("derived", {}) or {}).get("role", "") or "")).strip().lower()
-    if derived_role in DERIVED_STRUCTURE_ROLE_MAP:
-        return DERIVED_STRUCTURE_ROLE_MAP[derived_role]
-    sub_type = _normalized_sub_type(block)
-    if sub_type in DERIVED_STRUCTURE_ROLE_MAP:
-        return DERIVED_STRUCTURE_ROLE_MAP[sub_type]
-    if sub_type == "abstract":
+    explicit_structure_role = _structure_role(block)
+    if explicit_structure_role:
+        return explicit_structure_role
+    explicit_semantic_role = _block_semantic_role(block)
+    if explicit_semantic_role == "abstract":
         return ROLE_ABSTRACT
-    if is_reference_entry_semantic(block):
-        return ROLE_REFERENCE_ENTRY
+    explicit_layout_role = _block_layout_role(block)
+    if explicit_layout_role == "title":
+        return ROLE_TITLE
+    if explicit_layout_role == "heading":
+        return ROLE_HEADING
+    if explicit_layout_role in {"paragraph", "list_item"}:
+        return ROLE_BODY
+    if explicit_layout_role == "caption":
+        return ROLE_CAPTION
     return ""
 
 
@@ -437,6 +544,7 @@ def extract_text_items(data: dict, page_idx: int) -> list[TextItem]:
         raise IndexError(f"page_idx {page_idx} out of range; total pages={len(pages)}")
 
     page = pages[page_idx]
+    page_blocks = list(_iter_page_blocks(data, page))
     items: list[TextItem] = []
     def visit_block(block: dict, block_idx: int, item_suffix: str = "", inside_algorithm: bool = False) -> None:
         current_inside_algorithm = inside_algorithm or is_algorithm_semantic(block)
@@ -447,6 +555,7 @@ def extract_text_items(data: dict, page_idx: int) -> list[TextItem]:
             block_idx=block_idx,
             item_suffix=item_suffix,
             inside_algorithm=current_inside_algorithm,
+            page_blocks=page_blocks,
         )
         if item is not None:
             items.append(item)
@@ -459,6 +568,6 @@ def extract_text_items(data: dict, page_idx: int) -> list[TextItem]:
                 inside_algorithm=current_inside_algorithm,
             )
 
-    for block_idx, block in enumerate(_iter_page_blocks(data, page)):
+    for block_idx, block in enumerate(page_blocks):
         visit_block(block, block_idx)
-    return _apply_page_structure(items)
+    return [item for item in _apply_page_structure(items) if _is_translatable_page_item(item)]

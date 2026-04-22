@@ -2,13 +2,22 @@
 
 `rust_api` is the new external service layer for the PDF translation pipeline.
 
+Doc index:
+[`README.md`](/home/wxyhgk/tmp/Code/backend/rust_api/README.md)
+
+If you only need the current active runtime path, read
+[`CURRENT_API_MAP.md`](/home/wxyhgk/tmp/Code/backend/rust_api/CURRENT_API_MAP.md) first.
+
+If you need the current team-facing module boundaries and refactor rules, read
+[`RUST_API_ARCHITECTURE.md`](/home/wxyhgk/tmp/Code/backend/rust_api/RUST_API_ARCHITECTURE.md).
+
 Its backend is now split into two layers:
 
 - Rust side:
   - public HTTP API
   - auth / queue / SQLite job state
   - internal persistence split into `jobs`, `artifacts`, and `events`
-  - OCR provider transport for MinerU: submit / upload / poll / bundle download
+  - OCR provider transport: submit / upload / poll / bundle download
 - Python side:
   - OCR normalization to `document.v1.json`
   - translation
@@ -17,9 +26,38 @@ Its backend is now split into two layers:
 
 Current Python entrypoints used by the Rust layer:
 
+- `scripts/entrypoints/run_provider_case.py`
+- `scripts/entrypoints/run_document_flow.py`
+- `scripts/entrypoints/run_provider_ocr.py`
 - `scripts/entrypoints/run_normalize_ocr.py`
 - `scripts/entrypoints/run_translate_only.py`
 - `scripts/entrypoints/run_render_only.py`
+
+Current top-level workflow contract:
+
+1. `normalize.stage.v1`
+   raw OCR payload -> `ocr/normalized/document.v1.json`
+2. `translate.stage.v1`
+   `document.v1.json` -> `translated/`
+3. `render.stage.v1`
+   translated payloads + source PDF -> `rendered/*.pdf`
+
+The Rust layer treats the stage workers as the formal production path.
+For local manual use, use the neutral wrapper names above.
+Regression scripts under `scripts/devtools/` are not part of the runtime contract.
+
+Current `document.v1` consumption contract for downstream workers:
+
+- `geometry`
+- `content`
+- `layout_role`
+- `semantic_role`
+- `structure_role`
+- `policy`
+- `provenance`
+
+Compatibility fields such as `type/sub_type/bbox/text/lines/segments` may still be present,
+but they are no longer the primary runtime contract between normalization and translation/rendering.
 
 Current worker contract:
 
@@ -33,7 +71,7 @@ Goals:
 - Stable resource URLs instead of leaking local filesystem paths
 - Clear separation:
   - Rust API: upload, job orchestration, status, download, auth/rate-limit extension point
-  - Python worker: MinerU, translation, Typst, PDF rendering, post-processing
+  - Python worker: OCR transport implementation, translation, Typst, PDF rendering, post-processing
 
 Current internal boundary conventions:
 
@@ -46,9 +84,9 @@ Current internal boundary conventions:
 Current scope:
 
 - Upload PDF
-- Create `mineru` / `translate` / `render` jobs under `/api/v1/jobs`
+- Create `book` / `translate` / `render` jobs under `/api/v1/jobs`
 - Create `ocr` jobs under `/api/v1/ocr/jobs`
-- Internally create OCR child job first for `mineru` and `translate`
+- Internally create OCR child job first for `book` and `translate`
 - Poll job status
 - Fetch structured job events
 - List jobs
@@ -66,6 +104,15 @@ Planned but not fully implemented in this first pass:
 - public/private artifact signing
 - SSE push updates
 - stronger cancel semantics
+
+## Reading Guide
+
+- Want to know how requests actually run through Rust + Python:
+  [`CURRENT_API_MAP.md`](/home/wxyhgk/tmp/Code/backend/rust_api/CURRENT_API_MAP.md)
+- Want to know team-facing refactor boundaries:
+  [`RUST_API_ARCHITECTURE.md`](/home/wxyhgk/tmp/Code/backend/rust_api/RUST_API_ARCHITECTURE.md)
+- Want to know worker/stage spec contracts:
+  [`STAGE_EXECUTION_CONTRACT.md`](/home/wxyhgk/tmp/Code/backend/rust_api/STAGE_EXECUTION_CONTRACT.md)
 
 ## Base
 
@@ -225,11 +272,17 @@ Response:
 
 `POST /api/v1/jobs`
 
+Note:
+
+- `workflow = "book"` is the current API workflow identifier for the provider-backed full flow
+- this is a protocol enum; OCR provider selection remains under `ocr.provider`
+- local manual entrypoints may use the neutral `run_provider_case.py` name while the API enum remains unchanged
+
 Canonical JSON request:
 
 ```json
 {
-  "workflow": "mineru",
+  "workflow": "book",
   "source": {
     "upload_id": "20260327190000-ab12cd",
     "source_url": "",
@@ -253,7 +306,7 @@ Canonical JSON request:
   },
   "translation": {
     "mode": "sci",
-    "math_mode": "placeholder",
+    "math_mode": "direct_typst",
     "skip_title_translation": false,
     "classify_batch_size": 12,
     "rule_profile_name": "general_sci",
@@ -288,15 +341,22 @@ Canonical JSON request:
 }
 ```
 
+Security note:
+
+- request bodies may include provider/model credentials
+- responses never echo raw credential values back
+- job detail / diagnostics / events only expose redacted payloads
+- credential presence is surfaced through `*_configured` booleans instead of plaintext secrets
+
 Workflow contract:
 
-- `workflow=mineru`: complete OCR -> Normalize -> Translate -> Render chain
+- `workflow=book`: current provider-backed OCR -> Normalize -> Translate -> Render chain
 - `workflow=translate`: OCR -> Normalize -> Translate; no render step
 - `workflow=render`: reuse `source.artifact_job_id`; rerun render only
 
 Endpoint boundary:
 
-- `/api/v1/jobs` is for `mineru`, `translate`, and `render`
+- `/api/v1/jobs` is for `book`, `translate`, and `render`
 - `/api/v1/ocr/jobs` is for OCR-only jobs
 
 Required provider fields:
@@ -307,7 +367,7 @@ Required provider fields:
 Translation options:
 
 - `translation.math_mode` is optional
-- `placeholder` is the default and keeps the legacy protected-formula pipeline
+- `direct_typst` is the default
 - `direct_typst` is an experimental mode that asks the model to output translated prose with inline `$...$` math directly
 
 Validation:
@@ -315,8 +375,14 @@ Validation:
 - `ocr.mineru_token` must not be a URL-like string
 - `translation.base_url` must start with `http://` or `https://`
 - `translation.api_key` must not be a URL-like string
-- Rust API no longer supplies default MinerU / LLM credentials for `create_job`
+- Rust API no longer supplies default OCR provider / LLM credentials for `create_job`
 - legacy flat JSON fields such as `upload_id`, `model`, and `api_key` are rejected by `/api/v1/jobs`; flat field mapping only remains in selected multipart helper endpoints
+
+Response redaction rules:
+
+- `request_payload.ocr.mineru_token`, `request_payload.ocr.paddle_token`, and `request_payload.translation.api_key` are always returned as empty strings
+- `request_payload.ocr.mineru_token_configured`, `request_payload.ocr.paddle_token_configured`, and `request_payload.translation.api_key_configured` indicate whether the backend received those credentials
+- `error`, `log_tail`, `events[*].message`, `events[*].payload`, translation diagnostics payloads, translation debug item payloads, and replay payloads are redacted before leaving Rust API
 
 Glossary v1 contract:
 
@@ -337,7 +403,7 @@ Response:
   "data": {
     "job_id": "20260327190500-ef3456",
     "status": "queued",
-    "workflow": "mineru",
+    "workflow": "book",
     "links": {
       "self_path": "/api/v1/jobs/20260327190500-ef3456",
       "self_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456",
@@ -431,7 +497,7 @@ Response:
   "message": "ok",
   "data": {
     "job_id": "20260327190500-ef3456",
-    "workflow": "mineru",
+    "workflow": "book",
     "status": "running",
     "stage": "translating",
     "stage_detail": "正在翻译，第 3/12 批",
@@ -559,9 +625,9 @@ Response:
       "unapplied_source_hit_entry_count": 1
     },
     "invocation": {
-      "stage": "mineru",
+      "stage": "provider",
       "input_protocol": "stage_spec",
-      "stage_spec_schema_version": "mineru.stage.v1"
+      "stage_spec_schema_version": "provider.stage.v1"
     },
     "log_tail": [
       "batch 123: state=done",
@@ -607,13 +673,13 @@ Response:
     "items": [
       {
         "job_id": "20260327190500-ef3456",
-        "workflow": "mineru",
+        "workflow": "book",
         "status": "running",
         "stage": "translating",
         "invocation": {
-          "stage": "mineru",
+          "stage": "provider",
           "input_protocol": "stage_spec",
-          "stage_spec_schema_version": "mineru.stage.v1"
+          "stage_spec_schema_version": "provider.stage.v1"
         },
         "created_at": "2026-03-27T11:05:00Z",
         "updated_at": "2026-03-27T11:05:30Z",
@@ -702,7 +768,190 @@ Response:
 
 - raw `application/pdf`
 
-## 7. Markdown
+## 7. Translation Diagnostics
+
+These endpoints are for fast item-level debugging. They expose the translation diagnostics artifact, the per-item debug index, the saved item payload, and a replay hook that reruns the current translation code on a single item without mutating job artifacts.
+
+Security:
+
+- responses are redacted before returning to clients
+- structured secret fields such as `api_key`, `mineru_token`, and `paddle_token` are blanked
+- inline secret substrings are replaced with `[REDACTED]`
+
+All four endpoints are job-local and currently read from:
+
+- `DATA_ROOT/jobs/<job_id>/artifacts/translation_diagnostics.json`
+- `DATA_ROOT/jobs/<job_id>/artifacts/translation_debug_index.json`
+- `DATA_ROOT/jobs/<job_id>/translated/translation-manifest.json`
+
+### 7.1 Translation Diagnostics Summary
+
+`GET /api/v1/jobs/{job_id}/translation/diagnostics`
+
+Response:
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "job_id": "20260416034152-d12925",
+    "summary": {
+      "schema": "translation_diagnostics_v1",
+      "counts": {
+        "translated": 412,
+        "kept_origin": 18,
+        "skipped": 97
+      },
+      "provider_family": "deepseek",
+      "final_status_counts": {
+        "translated": 412,
+        "kept_origin": 18,
+        "skipped": 97
+      }
+    }
+  }
+}
+```
+
+### 7.2 Translation Item Index
+
+`GET /api/v1/jobs/{job_id}/translation/items`
+
+Query parameters:
+
+- `limit`
+- `offset`
+- `page`
+- `final_status`
+- `error_type`
+- `route`
+- `q`
+
+Response:
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "items": [
+      {
+        "item_id": "p006-b014",
+        "page_idx": 5,
+        "page_number": 6,
+        "block_idx": 14,
+        "block_type": "text",
+        "math_mode": "direct_typst",
+        "continuation_group": "",
+        "classification_label": "body",
+        "should_translate": true,
+        "skip_reason": "",
+        "final_status": "kept_origin",
+        "source_preview": "Formation of heterocycle 9 improves hyperconjugation...",
+        "translated_preview": "",
+        "route_path": ["direct_typst", "single_item"],
+        "fallback_to": "sentence_level",
+        "degradation_reason": "transport_error",
+        "error_types": ["TranslationProtocolError"]
+      }
+    ],
+    "total": 1,
+    "limit": 20,
+    "offset": 0
+  }
+}
+```
+
+### 7.3 Raw Translation Item
+
+`GET /api/v1/jobs/{job_id}/translation/items/{item_id}`
+
+Response:
+
+- same payload shape as the saved translated item
+- sensitive fields and inline secrets are redacted
+
+### 7.4 Replay Translation Item
+
+`POST /api/v1/jobs/{job_id}/translation/items/{item_id}/replay`
+
+Response:
+
+- replay output is returned as JSON payload
+- replay payload is redacted with the same rules as diagnostics/item endpoints
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "job_id": "20260416034152-d12925",
+    "item_id": "p006-b014",
+    "page_idx": 5,
+    "page_number": 6,
+    "page_path": "page-006.json",
+    "item": {
+      "item_id": "p006-b014",
+      "source_text": "Formation of heterocycle 9 improves hyperconjugation...",
+      "translated_text": "",
+      "classification_label": "body",
+      "should_translate": true,
+      "final_status": "kept_origin",
+      "translation_diagnostics": {
+        "route_path": ["direct_typst", "single_item"],
+        "fallback_to": "sentence_level",
+        "degradation_reason": "transport_error"
+      }
+    }
+  }
+}
+```
+
+### 7.4 Replay One Item
+
+`POST /api/v1/jobs/{job_id}/translation/items/{item_id}/replay`
+
+Behavior:
+
+- launches `backend/scripts/devtools/replay_translation_item.py`
+- re-applies current policy to the saved item payload
+- if the item still qualifies for translation, reruns `translate_batch([item])`
+- never writes back to the original job directory
+
+Response:
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "job_id": "20260416034152-d12925",
+    "item_id": "p006-b014",
+    "payload": {
+      "job_id": "20260416034152-d12925",
+      "item_id": "p006-b014",
+      "page_idx": 5,
+      "policy_before": {
+        "should_translate": true,
+        "final_status": "kept_origin"
+      },
+      "policy_after": {
+        "should_translate": true,
+        "final_status": "translated"
+      },
+      "replay_result": {
+        "translated_text": "杂环 9 的形成增强了超共轭作用……"
+      },
+      "replay_error": null
+    }
+  }
+}
+```
+
+These endpoints are intended for local debugging and automated regression fixtures. They are not yet optimized for bulk export or high-throughput replay.
+
+## 8. Markdown
 
 `GET /api/v1/jobs/{job_id}/markdown`
 
@@ -729,7 +978,7 @@ Response:
 
 - raw `text/markdown; charset=utf-8`
 
-## 8. Markdown Images
+## 9. Markdown Images
 
 `GET /api/v1/jobs/{job_id}/markdown/images/{path}`
 
@@ -737,7 +986,7 @@ Response:
 
 - raw image file stream
 
-## 9. Download Bundle
+## 10. Download Bundle
 
 `GET /api/v1/jobs/{job_id}/download`
 
@@ -751,7 +1000,7 @@ Response:
 
 - raw `application/zip`
 
-## 10. Cancel Job
+## 11. Cancel Job
 
 `POST /api/v1/jobs/{job_id}/cancel`
 
@@ -769,7 +1018,7 @@ Response:
   "data": {
     "job_id": "20260327190500-ef3456",
     "status": "canceled",
-    "workflow": "mineru",
+    "workflow": "book",
     "links": {
       "self_path": "/api/v1/jobs/20260327190500-ef3456",
       "self_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456",
@@ -839,3 +1088,5 @@ Legacy jobs using `originPDF/jsonPDF/transPDF/typstPDF` or absolute-path artifac
 - Rust only orchestrates jobs and exposes resources
 - Python worker remains the single execution implementation, driven by stage spec files
 - later migration to dedicated Python worker service is straightforward because the API contract is already stable
+- `workflow = "book"` is the current protocol identifier for the provider-backed full flow
+- it is kept for API stability and does not imply user-facing entrypoint names must expose the provider

@@ -30,6 +30,7 @@ from services.rendering.layout.payload.shared import translation_density_ratio
 from services.rendering.layout.typography.geometry import inner_bbox
 from services.rendering.layout.typography.measurement import bbox_height
 from services.rendering.layout.typography.measurement import bbox_width
+from services.translation.item_reader import item_block_kind
 
 
 BODY_PAGE_FONT_ANCHOR_PERCENTILE = 0.46
@@ -70,7 +71,7 @@ def _collect_page_seed_metrics(
     translated_items: list[dict],
 ) -> tuple[float, float, float, float, float, dict[int, bool], dict[int, tuple[float, float]], float | None]:
     page_font_size, page_line_pitch, page_line_height, density_baseline = page_baseline_font_size(translated_items)
-    text_widths = [bbox_width(item) for item in translated_items if item.get("block_type") == "text" and not _is_caption_like(item)]
+    text_widths = [bbox_width(item) for item in translated_items if item_block_kind(item) == "text" and not _is_caption_like(item)]
     page_text_width_med = median(text_widths) if text_widths else 0.0
     body_base_sizes: list[float] = []
     body_flags: dict[int, bool] = {}

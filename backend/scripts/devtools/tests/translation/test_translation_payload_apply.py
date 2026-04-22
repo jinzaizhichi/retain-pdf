@@ -118,6 +118,96 @@ def test_apply_translated_text_map_splits_group_translation_back_to_members() ->
     assert payload[0]["translated_text"] != payload[1]["translated_text"]
 
 
+def test_apply_translated_text_map_preserves_group_result_status_and_diagnostics() -> None:
+    payload = [
+        {
+            "item_id": "p004-b030",
+            "page_idx": 4,
+            "translation_unit_id": "__cg__:cg-004-005",
+            "translation_unit_kind": "group",
+            "translation_unit_member_ids": ["p004-b030", "p004-b031"],
+            "should_translate": True,
+            "source_text": "Following Stewart's Gaussian expansions,",
+            "protected_source_text": "Following Stewart's Gaussian expansions,",
+            "protected_map": [],
+            "formula_map": [],
+            "translation_unit_protected_map": [],
+            "translation_unit_formula_map": [],
+            "group_protected_map": [],
+            "group_formula_map": [],
+        },
+        {
+            "item_id": "p004-b031",
+            "page_idx": 5,
+            "translation_unit_id": "__cg__:cg-004-005",
+            "translation_unit_kind": "group",
+            "translation_unit_member_ids": ["p004-b030", "p004-b031"],
+            "should_translate": True,
+            "source_text": "which are used to approximate a spherical Slater-type orbital.",
+            "protected_source_text": "which are used to approximate a spherical Slater-type orbital.",
+            "protected_map": [],
+            "formula_map": [],
+            "translation_unit_protected_map": [],
+            "translation_unit_formula_map": [],
+            "group_protected_map": [],
+            "group_formula_map": [],
+        },
+    ]
+    translated = {
+        "__cg__:cg-004-005": {
+            "translated_text": "按照 Stewart 的高斯展开，ϕκ 表示收缩高斯原子轨道，用于近似球形 Slater 型轨道。",
+            "final_status": "partially_translated",
+            "translation_diagnostics": {
+                "route_path": ["block_level", "continuation_group"],
+                "final_status": "partially_translated",
+            },
+        }
+    }
+
+    apply_translated_text_map(payload, translated)
+
+    assert payload[0]["final_status"] == "partially_translated"
+    assert payload[1]["final_status"] == "partially_translated"
+    assert payload[0]["translation_diagnostics"]["item_id"] == "p004-b030"
+    assert payload[1]["translation_diagnostics"]["item_id"] == "p004-b031"
+    assert payload[0]["translation_diagnostics"]["page_idx"] == 4
+    assert payload[1]["translation_diagnostics"]["page_idx"] == 5
+
+
+def test_apply_translated_text_map_applies_single_result_without_collapsing_preserved_group() -> None:
+    payload = [
+        {
+            "item_id": "p002-b001",
+            "translation_unit_id": "__cg__:cg-stale",
+            "translation_unit_kind": "group",
+            "translation_unit_member_ids": ["p002-b001", "ghost"],
+            "continuation_group": "cg-stale",
+            "should_translate": True,
+            "source_text": "Body text.",
+            "protected_source_text": "Body text.",
+            "protected_map": [],
+            "formula_map": [],
+            "translation_unit_protected_map": [],
+            "translation_unit_formula_map": [],
+            "group_protected_source_text": "stale",
+            "group_formula_map": [{"placeholder": "<f1-a7c/>"}],
+            "group_protected_map": [{"token_tag": "<f1-a7c/>"}],
+            "group_protected_translated_text": "stale",
+            "group_translated_text": "stale",
+        }
+    ]
+    translated = {
+        "p002-b001": "修复后的单成员文本",
+    }
+
+    apply_translated_text_map(payload, translated)
+
+    assert payload[0]["translation_unit_id"] == "__cg__:cg-stale"
+    assert payload[0]["translation_unit_kind"] == "group"
+    assert payload[0]["translation_unit_member_ids"] == ["p002-b001"]
+    assert payload[0]["translated_text"] == "修复后的单成员文本"
+
+
 def test_load_translations_sanitizes_persisted_json_shell(tmp_path) -> None:
     path = tmp_path / "page-030-deepseek.json"
     path.write_text(
@@ -133,7 +223,7 @@ def test_load_translations_sanitizes_persisted_json_shell(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    payload = load_translations(path)
+    payload = load_translations(path, strict_contract=False)
 
     assert payload[0]["translated_text"] == "(1) 计算效率、成本与精度。"
     assert payload[0]["protected_translated_text"] == "(1) 计算效率、成本与精度。"

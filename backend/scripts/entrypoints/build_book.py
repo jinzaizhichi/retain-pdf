@@ -13,19 +13,19 @@ from runtime.pipeline.book_pipeline import build_book_pipeline
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build a translated PDF from per-page translation JSON files, either as a full-book overlay or as an extracted page range.",
+        description="Build a translated PDF from a manifest-backed translation artifact set, either as a full-book overlay or as an extracted page range.",
     )
     parser.add_argument(
         "--translations-dir",
         type=str,
         default="translations/book",
-        help="Directory under output/ containing translation-manifest.json or legacy per-page translation JSON files.",
+        help="Directory under output/ containing translation-manifest.json and its referenced per-page payload files.",
     )
     parser.add_argument(
         "--translation-manifest",
         type=str,
         default="",
-        help="Optional explicit translation manifest path. When set, it overrides --translations-dir discovery.",
+        help="Optional explicit translation manifest path. When set, it overrides --translations-dir discovery and becomes the formal render input.",
     )
     parser.add_argument(
         "--output",
@@ -66,8 +66,8 @@ def parse_args() -> argparse.Namespace:
         "--render-mode",
         type=str,
         default="typst",
-        choices=["overlay", "typst", "dual", "direct", "compact"],
-        help="Book output mode. overlay keeps the original PDF and uses Typst to render translated content on top. typst uses the background-render route. direct/compact are compatibility aliases for overlay. dual places the original page on the left and translated page on the right.",
+        choices=["overlay", "typst", "dual"],
+        help="Book output mode. overlay keeps the original PDF and uses Typst to render translated content on top. typst uses the background-render route. dual places the original page on the left and translated page on the right.",
     )
     parser.add_argument(
         "--typst-font-family",

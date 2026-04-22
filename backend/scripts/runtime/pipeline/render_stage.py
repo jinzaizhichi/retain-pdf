@@ -188,9 +188,7 @@ def build_book_from_translations(
             build_book_from_translations.last_render_diagnostics = render_diagnostics
             return stop - start + 1
 
-        if render_mode in {"compact", "direct", "overlay"}:
-            if render_mode in {"compact", "direct"}:
-                print(f"render mode '{render_mode}' is deprecated; using typst overlay instead", flush=True)
+        if render_mode == "overlay":
             overlay_diagnostics = build_book_typst_pdf(
                 source_pdf_path=render_source_pdf_path,
                 output_pdf_path=output_pdf_path,

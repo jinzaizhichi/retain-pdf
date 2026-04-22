@@ -1876,6 +1876,120 @@ class TranslationFastPathTests(unittest.TestCase):
             ["block_level", "plain_text", "keep_origin"],
         )
 
+    def test_direct_typst_body_transport_failure_falls_back_to_sentence_level(self):
+        module = _load_module(
+            "services.translation.llm.fallbacks",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+        )
+        control_module = _load_module(
+            "services.translation.llm.control_context",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+        )
+        context = control_module.build_translation_control_context()
+        item = {
+            "item_id": "p006-b001",
+            "block_type": "text",
+            "math_mode": "direct_typst",
+            "metadata": {"structure_role": "body"},
+            "protected_source_text": (
+                "In amino coumarins, enhancing the nitrogen donation ability also leads to a red-shift "
+                "in fluorescence. Formation of heterocycle 9 improves hyperconjugation."
+            ),
+            "translation_unit_protected_source_text": (
+                "In amino coumarins, enhancing the nitrogen donation ability also leads to a red-shift "
+                "in fluorescence. Formation of heterocycle 9 improves hyperconjugation."
+            ),
+        }
+
+        with mock.patch.object(
+            module,
+            "translate_single_item_plain_text",
+            side_effect=requests.ConnectionError("Read timed out"),
+        ), mock.patch.object(
+            module,
+            "_sentence_level_fallback",
+            return_value={
+                "p006-b001": {
+                    "decision": "translate",
+                    "translated_text": "在氨基香豆素中，增强氮的给电子能力也会导致荧光红移。",
+                    "final_status": "partially_translated",
+                    "translation_diagnostics": {
+                        "route_path": ["block_level", "sentence_level"],
+                        "fallback_to": "sentence_level",
+                    },
+                }
+            },
+        ) as sentence_fallback:
+            result = module.translate_single_item_plain_text_with_retries(
+                item,
+                api_key="sk-test",
+                model="deepseek-chat",
+                base_url="https://api.deepseek.com/v1",
+                request_label="test direct typst transport",
+                context=context,
+            )
+
+        sentence_fallback.assert_called_once()
+        self.assertEqual(result["p006-b001"]["decision"], "translate")
+        self.assertIn("在氨基香豆素中", result["p006-b001"]["translated_text"])
+
+    def test_direct_typst_sentence_level_failure_degrades_to_keep_origin(self):
+        module = _load_module(
+            "services.translation.llm.fallbacks",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+        )
+        control_module = _load_module(
+            "services.translation.llm.control_context",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+        )
+        context = control_module.build_translation_control_context()
+        item = {
+            "item_id": "p006-b002",
+            "block_type": "text",
+            "math_mode": "direct_typst",
+            "metadata": {"structure_role": "body"},
+            "protected_source_text": (
+                "This direct typst body paragraph has enough English prose to be force translated "
+                "even when the transport layer is unstable."
+            ),
+            "translation_unit_protected_source_text": (
+                "This direct typst body paragraph has enough English prose to be force translated "
+                "even when the transport layer is unstable."
+            ),
+        }
+
+        with mock.patch.object(
+            module,
+            "translate_single_item_plain_text",
+            side_effect=requests.ConnectionError("Read timed out"),
+        ), mock.patch.object(
+            module,
+            "_sentence_level_fallback",
+            side_effect=module.PlaceholderInventoryError(
+                "p006-b002",
+                [],
+                [],
+                source_text=item["translation_unit_protected_source_text"],
+                translated_text="",
+            ),
+        ) as sentence_fallback:
+            result = module.translate_single_item_plain_text_with_retries(
+                item,
+                api_key="sk-test",
+                model="deepseek-chat",
+                base_url="https://api.deepseek.com/v1",
+                request_label="test direct typst transport keep origin",
+                context=context,
+            )
+
+        sentence_fallback.assert_called_once()
+        self.assertEqual(result["p006-b002"]["decision"], "keep_origin")
+        self.assertEqual(result["p006-b002"]["error_taxonomy"], "transport")
+        self.assertEqual(
+            result["p006-b002"]["translation_diagnostics"]["route_path"],
+            ["block_level", "direct_typst", "keep_origin"],
+        )
+
     def test_batched_transport_failure_falls_back_to_single_item_path(self):
         module = _load_module(
             "services.translation.llm.fallbacks",

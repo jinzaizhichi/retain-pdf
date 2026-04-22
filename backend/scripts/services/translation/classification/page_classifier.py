@@ -4,6 +4,10 @@ from services.translation.classification.prompting import build_prompt
 from services.translation.classification.response_parser import parse_no_trans_response
 from services.translation.classification.rule_engine import rule_label
 from services.translation.classification.rule_engine import should_include
+from services.translation.item_reader import item_block_kind
+from services.translation.item_reader import item_effective_role
+from services.translation.item_reader import item_layout_role
+from services.translation.item_reader import item_semantic_role
 from services.translation.ocr.models import TextItem
 from services.translation.llm import request_chat_content
 
@@ -16,12 +20,32 @@ def _line_texts(lines: list[dict]) -> list[str]:
     return [" ".join(span.get("content", "") for span in line.get("spans", [])).strip() for line in lines]
 
 
+def _candidate_payload(item: dict) -> dict:
+    return {
+        "block_type": item.get("block_type", ""),
+        "block_kind": item.get("block_kind", item.get("block_type", "")),
+        "layout_role": item.get("layout_role", ""),
+        "semantic_role": item.get("semantic_role", ""),
+        "structure_role": item.get("structure_role", ""),
+        "policy_translate": item.get("policy_translate"),
+        "bbox": item.get("bbox", []),
+        "source_text": item.get("source_text", ""),
+        "formula_map": item.get("formula_map"),
+        "metadata": item.get("metadata", {}),
+    }
+
+
 def _candidate_record(item: dict, order: int) -> dict:
     lines = item.get("lines", [])
+    payload = _candidate_payload(item)
     return {
         "order": order,
         "item_id": item["item_id"],
-        "block_type": item.get("block_type", "unknown"),
+        "block_type": item_block_kind(payload),
+        "block_kind": item_block_kind(payload),
+        "layout_role": item_layout_role(payload),
+        "semantic_role": item_semantic_role(payload),
+        "effective_role": item_effective_role(payload),
         "bbox": item.get("bbox", []),
         "source_text": item.get("source_text", ""),
         "line_count": len(lines),
@@ -33,10 +57,28 @@ def _candidate_record(item: dict, order: int) -> dict:
 
 
 def _candidate_text_item(item: TextItem, order: int) -> dict:
+    payload = _candidate_payload(
+        {
+            "block_type": item.block_type,
+            "block_kind": getattr(item, "block_kind", item.block_type),
+            "layout_role": getattr(item, "layout_role", ""),
+            "semantic_role": getattr(item, "semantic_role", ""),
+            "structure_role": getattr(item, "structure_role", ""),
+            "policy_translate": getattr(item, "policy_translate", None),
+            "bbox": item.bbox,
+            "source_text": item.text,
+            "formula_map": item.formula_map if hasattr(item, "formula_map") else [],
+            "metadata": item.metadata,
+        }
+    )
     return {
         "order": order,
         "item_id": item.item_id,
-        "block_type": item.block_type,
+        "block_type": item_block_kind(payload),
+        "block_kind": item_block_kind(payload),
+        "layout_role": item_layout_role(payload),
+        "semantic_role": item_semantic_role(payload),
+        "effective_role": item_effective_role(payload),
         "bbox": item.bbox,
         "source_text": item.text,
         "line_count": len(item.lines),

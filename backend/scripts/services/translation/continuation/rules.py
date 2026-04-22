@@ -1,5 +1,7 @@
 import re
 
+from services.translation.item_reader import item_block_kind
+
 
 TERMINAL_PUNCTUATION = (".", "!", "?", ":", ";")
 LOWER_START_RE = re.compile(r"^[a-z]")
@@ -145,7 +147,7 @@ def same_page(a: dict, b: dict) -> bool:
 
 
 def eligible(item: dict) -> bool:
-    return item.get("block_type") == "text" and bool(normalize_text(item.get("protected_source_text", "")))
+    return item_block_kind(item) == "text" and bool(normalize_text(item.get("protected_source_text", "")))
 
 
 def same_column(prev_bbox: list[float], next_bbox: list[float]) -> bool:
@@ -197,6 +199,8 @@ def pair_join_score(prev_item: dict, next_item: dict) -> int:
     score = 0
     if starts_like_continuation(next_text):
         score += 3
+    if prev_text.endswith(TERMINAL_PUNCTUATION) and starts_like_continuation(next_text):
+        score += 3
     if ends_like_continuation(prev_text):
         score += 3
     if prev_text.endswith("-"):
@@ -221,6 +225,8 @@ def pair_break_score(prev_item: dict, next_item: dict) -> int:
         score += 4
     elif prev_text.endswith(TERMINAL_PUNCTUATION):
         score += 2
+    if starts_like_continuation(next_text):
+        score -= 3
     if starts_like_heading_or_list(next_text):
         score += 3
     if starts_with_upper(next_text) and not starts_like_continuation(next_text):
@@ -230,7 +236,7 @@ def pair_break_score(prev_item: dict, next_item: dict) -> int:
     if same_page(prev_item, next_item) and prev_bbox and next_bbox:
         if not likely_pair_geometry(prev_item, next_item):
             score += 2
-    return score
+    return max(0, score)
 
 
 def pair_decision(prev_item: dict, next_item: dict) -> str:

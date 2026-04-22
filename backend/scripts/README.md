@@ -23,27 +23,54 @@
 
 更具体一点：
 
-1. 如果只有 PDF，先由 OCR provider 实现获取并解包原始 OCR 结果，再经 `document_schema` 生成统一中间层 `document.v1.json`
-2. `services/translation/ocr` 读取 OCR 结果并抽取页面块
-3. `services/translation/orchestration` 补齐布局区、continuation、translation_unit 元数据
-4. `services/translation` 生成每页翻译 JSON
-5. `services/rendering` 读取翻译 JSON 并生成最终 PDF
-6. `runtime/pipeline` 负责把这些阶段编排成稳定总线
+1. `normalize.stage.v1`
+   OCR provider 原始结果进入 `document_schema`，产出 `ocr/normalized/document.v1.json` 和 `document.v1.report.json`
+2. `translate.stage.v1`
+   翻译链只读取 `document.v1.json`，抽取正文白名单 block，补 continuation / orchestration 元数据，输出 `translated/`
+3. `render.stage.v1`
+   渲染链只读取翻译产物和源 PDF，输出 `rendered/*.pdf`
+4. `book.stage.v1`
+   顶层整书流程，只负责编排 `normalize -> translate -> render`，不再让下游直接猜 provider 原始结构
+
+现在的正式块级契约是：
+
+- `geometry`
+- `content`
+- `layout_role`
+- `semantic_role`
+- `structure_role`
+- `policy`
+- `provenance`
+
+说明：
+
+- `type/sub_type/bbox/text/lines/segments` 仍保留，但已经降级为兼容字段
+- translation / rendering 主线不应该再基于 raw OCR 字段或 `derived/sub_type` 重新猜正文
+- 是否进入翻译，以 `policy.translate` 为唯一正式入口
+- translation payload 的正式消费口径也已固定为 strict top-level contract，不再依赖 `metadata` 镜像
 
 ## 推荐入口
 
 日常使用优先走这些入口：
 
-- `scripts/entrypoints/run_case.py`
-  已经有 OCR JSON 和 PDF 时，直接跑完整流程。
-- `scripts/entrypoints/run_mineru_case.py`
-  只有 PDF 时，先跑 MinerU，再翻译，再渲染。
+- `scripts/entrypoints/run_book.py`
+  当前最上层完整入口。通过 `book.stage.v1` 串起 `normalize -> translate -> render`，适合人工本地跑整条主链路。
+- `scripts/entrypoints/run_provider_case.py`
+  本地一条命令跑“provider -> normalize -> translate -> render”的通用入口名。当前底层实现仍接 MinerU，但入口名不再暴露 provider。
+- `scripts/entrypoints/run_document_flow.py`
+  已经有 OCR JSON 和 PDF 时，优先用这个中性入口名跑完整流程。
+- `scripts/entrypoints/run_normalize_ocr.py`
+  顶层 normalize worker。把 raw OCR JSON 收口成 `document.v1.json`。
+- `scripts/entrypoints/run_provider_ocr.py`
+  本地 OCR-only 通用入口名。只跑 provider -> unpack -> normalize。
+- `scripts/entrypoints/run_translate_only.py`
+  顶层 translate worker。只接受已经标准化的 `document.v1.json`。
+- `scripts/entrypoints/run_render_only.py`
+  顶层 render worker。只接受翻译产物和 PDF。
 - `scripts/entrypoints/translate_book.py`
   只翻译，不渲染。
 - `scripts/entrypoints/build_book.py`
   只渲染，不重新翻译。
-- `scripts/entrypoints/run_book.py`
-  显式给出 JSON 和 PDF 的完整编排入口。
 - `scripts/entrypoints/build_page.py`
   单页渲染调试入口。
 - `scripts/entrypoints/translate_page.py`
@@ -51,9 +78,14 @@
 - `scripts/entrypoints/check_math_cases.py`
   公式归一化回归检查。
 - `scripts/entrypoints/validate_document_schema.py`
-  校验 `document.v1.json`，或对 raw OCR JSON 执行 adapt + validate；也可列出当前已注册 provider。
+  契约排错入口。只用于检查 `document.v1` 或 adapter 行为，不是日常整链路入口。
 - `scripts/devtools/tests/document_schema/regression_check.py`
-  用真实样例跑 `document.v1`、provider 探测、raw layout、content_list_v2 的长期回归检查。
+  长期回归工具，不是主流程入口。
+
+不要把测试脚本当主入口。正常验证整条链路时，优先跑：
+
+1. `run_book.py --spec <job_root>/specs/book.spec.json`
+2. 或 Rust API 提交 job，让 Rust 通过 spec 驱动三个 worker
 
 ## 新 Provider 接入顺序
 
@@ -62,7 +94,7 @@
 1. 先看 `scripts/services/ocr_provider/README.md`
    先把 provider API 层边界、状态、原始产物职责定义清楚。
 2. 再看 `scripts/services/document_schema/README.md`
-   明确字段应该落到 `type/sub_type`、`tags`、`derived`、`metadata/source` 的哪一层。
+   明确字段应该落到 `geometry/content/layout_role/semantic_role/structure_role/policy/provenance` 的哪一层。
 3. 准备最小 raw fixture
    放到 `scripts/devtools/tests/document_schema/fixtures/`。
 4. 新增 provider 实现和 adapter
@@ -122,6 +154,7 @@
 当前约定：
 
 - 主链路优先消费 `document.v1.json`
+- `document.v1.json` 的正式消费口径是 `geometry/content/layout_role/semantic_role/structure_role/policy/provenance`
 - 如果入口给的是 raw `layout.json`，会先做一次显式规范化，再进入翻译主线
 - raw MinerU 结构保留给 adapter、调试和回溯，不再作为主链路的隐式数据契约
 - 如果只是做排错、状态展示或 API 输出摘要，优先消费 `document.v1.report.json`
@@ -130,7 +163,7 @@
   - `normalize.spec.json` -> `normalize.stage.v1`
   - `translate.spec.json` -> `translate.stage.v1`
   - `render.spec.json` -> `render.stage.v1`
-  - `mineru.spec.json` -> `mineru.stage.v1`
+  - `provider.spec.json` -> `provider.stage.v1`
   - `book.spec.json` -> `book.stage.v1`
 
 ## Stage Spec 约定
@@ -149,25 +182,36 @@
   - 运行时由 Rust 注入环境变量，Python 通过 `stage_specs.resolve_credential_ref(...)` 读取
 - Rust 主工作流和本地 book/translate 入口都已切到 spec-only
   - `run_normalize_ocr.py`
+  - `run_provider_ocr.py`
   - `run_translate_only.py`
   - `run_render_only.py`
   - `run_translate_from_ocr.py`
-  - `run_mineru_case.py`
+  - `run_document_flow.py`
+  - `run_provider_case.py`
   - `run_book.py`
   - `translate_book.py`
 
 本地开发入口当前也已统一到 stage spec 主路径：
 
-- `entrypoints/run_mineru_case.py` -> `mineru.stage.v1`
+- `entrypoints/run_provider_case.py` -> 当前 provider-backed full workflow 的本地通用入口名
+- `entrypoints/run_document_flow.py` -> 当前 normalized-document full flow 的本地通用入口名
+- `entrypoints/run_provider_ocr.py` -> 当前 OCR-only provider flow 的本地通用入口名
 - `services/document_schema/normalize_pipeline.py` -> `normalize.stage.v1`
 - `services/translation/translate_only_pipeline.py` -> `translate.stage.v1`
 - `services/rendering/render_only_pipeline.py` -> `render.stage.v1`
 - `services/translation/from_ocr_pipeline.py` -> `book.stage.v1`
 - `entrypoints/run_book.py` -> `book.stage.v1`
 
+也就是说，当前“最上层整个流程”的真实执行口径是：
+
+- 本地：`run_book.py --spec .../book.spec.json`
+- Rust API：创建 job，由 Rust 生成 `specs/*.spec.json` 并依次启动 worker
+- 测试脚本：只做回归，不代表主执行路径
+
 兼容说明：
 
 - 旧任务目录如果还是 `originPDF/jsonPDF/transPDF/typstPDF`，当前后端会直接拒绝详情/下载接口，请重新跑任务生成标准 schema
+- 旧的逐页 translation JSON 直扫模式已经退出主线；render-only 必须提供 `translation-manifest.json`
 
 ## 子目录文档
 

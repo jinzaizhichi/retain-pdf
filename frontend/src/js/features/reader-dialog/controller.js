@@ -1,5 +1,9 @@
 import { $ } from "../../dom.js";
-import { apiBase, buildFrontendPageUrl, isTrustedWindowMessage } from "../../config.js";
+import { buildFrontendPageUrl, isTrustedWindowMessage } from "../../config.js";
+import {
+  findReadyManifestArtifact,
+  resolveManifestArtifactUrl,
+} from "../../job-artifacts.js";
 import { resolveJobActions } from "../../job.js";
 
 let pdfDocumentModulePromise = null;
@@ -72,16 +76,11 @@ function basenameFromUrlLike(value) {
   }
 }
 
-function findManifestArtifact(manifestPayload, artifactKey) {
-  const items = Array.isArray(manifestPayload?.items) ? manifestPayload.items : [];
-  return items.find((entry) => entry?.artifact_key === artifactKey && entry?.ready) || null;
-}
-
 function resolveOriginalPdfName(state) {
   const snapshot = state.currentJobSnapshot || {};
   const requestPayload = snapshot.request_payload || {};
   const rawResponse = snapshot.raw_response || {};
-  const sourceArtifact = findManifestArtifact(state.currentJobManifest, "source_pdf");
+  const sourceArtifact = findReadyManifestArtifact(state.currentJobManifest, "source_pdf");
   const candidates = [
     state.uploadedFileName,
     rawResponse.filename,
@@ -113,22 +112,6 @@ function downloadBlob(blob, filename) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
-}
-
-function resolveManifestArtifactUrl(manifestPayload, artifactKey) {
-  const items = Array.isArray(manifestPayload?.items) ? manifestPayload.items : [];
-  const item = items.find((entry) => entry?.artifact_key === artifactKey && entry?.ready);
-  const raw = `${item?.resource_url || item?.resource_path || ""}`.trim();
-  if (!raw) {
-    return "";
-  }
-  if (/^https?:\/\//i.test(raw)) {
-    return raw;
-  }
-  if (raw.startsWith("/")) {
-    return `${apiBase()}${raw}`;
-  }
-  return `${apiBase()}/${raw.replace(/^\.?\//, "")}`;
 }
 
 function easeOutCubic(value) {

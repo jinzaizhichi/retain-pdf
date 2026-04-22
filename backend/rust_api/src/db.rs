@@ -91,7 +91,10 @@ where
         .map_err(|error| json_column_decode_error(column_idx, column_name, error))
 }
 
-fn deserialize_request_spec_column(column_idx: usize, raw: &str) -> rusqlite::Result<ResolvedJobSpec> {
+fn deserialize_request_spec_column(
+    column_idx: usize,
+    raw: &str,
+) -> rusqlite::Result<ResolvedJobSpec> {
     deserialize_request_spec(raw)
         .map_err(|error| json_column_decode_error(column_idx, "request_json", error))
 }
@@ -166,6 +169,14 @@ fn row_to_glossary_record(row: &Row<'_>) -> rusqlite::Result<GlossaryRecord> {
 pub struct Db {
     path: PathBuf,
     data_root: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JobProcessRecord {
+    pub job_id: String,
+    pub pid: Option<u32>,
+    pub stage: Option<String>,
+    pub updated_at: String,
 }
 
 impl Db {
@@ -566,6 +577,116 @@ impl Db {
             }
         }
         Ok(jobs)
+    }
+
+    pub fn list_jobs_with_status(&self, status: &JobStatusKind) -> Result<Vec<JobSnapshot>> {
+        let conn = self.connect()?;
+        let status_json = serde_json::to_string(status)?;
+        let query =
+            format!("{JOB_SELECT_SQL} WHERE jobs.status_json = ?1 ORDER BY jobs.updated_at DESC");
+        let mut stmt = conn.prepare(&query)?;
+        let rows = stmt.query_map(params![status_json], row_to_job_snapshot)?;
+        let mut jobs = Vec::new();
+        for row in rows {
+            match row {
+                Ok(job) => jobs.push(job),
+                Err(error) => {
+                    eprintln!(
+                        "[db] skipping malformed job row during list_jobs_with_status: {error}"
+                    );
+                }
+            }
+        }
+        Ok(jobs)
+    }
+
+    pub fn list_job_process_records_with_status(
+        &self,
+        status: &JobStatusKind,
+    ) -> Result<Vec<JobProcessRecord>> {
+        let conn = self.connect()?;
+        let status_json = serde_json::to_string(status)?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT job_id, pid, stage, updated_at
+            FROM jobs
+            WHERE status_json = ?1
+            ORDER BY updated_at DESC
+            "#,
+        )?;
+        let rows = stmt.query_map(params![status_json], |row| {
+            Ok(JobProcessRecord {
+                job_id: row.get(0)?,
+                pid: row.get::<_, Option<i64>>(1)?.map(|value| value as u32),
+                stage: row.get(2)?,
+                updated_at: row.get(3)?,
+            })
+        })?;
+        let mut jobs = Vec::new();
+        for row in rows {
+            jobs.push(row?);
+        }
+        Ok(jobs)
+    }
+
+    pub fn recover_stale_running_job(
+        &self,
+        job_id: &str,
+        detail: &str,
+        timestamp: &str,
+    ) -> Result<()> {
+        let conn = self.connect()?;
+        let failed_status_json = serde_json::to_string(&JobStatusKind::Failed)?;
+        let failure = JobFailureInfo {
+            stage: "startup_recovery".to_string(),
+            category: "worker_process_missing".to_string(),
+            code: None,
+            summary: "后端启动时回收了遗留 running 任务".to_string(),
+            root_cause: Some(detail.to_string()),
+            retryable: true,
+            upstream_host: None,
+            provider: None,
+            suggestion: Some("该任务对应的 worker 已不在运行；请重新提交或手动重试".to_string()),
+            last_log_line: Some(detail.to_string()),
+            raw_error_excerpt: Some(detail.to_string()),
+            raw_diagnostic: None,
+            ai_diagnostic: None,
+        };
+        let runtime = JobRuntimeInfo {
+            current_stage: Some("failed".to_string()),
+            stage_started_at: Some(timestamp.to_string()),
+            last_stage_transition_at: Some(timestamp.to_string()),
+            terminal_reason: Some("failed".to_string()),
+            last_error_at: Some(timestamp.to_string()),
+            final_failure_category: Some(failure.category.clone()),
+            final_failure_summary: Some(failure.summary.clone()),
+            ..JobRuntimeInfo::default()
+        };
+        conn.execute(
+            r#"
+            UPDATE jobs
+            SET status_json = ?1,
+                updated_at = ?2,
+                finished_at = ?3,
+                pid = NULL,
+                error = ?4,
+                stage = 'failed',
+                stage_detail = 'startup stale running job recovered',
+                runtime_json = ?5,
+                failure_json = ?6
+            WHERE job_id = ?7
+            "#,
+            params![
+                failed_status_json,
+                timestamp,
+                timestamp,
+                detail,
+                serde_json::to_string(&runtime)?,
+                serde_json::to_string(&failure)?,
+                job_id,
+            ],
+        )?;
+        Ok(())
     }
 
     pub fn append_event(
@@ -990,7 +1111,7 @@ mod tests {
             "#,
             params![
                 "job-bad",
-                serde_json::to_string(&WorkflowKind::Mineru).expect("workflow json"),
+                serde_json::to_string(&WorkflowKind::Book).expect("workflow json"),
                 serde_json::to_string(&JobStatusKind::Succeeded).expect("status json"),
                 now_iso(),
                 now_iso(),

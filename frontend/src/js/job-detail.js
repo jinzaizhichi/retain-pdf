@@ -1,11 +1,19 @@
-import { apiBase, buildApiHeaders, buildFrontendPageUrl, isMockMode } from "./config.js";
+import { buildFrontendPageUrl, isMockMode } from "./config.js";
 import { API_PREFIX } from "./constants.js";
 import { $ } from "./dom.js";
 import {
   fetchJobArtifactsManifest,
   fetchJobEvents,
+  fetchJobMarkdown,
   fetchJobPayload,
+  fetchProtected,
 } from "./network.js";
+import {
+  collectMarkdownImageRefs,
+  hasReadyManifestArtifact,
+  resolveJobMarkdownContract,
+  resolveMarkdownAssetUrl,
+} from "./job-artifacts.js";
 import {
   formatEventTimestamp,
   formatJobFinishedAt,
@@ -25,6 +33,8 @@ const JOB_EVENTS_PAGE_SIZE = 200;
 const detailPageState = {
   job: null,
   manifestPayload: null,
+  markdownPayload: null,
+  markdownImageUrls: [],
   eventsPayload: null,
   eventsLoadingPromise: null,
 };
@@ -48,17 +58,6 @@ function setActionLink(id, url, enabled) {
   el.href = enabled && url ? url : "#";
   el.classList.toggle("disabled", !enabled);
   el.setAttribute("aria-disabled", enabled ? "false" : "true");
-}
-
-function resolveManifestArtifactUrl(manifestPayload, artifactKey) {
-  const items = Array.isArray(manifestPayload?.items) ? manifestPayload.items : [];
-  const item = items.find((entry) => entry?.artifact_key === artifactKey && entry?.ready);
-  return `${item?.resource_url || item?.resource_path || ""}`.trim();
-}
-
-function hasManifestArtifact(manifestPayload, artifactKey) {
-  const items = Array.isArray(manifestPayload?.items) ? manifestPayload.items : [];
-  return items.some((entry) => entry?.artifact_key === artifactKey && entry?.ready);
 }
 
 function buildReaderPageUrl(jobId) {
@@ -157,6 +156,194 @@ function formatEventPayload(payload) {
   } catch (_err) {
     return "";
   }
+}
+
+function fileNameFromDisposition(disposition, fallback) {
+  if (!disposition || typeof disposition !== "string") {
+    return fallback;
+  }
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match && utf8Match[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch (_err) {
+      return utf8Match[1];
+    }
+  }
+  const plainMatch = disposition.match(/filename=\"?([^\";]+)\"?/i);
+  return plainMatch && plainMatch[1] ? plainMatch[1] : fallback;
+}
+
+function downloadBlob(blob, filename) {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
+function formatSizeBytes(value) {
+  const size = Number(value);
+  if (!Number.isFinite(size) || size < 0) {
+    return "-";
+  }
+  if (size < 1024) {
+    return `${size} B`;
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function truncatePreview(value, maxChars = 4000) {
+  const text = `${value || ""}`;
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return `${text.slice(0, maxChars)}\n\n...（预览已截断）`;
+}
+
+function revokeMarkdownImageUrls() {
+  for (const url of detailPageState.markdownImageUrls) {
+    try {
+      URL.revokeObjectURL(url);
+    } catch (_err) {
+      // Ignore stale object URLs.
+    }
+  }
+  detailPageState.markdownImageUrls = [];
+}
+
+function renderArtifactsManifest(manifestPayload) {
+  const summary = $("detail-artifacts-summary");
+  const container = $("detail-artifacts-list");
+  if (!summary || !container) {
+    return;
+  }
+  const items = Array.isArray(manifestPayload?.items) ? [...manifestPayload.items] : [];
+  summary.textContent = items.length > 0 ? `共 ${items.length} 项` : "暂无已登记产物";
+  if (items.length === 0) {
+    container.innerHTML = '<div class="detail-empty">暂无产物清单</div>';
+    return;
+  }
+  const preferredOrder = [
+    "source_pdf",
+    "translated_pdf",
+    "pdf",
+    "markdown_raw",
+    "markdown_images_dir",
+    "markdown_bundle_zip",
+    "normalized_document_json",
+    "normalization_report_json",
+    "translation_manifest_json",
+    "provider_result_json",
+  ];
+  const orderMap = new Map(preferredOrder.map((key, index) => [key, index]));
+  items.sort((left, right) => {
+    const leftOrder = orderMap.has(left?.artifact_key) ? orderMap.get(left.artifact_key) : 999;
+    const rightOrder = orderMap.has(right?.artifact_key) ? orderMap.get(right.artifact_key) : 999;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+    return `${left?.artifact_key || ""}`.localeCompare(`${right?.artifact_key || ""}`);
+  });
+  container.innerHTML = items.map((item) => {
+    const resource = item?.resource_path || item?.resource_url || "-";
+    const readyLabel = item?.ready ? "ready" : "pending";
+    const readyClass = item?.ready ? "is-ready" : "is-pending";
+    return `
+      <article class="detail-artifact-row">
+        <div class="detail-artifact-top">
+          <div class="detail-artifact-key mono">${escapeHtml(item?.artifact_key || "-")}</div>
+          <span class="detail-artifact-chip ${readyClass}">${escapeHtml(readyLabel)}</span>
+        </div>
+        <div class="detail-artifact-meta">${escapeHtml(item?.artifact_group || "-")} · ${escapeHtml(item?.artifact_kind || "-")} · ${escapeHtml(formatSizeBytes(item?.size_bytes))}</div>
+        <div class="detail-artifact-meta mono">${escapeHtml(resource)}</div>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderMarkdownContract(job, markdownPayload = null) {
+  const contract = resolveJobMarkdownContract(job);
+  const rawUrl = `${markdownPayload?.raw_url || markdownPayload?.raw_path || contract.rawUrl || ""}`.trim();
+  const imagesBaseUrl = `${markdownPayload?.images_base_url || markdownPayload?.images_base_path || contract.imagesBaseUrl || ""}`.trim();
+  setText("detail-markdown-json-url", contract.jsonUrl || "-");
+  setText("detail-markdown-raw-url", rawUrl || "-");
+  setText("detail-markdown-images-base-url", imagesBaseUrl || "-");
+  setActionLink("detail-markdown-json-btn", contract.jsonUrl, contract.ready && !!contract.jsonUrl);
+  setActionLink("detail-markdown-raw-btn", rawUrl, contract.ready && !!rawUrl);
+  if (!contract.ready) {
+    revokeMarkdownImageUrls();
+    setText("detail-markdown-status", "当前任务没有已发布 Markdown");
+    setText("detail-markdown-image-count", "0");
+    setText("detail-markdown-preview", "-");
+    const grid = $("detail-markdown-image-grid");
+    grid?.classList.add("hidden");
+    if (grid) {
+      grid.innerHTML = "";
+    }
+    $("detail-markdown-image-empty")?.classList.remove("hidden");
+    return;
+  }
+  if (!markdownPayload) {
+    setText("detail-markdown-status", "已发布，正在读取内容…");
+    return;
+  }
+  const refs = collectMarkdownImageRefs(markdownPayload.content);
+  setText("detail-markdown-status", "已加载 /markdown JSON");
+  setText("detail-markdown-image-count", `${refs.length}`);
+  setText("detail-markdown-preview", truncatePreview(markdownPayload.content));
+}
+
+async function renderMarkdownImagePreview(markdownPayload, imagesBaseUrl) {
+  const grid = $("detail-markdown-image-grid");
+  const empty = $("detail-markdown-image-empty");
+  if (!grid || !empty) {
+    return;
+  }
+  revokeMarkdownImageUrls();
+  const refs = collectMarkdownImageRefs(markdownPayload?.content);
+  if (refs.length === 0 || !imagesBaseUrl) {
+    grid.innerHTML = "";
+    grid.classList.add("hidden");
+    empty.classList.remove("hidden");
+    return;
+  }
+  const previewRefs = refs.slice(0, 4);
+  const previews = await Promise.all(previewRefs.map(async (ref) => {
+    const absoluteUrl = resolveMarkdownAssetUrl(imagesBaseUrl, ref);
+    if (!absoluteUrl) {
+      return { ref, absoluteUrl: "", objectUrl: "", error: "无法解析图片地址" };
+    }
+    try {
+      const resp = await fetchProtected(absoluteUrl);
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      const blob = await resp.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      detailPageState.markdownImageUrls.push(objectUrl);
+      return { ref, absoluteUrl, objectUrl, error: "" };
+    } catch (error) {
+      return { ref, absoluteUrl, objectUrl: "", error: error.message || "图片读取失败" };
+    }
+  }));
+  grid.innerHTML = previews.map((item) => `
+    <article class="detail-markdown-image-card">
+      <div class="detail-artifact-meta mono">${escapeHtml(item.ref)}</div>
+      ${item.objectUrl
+        ? `<img class="detail-markdown-image" src="${escapeHtml(item.objectUrl)}" alt="${escapeHtml(item.ref)}" />`
+        : `<div class="detail-empty">${escapeHtml(item.error || "图片不可用")}</div>`}
+      <div class="detail-artifact-meta mono">${escapeHtml(item.absoluteUrl || "-")}</div>
+    </article>
+  `).join("");
+  grid.classList.remove("hidden");
+  empty.classList.add("hidden");
 }
 
 function renderStageHistory(job) {
@@ -265,6 +452,7 @@ async function fetchAllJobEvents(jobId) {
 }
 
 function bindDetailModals() {
+  window.addEventListener("beforeunload", revokeMarkdownImageUrls, { once: true });
   bindModalDismiss("detail-stage-history-modal", "detail-close-stage-history-btn");
   bindModalDismiss("detail-events-modal", "detail-close-events-btn");
   document.addEventListener("keydown", (event) => {
@@ -320,6 +508,35 @@ async function ensureEventsLoaded() {
   return detailPageState.eventsLoadingPromise;
 }
 
+function bindProtectedDownloadLink(id, fallbackNameFactory) {
+  $(id)?.addEventListener("click", async (event) => {
+    const link = event.currentTarget;
+    const enabled = link?.getAttribute("aria-disabled") !== "true";
+    const url = `${link?.href || ""}`.trim();
+    if (!enabled || !url || url.endsWith("#")) {
+      event.preventDefault();
+      return;
+    }
+    if (id === "detail-reader-btn") {
+      return;
+    }
+    event.preventDefault();
+    try {
+      const resp = await fetchProtected(url);
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`下载失败: ${resp.status} ${text || "unknown error"}`);
+      }
+      const blob = await resp.blob();
+      const disposition = resp.headers.get("content-disposition") || "";
+      const fallbackName = fallbackNameFactory(detailPageState.job?.job_id || "job");
+      downloadBlob(blob, fileNameFromDisposition(disposition, fallbackName));
+    } catch (error) {
+      setText("detail-head-note", error.message || "下载失败");
+    }
+  });
+}
+
 function bindEventsLauncher() {
   $("detail-open-events-btn")?.addEventListener("click", async () => {
     setModalOpen("detail-events-modal", true);
@@ -336,6 +553,9 @@ async function initializePage() {
   bindDetailModals();
   bindStageHistoryLauncher();
   bindEventsLauncher();
+  bindProtectedDownloadLink("detail-pdf-btn", (jobId) => `${jobId}.pdf`);
+  bindProtectedDownloadLink("detail-markdown-raw-btn", (jobId) => `${jobId}.md`);
+  bindProtectedDownloadLink("detail-markdown-json-btn", (jobId) => `${jobId}-markdown.json`);
   const jobId = getJobIdFromQuery();
   if (!jobId) {
     setText("detail-head-note", "缺少 job_id，请通过 detail.html?job_id=... 打开。");
@@ -355,6 +575,8 @@ async function initializePage() {
   detailPageState.manifestPayload = manifestPayload;
   const durations = resolveLiveDurations(job);
   const actions = resolveJobActions(job);
+  renderArtifactsManifest(manifestPayload);
+  renderMarkdownContract(job, null);
 
   setText("detail-status-summary", summarizeStatus(job.status || "idle"));
   setText("detail-stage-detail", summarizeStageDetail(job));
@@ -384,14 +606,31 @@ async function initializePage() {
 
   const readerEnabled = Boolean(
     job?.job_id
-    && hasManifestArtifact(manifestPayload, "source_pdf")
-    && (hasManifestArtifact(manifestPayload, "pdf")
-      || hasManifestArtifact(manifestPayload, "translated_pdf")
-      || hasManifestArtifact(manifestPayload, "result_pdf")
+    && hasReadyManifestArtifact(manifestPayload, "source_pdf")
+    && (hasReadyManifestArtifact(manifestPayload, "pdf")
+      || hasReadyManifestArtifact(manifestPayload, "translated_pdf")
+      || hasReadyManifestArtifact(manifestPayload, "result_pdf")
       || actions.pdfEnabled),
   );
   setActionLink("detail-reader-btn", buildReaderPageUrl(job.job_id), readerEnabled);
   setActionLink("detail-pdf-btn", actions.pdf, actions.pdfEnabled && !!actions.pdf);
+
+  try {
+    const markdownPayload = await fetchJobMarkdown(jobId, API_PREFIX);
+    detailPageState.markdownPayload = markdownPayload;
+    renderMarkdownContract(job, markdownPayload);
+    if (markdownPayload) {
+      await renderMarkdownImagePreview(
+        markdownPayload,
+        `${markdownPayload.images_base_url || markdownPayload.images_base_path || resolveJobMarkdownContract(job).imagesBaseUrl || ""}`.trim(),
+      );
+    } else if (resolveJobMarkdownContract(job).ready) {
+      setText("detail-markdown-status", "Markdown 已标记 ready，但 /markdown 暂未返回内容");
+    }
+  } catch (error) {
+    renderMarkdownContract(job, null);
+    setText("detail-markdown-status", error.message || "读取 Markdown 失败");
+  }
 }
 
 initializePage().catch((err) => {

@@ -1,5 +1,8 @@
 from foundation.shared.prompt_loader import load_prompt
-from services.document_schema.semantics import structure_role
+from services.translation.item_reader import item_block_kind
+from services.translation.item_reader import item_effective_role
+from services.translation.item_reader import item_layout_role
+from services.translation.item_reader import item_semantic_role
 from services.translation.policy.soft_hints import build_soft_rule_hints
 
 
@@ -28,13 +31,19 @@ def build_prompt(page_items: list[dict], review_items: list[dict], rule_guidance
     review_orders = {item["order"] for item in review_items}
     for item in page_items:
         status = "REVIEW" if item["order"] in review_orders else f"LOCKED:{item['rule_label']}"
+        block_kind = item_block_kind(item)
+        layout_role = item_layout_role(item) or "-"
+        semantic_role = item_semantic_role(item) or "-"
+        effective_role = item_effective_role(item) or "body"
         blocks.append(
             "\n".join(
                 [
                     f"{item['order']}.",
                     f"status: {status}",
-                    f"ocr_type: {item['block_type']}",
-                    f"structure_role: {structure_role(item.get('metadata', {}) or {}) or 'body'}",
+                    f"block_kind: {block_kind}",
+                    f"layout_role: {layout_role}",
+                    f"semantic_role: {semantic_role}",
+                    f"effective_role: {effective_role}",
                     f"bbox: {compact_bbox(item['bbox'])}",
                     f"line_count: {item['line_count']}",
                     f"has_inline_formula: {str(item['has_inline_formula']).lower()}",

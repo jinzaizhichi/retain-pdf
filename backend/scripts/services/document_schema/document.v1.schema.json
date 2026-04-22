@@ -19,9 +19,13 @@
       "const": "normalized_document_v1"
     },
     "schema_version": {
-      "enum": ["1.0", "1.1"]
+      "enum": ["1.1"]
     },
     "document_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "doc_id": {
       "type": "string",
       "minLength": 1
     },
@@ -36,6 +40,12 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/page"
+      }
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/asset"
       }
     },
     "derived": {
@@ -173,22 +183,127 @@
         }
       }
     },
+    "geometry": {
+      "type": "object",
+      "required": [
+        "bbox"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "bbox": {
+          "$ref": "#/$defs/bbox"
+        }
+      }
+    },
+    "content": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "text",
+            "image",
+            "table",
+            "formula",
+            "code",
+            "unknown"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "asset_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "translate",
+        "translate_reason"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "translate": {
+          "type": "boolean"
+        },
+        "translate_reason": {
+          "type": "string"
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "provider",
+        "raw_label",
+        "raw_sub_type",
+        "raw_bbox",
+        "raw_path"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "raw_label": {
+          "type": "string"
+        },
+        "raw_sub_type": {
+          "type": "string"
+        },
+        "raw_bbox": {
+          "$ref": "#/$defs/bbox"
+        },
+        "raw_path": {
+          "type": "string"
+        }
+      }
+    },
+    "asset": {
+      "type": "object",
+      "required": [
+        "kind",
+        "uri",
+        "source"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string"
+        }
+      }
+    },
     "block": {
       "type": "object",
       "required": [
         "block_id",
         "page_index",
         "order",
-        "type",
-        "sub_type",
-        "bbox",
-        "text",
-        "lines",
-        "segments",
-        "tags",
-        "derived",
+        "geometry",
+        "content",
+        "layout_role",
+        "semantic_role",
+        "structure_role",
+        "policy",
+        "provenance",
         "metadata",
-        "source"
+        "source",
+        "continuation_hint"
       ],
       "additionalProperties": true,
       "properties": {
@@ -263,6 +378,49 @@
               "minLength": 1
             }
           }
+        },
+        "reading_order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "geometry": {
+          "$ref": "#/$defs/geometry"
+        },
+        "content": {
+          "$ref": "#/$defs/content"
+        },
+        "layout_role": {
+          "type": "string",
+          "enum": [
+            "title",
+            "heading",
+            "paragraph",
+            "list_item",
+            "caption",
+            "header",
+            "footer",
+            "footnote",
+            "page_number",
+            "unknown"
+          ]
+        },
+        "semantic_role": {
+          "type": "string",
+          "enum": [
+            "body",
+            "abstract",
+            "reference",
+            "metadata",
+            "affiliation",
+            "acknowledgement",
+            "unknown"
+          ]
+        },
+        "policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
         }
       }
     },
@@ -280,6 +438,10 @@
         "page_index": {
           "type": "integer",
           "minimum": 0
+        },
+        "page": {
+          "type": "integer",
+          "minimum": 1
         },
         "width": {
           "type": "number",

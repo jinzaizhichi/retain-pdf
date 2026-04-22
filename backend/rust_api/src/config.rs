@@ -11,8 +11,8 @@ pub struct AppConfig {
     pub rust_api_root: PathBuf,
     pub data_root: PathBuf,
     pub scripts_dir: PathBuf,
-    pub run_mineru_case_script: PathBuf,
-    pub run_ocr_job_script: PathBuf,
+    pub run_provider_case_script: PathBuf,
+    pub run_provider_ocr_script: PathBuf,
     pub run_normalize_ocr_script: PathBuf,
     pub run_translate_from_ocr_script: PathBuf,
     pub run_translate_only_script: PathBuf,
@@ -61,8 +61,10 @@ impl AppConfig {
                 }
             });
         let data_root = resolve_data_root(&project_root);
-        let run_mineru_case_script = scripts_dir.join("entrypoints").join("run_mineru_case.py");
-        let run_ocr_job_script = scripts_dir.join("entrypoints").join("run_ocr_job.py");
+        let run_provider_case_script =
+            resolve_entrypoint_script(&scripts_dir, "run_provider_case.py");
+        let run_provider_ocr_script =
+            resolve_entrypoint_script(&scripts_dir, "run_provider_ocr.py");
         let run_normalize_ocr_script = scripts_dir.join("entrypoints").join("run_normalize_ocr.py");
         let run_translate_from_ocr_script = scripts_dir
             .join("entrypoints")
@@ -97,8 +99,8 @@ impl AppConfig {
             rust_api_root,
             data_root,
             scripts_dir,
-            run_mineru_case_script,
-            run_ocr_job_script,
+            run_provider_case_script,
+            run_provider_ocr_script,
             run_normalize_ocr_script,
             run_translate_from_ocr_script,
             run_translate_only_script,
@@ -156,8 +158,11 @@ impl AppConfig {
             rust_api_root,
             data_root,
             scripts_dir: scripts_dir.clone(),
-            run_mineru_case_script: scripts_dir.join("entrypoints").join("run_mineru_case.py"),
-            run_ocr_job_script: scripts_dir.join("entrypoints").join("run_ocr_job.py"),
+            run_provider_case_script: resolve_entrypoint_script(
+                &scripts_dir,
+                "run_provider_case.py",
+            ),
+            run_provider_ocr_script: resolve_entrypoint_script(&scripts_dir, "run_provider_ocr.py"),
             run_normalize_ocr_script: scripts_dir.join("entrypoints").join("run_normalize_ocr.py"),
             run_translate_from_ocr_script: scripts_dir
                 .join("entrypoints")
@@ -183,6 +188,11 @@ impl AppConfig {
             max_running_jobs: 4,
         })
     }
+}
+
+fn resolve_entrypoint_script(scripts_dir: &Path, script_name: &str) -> PathBuf {
+    let entrypoints_dir = scripts_dir.join("entrypoints");
+    entrypoints_dir.join(script_name)
 }
 
 fn infer_project_root(rust_api_root: &Path) -> Result<PathBuf> {

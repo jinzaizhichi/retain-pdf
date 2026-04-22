@@ -31,6 +31,7 @@
 
 - rendering 阶段只应消费翻译产物协议，不应反向读取 provider raw OCR 结构
 - 当前默认翻译产物协议由逐页 translation payload 加 `translation-manifest.json` 组成
+- render-only 主线现在要求 manifest-only；不再回退扫描旧的逐页 JSON 文件
 - translation 阶段允许读取源 PDF 做领域推断或策略辅助，但不拥有源 PDF 的渲染控制权
 - 如果启用了术语表，translation 阶段还会把术语表摘要写入 `translation-manifest.json`、诊断文件和 pipeline summary；这些字段属于元数据，不改变渲染输入协议
 - pipeline summary 与 translation manifest 现在还会写入 `invocation` 字段，用来声明当前阶段 schema 版本
@@ -73,7 +74,7 @@
 
 这里的 `OCR JSON` 默认指 `document.v1.json`。
 
-Rust API 的完整 `mineru` workflow 也按这个边界串联：
+Rust API 的完整 provider-backed workflow 也按这个边界串联：
 
 - OCR 子任务先生成 `document.v1.json`
 - translate-only 入口只生成逐页 translation payload 与 `translation-manifest.json`
@@ -105,7 +106,8 @@ Rust API 的完整 `mineru` workflow 也按这个边界串联：
 - normalize 阶段对应 `normalize.stage.v1`
 - translate-only 阶段对应 `translate.stage.v1`
 - render-only 阶段对应 `render.stage.v1`
-- MinerU 全流程入口对应 `mineru.stage.v1`
+- provider-backed 全流程当前对应 `provider.stage.v1`
+  这是当前实现细节，不是上层流程命名要求
 - 基于已规范化 OCR 的整链入口对应 `book.stage.v1`
 - Rust 主工作流调用的 worker 入口现在要求 `--spec`
 - 本地开发入口也已统一改为通过 stage spec 驱动
@@ -120,6 +122,7 @@ Rust API 的完整 `mineru` workflow 也按这个边界串联：
   - `translations_dir`
   - `translation_manifest_path`
 - 如果两者都没给，或者目录里没有 `translation-manifest.json`，入口会直接抛出固定的 `Render-only input error`
+- 渲染阶段不会再自行“猜”旧任务目录或旧页文件命名
 - 不建议上层自己拼页范围、模式判定和翻译目录读取
 
 ## 解耦回归
@@ -127,7 +130,7 @@ Rust API 的完整 `mineru` workflow 也按这个边界串联：
 当前专项回归覆盖：
 
 - Python：manifest-only 翻译产物加载、Render-only 输入协议
-- Rust：OCR-only job snapshot、Translate workflow、Render workflow、完整任务兼容命令、artifact manifest 发现
+- Rust：OCR-only job snapshot、Translate workflow、Render workflow、完整任务入口、artifact manifest 发现
 
 常用检查命令：
 
@@ -144,4 +147,4 @@ cd backend/rust_api && cargo test -q
 - 不要把 provider 私有适配逻辑塞进 pipeline
 - 不要把翻译策略细节或渲染实现细节回卷到 pipeline
 - 如果修改阶段输入输出契约，必须同步更新上游模块 README、下游模块 README、CLI/API 入口和回归测试
-- 如果只是某个模块内部 bug，优先在模块内修；pipeline 只保留必要的编排兼容层
+- 如果只是某个模块内部 bug，优先在模块内修；pipeline 只保留必要的编排适配层

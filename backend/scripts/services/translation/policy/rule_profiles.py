@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import sqlite3
-from pathlib import Path
 
 from foundation.shared.prompt_loader import load_prompt
 
@@ -49,29 +47,8 @@ def resolve_rule_profile_prompt_name(profile_name: str) -> str:
 def load_rule_profile_text(profile_name: str) -> str:
     return load_prompt(resolve_rule_profile_prompt_name(profile_name))
 
-
-def _saved_rule_profiles_db_path() -> Path:
-    return Path(__file__).resolve().parents[3] / "Fast_API" / "jobs.db"
-
-
 def load_saved_rule_profile_text(profile_name: str) -> str:
-    db_path = _saved_rule_profiles_db_path()
-    if not db_path.exists():
-        return ""
-    try:
-        conn = sqlite3.connect(db_path)
-        try:
-            row = conn.execute(
-                "SELECT profile_text FROM rule_profiles WHERE name = ?",
-                (profile_name,),
-            ).fetchone()
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        return ""
-    if not row:
-        return ""
-    return str(row[0] or "").strip()
+    return ""
 
 
 def build_rule_profile_context(profile_name: str = "", custom_rules_text: str = "") -> RuleProfileContext:

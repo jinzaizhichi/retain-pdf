@@ -33,7 +33,7 @@ pub enum JobStatusKind {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowKind {
-    Mineru,
+    Book,
     Ocr,
     Translate,
     Render,
@@ -41,7 +41,7 @@ pub enum WorkflowKind {
 
 impl Default for WorkflowKind {
     fn default() -> Self {
-        Self::Mineru
+        Self::Book
     }
 }
 

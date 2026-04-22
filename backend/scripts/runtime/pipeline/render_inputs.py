@@ -14,12 +14,6 @@ class RenderInputs:
     source_pdf_path: Path
     translations_dir: Path
     translation_manifest_path: Path | None
-
-
-def _has_legacy_translation_pages(translations_dir: Path) -> bool:
-    return any(translations_dir.glob("page-*-deepseek.json"))
-
-
 def _ensure_existing_file(path: Path, *, label: str) -> Path:
     if not path.exists():
         raise RuntimeError(f"{RENDER_INPUT_ERROR_PREFIX}: {label} not found: {path}")
@@ -72,7 +66,7 @@ def resolve_render_inputs(
                 label=TRANSLATION_MANIFEST_FILE_NAME,
             )
 
-    if resolved_manifest_path is None and not _has_legacy_translation_pages(resolved_translations_dir):
+    if resolved_manifest_path is None:
         raise RuntimeError(
             f"{RENDER_INPUT_ERROR_PREFIX}: {TRANSLATION_MANIFEST_FILE_NAME} not found in {resolved_translations_dir}"
         )

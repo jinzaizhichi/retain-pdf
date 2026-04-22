@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from statistics import median
 
+from services.translation.item_reader import item_is_textual
+
 
 MIN_SINGLE_COLUMN_MAIN_ITEMS = 3
 MIN_DOUBLE_COLUMN_MAIN_ITEMS = 3
@@ -63,7 +65,7 @@ def detect_columns_from_main_items(
 
 
 def _flow_candidate(item: dict) -> bool:
-    if item.get("block_type") not in {"text", "title", "list"}:
+    if not item_is_textual(item):
         return False
     if not item.get("source_text", "").strip():
         return False

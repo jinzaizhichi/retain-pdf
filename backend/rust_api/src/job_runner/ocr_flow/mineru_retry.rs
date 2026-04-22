@@ -3,19 +3,25 @@ use std::time::Instant;
 use anyhow::Result;
 use tokio::time::{sleep, Duration};
 
-use crate::job_events::record_custom_runtime_event;
+use crate::job_events::record_custom_runtime_event_with_resources;
+use crate::job_runner::{register_job_retry, ProcessRuntimeDeps};
 use crate::models::{now_iso, JobRuntimeState};
 use crate::ocr_provider::mineru::{client::MineruUploadTarget, MineruClient};
-use crate::AppState;
 
 use super::save_ocr_job;
-use crate::job_runner::register_job_retry;
 
 const MINERU_POLL_RETRY_LIMIT: usize = 5;
 const MINERU_POLL_RETRY_BASE_DELAY_SECS: u64 = 2;
 
+pub(super) fn mineru_error_chain_text(err: &anyhow::Error) -> String {
+    err.chain()
+        .map(|cause| cause.to_string().to_ascii_lowercase())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub(super) async fn acquire_upload_target_with_retry(
-    state: &AppState,
+    deps: &ProcessRuntimeDeps,
     job: &mut JobRuntimeState,
     client: &MineruClient,
     file_name: &str,
@@ -51,16 +57,18 @@ pub(super) async fn acquire_upload_target_with_retry(
                 ));
                 job.stage = Some("ocr_upload".to_string());
                 job.stage_detail = Some(format!(
-                    "MinerU 上传地址申请异常，{delay_secs}s 后重试（第 {attempt}/{MINERU_POLL_RETRY_LIMIT} 次）"
+                    "OCR provider 上传地址申请异常，{delay_secs}s 后重试（第 {attempt}/{MINERU_POLL_RETRY_LIMIT} 次）"
                 ));
                 job.updated_at = now_iso();
                 register_job_retry(job);
-                record_custom_runtime_event(
-                    state,
-                    job,
+                record_custom_runtime_event_with_resources(
+                    deps.db.as_ref(),
+                    &deps.config.data_root,
+                    &deps.config.output_root,
+                    &job.snapshot(),
                     "warn",
                     "retry_scheduled",
-                    "MinerU 上传地址申请进入重试",
+                    "OCR provider 上传地址申请进入重试",
                     Some(serde_json::json!({
                         "scope": "mineru_apply_upload_url",
                         "attempt": attempt,
@@ -69,7 +77,7 @@ pub(super) async fn acquire_upload_target_with_retry(
                         "reason": err.to_string(),
                     })),
                 );
-                save_ocr_job(state, job, parent_job_id).await?;
+                save_ocr_job(deps, job, parent_job_id).await?;
                 sleep(Duration::from_secs(delay_secs)).await;
             }
         }
@@ -77,7 +85,7 @@ pub(super) async fn acquire_upload_target_with_retry(
 }
 
 pub(super) async fn query_with_retry<T, F, Fut>(
-    state: &AppState,
+    deps: &ProcessRuntimeDeps,
     job: &mut JobRuntimeState,
     resource_label: &str,
     resource_id: &str,
@@ -108,15 +116,17 @@ where
                     ));
                     job.stage = Some("mineru_processing".to_string());
                     job.stage_detail =
-                        Some("MinerU 状态查询连续异常，稍后自动继续拉取".to_string());
+                        Some("OCR provider 状态查询连续异常，稍后自动继续拉取".to_string());
                     job.updated_at = now_iso();
                     register_job_retry(job);
-                    record_custom_runtime_event(
-                        state,
-                        job,
+                    record_custom_runtime_event_with_resources(
+                        deps.db.as_ref(),
+                        &deps.config.data_root,
+                        &deps.config.output_root,
+                        &job.snapshot(),
                         "warn",
                         "retry_scheduled",
-                        format!("MinerU {resource_label} 查询降级为下一轮继续轮询"),
+                        format!("OCR provider {resource_label} 查询降级为下一轮继续轮询"),
                         Some(serde_json::json!({
                             "scope": format!("mineru_{resource_label}_poll"),
                             "attempt": attempt,
@@ -126,7 +136,7 @@ where
                             "reason": err.to_string(),
                         })),
                     );
-                    save_ocr_job(state, job, parent_job_id).await?;
+                    save_ocr_job(deps, job, parent_job_id).await?;
                     return Ok(None);
                 }
                 let delay_secs =
@@ -137,16 +147,18 @@ where
                 ));
                 job.stage = Some("mineru_processing".to_string());
                 job.stage_detail = Some(format!(
-                    "MinerU 状态查询异常，{delay_secs}s 后重试（第 {attempt}/{MINERU_POLL_RETRY_LIMIT} 次）"
+                    "OCR provider 状态查询异常，{delay_secs}s 后重试（第 {attempt}/{MINERU_POLL_RETRY_LIMIT} 次）"
                 ));
                 job.updated_at = now_iso();
                 register_job_retry(job);
-                record_custom_runtime_event(
-                    state,
-                    job,
+                record_custom_runtime_event_with_resources(
+                    deps.db.as_ref(),
+                    &deps.config.data_root,
+                    &deps.config.output_root,
+                    &job.snapshot(),
                     "warn",
                     "retry_scheduled",
-                    format!("MinerU {resource_label} 查询进入重试"),
+                    format!("OCR provider {resource_label} 查询进入重试"),
                     Some(serde_json::json!({
                         "scope": format!("mineru_{resource_label}_poll"),
                         "attempt": attempt,
@@ -156,7 +168,7 @@ where
                         "reason": err.to_string(),
                     })),
                 );
-                save_ocr_job(state, job, parent_job_id).await?;
+                save_ocr_job(deps, job, parent_job_id).await?;
                 sleep(Duration::from_secs(delay_secs)).await;
             }
         }
@@ -164,7 +176,7 @@ where
 }
 
 pub(super) fn should_retry_mineru_poll_error(err: &anyhow::Error) -> bool {
-    let text = err.to_string().to_ascii_lowercase();
+    let text = mineru_error_chain_text(err);
     text.contains("timed out")
         || text.contains("connection timed out")
         || text.contains("server disconnected")
@@ -180,7 +192,7 @@ pub(super) fn should_retry_mineru_poll_error(err: &anyhow::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::should_retry_mineru_poll_error;
+    use super::{mineru_error_chain_text, should_retry_mineru_poll_error};
 
     #[test]
     fn should_retry_mineru_poll_error_matches_dns_and_timeout_noise() {
@@ -191,5 +203,17 @@ mod tests {
         assert!(should_retry_mineru_poll_error(&dns));
         assert!(should_retry_mineru_poll_error(&timeout));
         assert!(!should_retry_mineru_poll_error(&auth));
+    }
+
+    #[test]
+    fn should_retry_mineru_poll_error_matches_nested_connection_reset_chain() {
+        let err = anyhow::anyhow!("Connection reset by peer (os error 104)")
+            .context("client error (Connect)")
+            .context("error sending request for url (https://cdn-mineru.openxlab.org.cn/file.zip)")
+            .context("MinerU download bundle request failed");
+
+        let chain = mineru_error_chain_text(&err);
+        assert!(chain.contains("connection reset by peer"));
+        assert!(should_retry_mineru_poll_error(&err));
     }
 }

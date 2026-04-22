@@ -1,5 +1,7 @@
 use crate::models::{JobArtifacts, JobRuntimeState};
-use crate::ocr_provider::{parse_provider_kind, provider_capabilities, OcrProviderDiagnostics};
+use crate::ocr_provider::{
+    ensure_provider_diagnostics, parse_provider_kind, OcrProviderDiagnostics,
+};
 
 use super::stdout_parser;
 
@@ -61,19 +63,5 @@ pub(crate) fn ocr_provider_diagnostics_mut(
 ) -> &mut OcrProviderDiagnostics {
     let provider_kind = parse_provider_kind(&job.request_payload.ocr.provider);
     let artifacts = job_artifacts_mut(job);
-    if artifacts.ocr_provider_diagnostics.is_none() {
-        let mut diagnostics = OcrProviderDiagnostics::new(provider_kind.clone());
-        diagnostics.capabilities = provider_capabilities(&provider_kind);
-        artifacts.ocr_provider_diagnostics = Some(diagnostics);
-    } else if artifacts
-        .ocr_provider_diagnostics
-        .as_ref()
-        .map(|diag| diag.capabilities.is_none() || diag.provider != provider_kind)
-        .unwrap_or(true)
-    {
-        let diagnostics = artifacts.ocr_provider_diagnostics.as_mut().unwrap();
-        diagnostics.provider = provider_kind.clone();
-        diagnostics.capabilities = provider_capabilities(&provider_kind);
-    }
-    artifacts.ocr_provider_diagnostics.as_mut().unwrap()
+    ensure_provider_diagnostics(artifacts, provider_kind)
 }

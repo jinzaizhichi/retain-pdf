@@ -4,7 +4,6 @@ from collections import Counter
 from difflib import SequenceMatcher
 import re
 
-from services.document_schema.semantics import is_body_structure_role
 from services.translation.diagnostics import TranslationDiagnosticsCollector
 from services.translation.llm.deepseek_client import unwrap_translation_shell
 from services.translation.payload.formula_protection import protected_map_from_formula_map
@@ -13,6 +12,11 @@ from services.translation.payload.formula_protection import PROTECTED_TOKEN_RE
 from services.translation.policy.metadata_filter import looks_like_url_fragment
 from services.translation.policy.reference_section import looks_like_reference_entry_text
 from services.translation.policy.soft_hints import looks_like_code_literal_text_value
+from services.translation.item_reader import item_block_kind
+from services.translation.item_reader import item_is_bodylike
+from services.translation.item_reader import item_normalized_sub_type
+from services.translation.item_reader import item_is_reference_like
+from services.translation.item_reader import item_raw_block_type
 
 
 FORMAL_PLACEHOLDER_RE = re.compile(r"<f\d+-[0-9a-z]{3}/>|<t\d+-[0-9a-z]{3}/>|\[\[FORMULA_\d+]]")
@@ -404,14 +408,11 @@ def _looks_like_author_name_list(text: str) -> bool:
 
 
 def _is_reference_like_item(item: dict) -> bool:
-    metadata = item.get("metadata") or {}
-    source = metadata.get("source") or {}
-    raw_type = str(source.get("raw_type", metadata.get("raw_type", "")) or "").strip().lower()
-    if raw_type == "ref_text":
+    if item_is_reference_like(item):
         return True
-    ocr_sub_type = str(metadata.get("ocr_sub_type", "") or "").strip().lower()
-    normalized_sub_type = str(metadata.get("normalized_sub_type", "") or "").strip().lower()
-    if ocr_sub_type != "metadata" and normalized_sub_type != "metadata":
+    if item_raw_block_type(item) == "ref_text":
+        return True
+    if item_normalized_sub_type(item) != "metadata":
         return False
     source_text = strip_placeholders(unit_source_text(item)).strip()
     if not source_text:
@@ -573,14 +574,14 @@ def should_force_translate_body_text(item: dict) -> bool:
         return False
     if looks_like_short_fragment(source_text):
         return False
-    if str(item.get("block_type", "") or "") != "text":
+    if item_raw_block_type(item) != "text":
         return False
-    if not is_body_structure_role(item.get("metadata", {}) or {}):
+    if not item_is_bodylike(item):
         return False
     words = EN_WORD_RE.findall(strip_placeholders(source_text))
     if item.get("continuation_group"):
         return len(words) >= 6 and looks_like_english_prose(source_text)
-    if item.get("block_type") == "text" and (
+    if item_raw_block_type(item) == "text" and (
         is_direct_math_mode(item) or bool(item.get("formula_map") or item.get("translation_unit_formula_map"))
     ):
         return len(words) >= 5 and looks_like_english_prose(source_text)
@@ -592,8 +593,8 @@ def should_reject_keep_origin(item: dict, decision: str, payload: dict[str, str]
         return False
     if payload and is_internal_placeholder_degraded(payload):
         return False
-    block_type = item.get("block_type")
-    if block_type not in {"", None, "text"}:
+    block_type = item_raw_block_type(item)
+    if block_type not in {"", "text"}:
         return False
     return should_force_translate_body_text(item)
 

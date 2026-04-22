@@ -67,8 +67,11 @@ def _materialize_normalized_document(
         "normalized document report: "
         f"provider={normalization_summary['provider']} "
         f"detected={normalization_summary['detected_provider']} "
-        f"defaults_pages={normalization_summary['defaults_pages']} "
-        f"defaults_blocks={normalization_summary['defaults_blocks']} "
+        f"pages_observed={normalization_summary['pages_observed']} "
+        f"blocks_observed={normalization_summary['blocks_observed']} "
+        f"defaulted_document_fields={normalization_summary['defaulted_document_fields']} "
+        f"defaulted_page_fields={normalization_summary['defaulted_page_fields']} "
+        f"defaulted_block_fields={normalization_summary['defaulted_block_fields']} "
         f"path={normalized_report_json_path}",
         flush=True,
     )

@@ -3,12 +3,12 @@ use std::time::Instant;
 use anyhow::{anyhow, Result};
 use tokio::time::{sleep, Duration};
 
-use crate::AppState;
+use crate::job_runner::ProcessRuntimeDeps;
 
-use super::is_cancel_requested;
+use super::super::cancel_registry::is_cancel_requested_with_registry;
 
-pub(super) async fn should_stop_polling(state: &AppState, job_id: &str) -> bool {
-    is_cancel_requested(state, job_id).await
+pub(super) async fn should_stop_polling(deps: &ProcessRuntimeDeps, job_id: &str) -> bool {
+    is_cancel_requested_with_registry(deps.canceled_jobs.as_ref(), job_id).await
 }
 
 pub(super) async fn wait_next_poll_or_timeout<M>(

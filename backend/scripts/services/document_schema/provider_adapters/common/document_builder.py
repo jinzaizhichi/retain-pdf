@@ -20,6 +20,7 @@ def build_document_record(
         "schema": DOCUMENT_SCHEMA_NAME,
         "schema_version": DOCUMENT_SCHEMA_VERSION,
         "document_id": document_id,
+        "doc_id": document_id,
         "source": {
             "provider": provider,
             "provider_version": provider_version,
@@ -29,6 +30,7 @@ def build_document_record(
         },
         "page_count": len(pages),
         "pages": pages,
+        "assets": {},
         "derived": {
             "notes": notes,
         },

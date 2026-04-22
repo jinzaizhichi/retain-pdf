@@ -9,7 +9,8 @@ from pathlib import Path
 
 from foundation.config import paths
 from foundation.shared.prompt_loader import load_prompt
-from services.document_schema.semantics import structure_role
+from services.translation.item_reader import item_raw_block_type
+from services.translation.item_reader import item_structure_role
 from services.translation.llm.deepseek_client import request_chat_content
 from services.translation.policy.soft_hints import build_soft_rule_hints
 from services.translation.policy.soft_hints import extract_command_prefix
@@ -34,8 +35,8 @@ def _build_messages(item: dict, rule_guidance: str = "") -> list[dict[str, str]]
     payload = {
         "task": load_prompt("mixed_literal_split_task.txt"),
         "item_id": item.get("item_id", ""),
-        "block_type": item.get("block_type", ""),
-        "structure_role": structure_role(item.get("metadata", {}) or {}) or "body",
+        "block_type": item_raw_block_type(item),
+        "structure_role": item_structure_role(item) or "body",
         "source_text": item.get("source_text", ""),
         "line_texts": _line_texts(item),
         "soft_hints": build_soft_rule_hints(item),
@@ -117,8 +118,8 @@ def _cache_key(item: dict, *, model: str, base_url: str, rule_guidance: str) -> 
         "rule_guidance": str(rule_guidance or "").strip(),
         "source_text": str(item.get("source_text", "") or ""),
         "line_texts": _line_texts(item),
-        "block_type": str(item.get("block_type", "") or ""),
-        "structure_role": structure_role(item.get("metadata", {}) or {}) or "body",
+        "block_type": item_raw_block_type(item),
+        "structure_role": item_structure_role(item) or "body",
     }
     body = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(body.encode("utf-8")).hexdigest()

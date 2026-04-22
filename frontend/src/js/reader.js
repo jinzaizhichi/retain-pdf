@@ -7,6 +7,10 @@ import {
 import { apiBase, isMockMode, readerMessageTargetOrigin } from "./config.js";
 import { $ } from "./dom.js";
 import { API_PREFIX } from "./constants.js";
+import {
+  findReadyManifestArtifact,
+  resolveManifestArtifactUrl,
+} from "./job-artifacts.js";
 import { resolveJobActions } from "./job.js";
 import { getMockJobId } from "./mock.js";
 import { fetchJobArtifactsManifest, fetchJobPayload, fetchProtected } from "./network.js";
@@ -146,11 +150,6 @@ function getJobIdFromQuery() {
   return isMockMode() ? getMockJobId() : "";
 }
 
-function findArtifact(manifestPayload, artifactKey) {
-  const items = Array.isArray(manifestPayload?.items) ? manifestPayload.items : [];
-  return items.find((entry) => entry?.artifact_key === artifactKey && entry?.ready) || null;
-}
-
 function resolveArtifactUrl(item) {
   const raw = `${item?.resource_url || item?.resource_path || ""}`.trim();
   if (!raw) {
@@ -172,7 +171,7 @@ function resolveTranslatedPdfUrl(jobPayload, manifestPayload) {
   }
   const manifestCandidates = ["pdf", "translated_pdf", "result_pdf"];
   for (const artifactKey of manifestCandidates) {
-    const item = findArtifact(manifestPayload, artifactKey);
+    const item = findReadyManifestArtifact(manifestPayload, artifactKey);
     const url = resolveArtifactUrl(item);
     if (url) {
       return url;
@@ -345,7 +344,8 @@ async function initializeReader() {
     progressState.metadataReady = true;
     syncReaderBootProgress();
 
-    const sourcePdf = findArtifact(manifestPayload, "source_pdf");
+    const sourcePdf = resolveManifestArtifactUrl(manifestPayload, "source_pdf")
+      || findReadyManifestArtifact(manifestPayload, "source_pdf");
     const translatedPdfUrl = resolveTranslatedPdfUrl(jobPayload, manifestPayload);
 
     const [sourceResult, translatedResult] = await Promise.allSettled([

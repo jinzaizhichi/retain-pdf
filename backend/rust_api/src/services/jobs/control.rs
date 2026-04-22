@@ -2,11 +2,13 @@ use std::time::{Duration, Instant};
 
 use crate::db::Db;
 use crate::error::AppError;
-use crate::job_events::persist_job;
-use crate::job_runner::{request_cancel, terminate_job_process_tree};
+use crate::job_events::persist_job_with_resources;
+use crate::job_runner::request_cancel_with_registry;
+use crate::job_runner::terminate_job_process_tree;
 use crate::models::{now_iso, JobSnapshot, JobStatusKind};
-use crate::services::jobs::load_job_or_404;
-use crate::AppState;
+
+use super::query::load_job_or_404;
+use crate::services::jobs::ControlDeps;
 
 const SYNC_BUNDLE_WAIT_INTERVAL_MS: u64 = 1500;
 
@@ -52,12 +54,12 @@ pub async fn wait_for_terminal_job(
     }
 }
 
-pub async fn cancel_job(
-    state: &AppState,
+pub(crate) async fn cancel_job(
+    deps: &ControlDeps<'_>,
     job_id: &str,
     ocr_only: bool,
 ) -> Result<JobSnapshot, AppError> {
-    let mut job = load_job_or_404(state.db.as_ref(), job_id)?;
+    let mut job = load_job_or_404(deps.db, job_id)?;
     if ocr_only && !matches!(job.workflow, crate::models::WorkflowKind::Ocr) {
         return Err(AppError::not_found(format!("ocr job not found: {job_id}")));
     }
@@ -67,7 +69,7 @@ pub async fn cancel_job(
             job.status
         )));
     }
-    request_cancel(state, job_id).await;
+    request_cancel_with_registry(deps.canceled_jobs, job_id).await;
     if !ocr_only || !matches!(job.stage.as_deref(), Some("normalizing")) {
         if let Some(pid) = job.pid {
             terminate_job_process_tree(pid).await.map_err(|e| {
@@ -85,7 +87,7 @@ pub async fn cancel_job(
             job.pid = None;
             job.sync_runtime_state();
             job.replace_failure_info(None);
-            persist_job(state, &job)?;
+            persist_job_with_resources(deps.db, deps.data_root, deps.output_root, &job)?;
         }
         return Ok(job);
     }
@@ -97,6 +99,6 @@ pub async fn cancel_job(
     job.pid = None;
     job.sync_runtime_state();
     job.replace_failure_info(None);
-    persist_job(state, &job)?;
+    persist_job_with_resources(deps.db, deps.data_root, deps.output_root, &job)?;
     Ok(job)
 }

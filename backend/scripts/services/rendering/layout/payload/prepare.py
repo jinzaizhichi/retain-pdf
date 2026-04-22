@@ -13,6 +13,7 @@ from services.rendering.layout.payload.shared import split_protected_text_for_bo
 from services.rendering.layout.payload.suspicious_ocr import detect_and_drop_suspicious_ocr_glued_blocks
 from services.rendering.layout.typography.geometry import inner_bbox
 from services.rendering.layout.typography.measurement import bbox_width
+from services.translation.item_reader import item_block_kind
 
 
 CONTINUATION_NARROW_BOX_MIN_NEIGHBOR_RATIO = 0.78
@@ -65,7 +66,7 @@ def prepare_render_payloads_by_page(translated_pages: dict[int, list[dict]]) -> 
     for page_idx in sorted(prepared):
         items = prepared[page_idx]
         page_font_size, page_line_pitch, page_line_height, density_baseline = page_baseline_font_size(items)
-        text_widths = [bbox_width(item) for item in items if item.get("block_type") == "text" and not _is_caption_like(item)]
+        text_widths = [bbox_width(item) for item in items if item_block_kind(item) == "text" and not _is_caption_like(item)]
         page_text_width_med = median(text_widths) if text_widths else 0.0
         page_metrics[page_idx] = (
             page_font_size,
@@ -75,15 +76,34 @@ def prepare_render_payloads_by_page(translated_pages: dict[int, list[dict]]) -> 
             page_text_width_med,
         )
         for item in items:
+            unit_kind = str(item.get("translation_unit_kind", "") or "").strip().lower()
             render_text = (
-                item.get("translation_unit_protected_translated_text")
-                or item.get("protected_translated_text")
-                or ""
+                (
+                    item.get("protected_translated_text")
+                    or item.get("translated_text")
+                    or item.get("translation_unit_protected_translated_text")
+                    or ""
+                )
+                if unit_kind == "single"
+                else (
+                    item.get("translation_unit_protected_translated_text")
+                    or item.get("protected_translated_text")
+                    or ""
+                )
             ).strip()
             source_text = (
-                item.get("translation_unit_protected_source_text")
-                or item.get("protected_source_text")
-                or ""
+                (
+                    item.get("protected_source_text")
+                    or item.get("source_text")
+                    or item.get("translation_unit_protected_source_text")
+                    or ""
+                )
+                if unit_kind == "single"
+                else (
+                    item.get("translation_unit_protected_source_text")
+                    or item.get("protected_source_text")
+                    or ""
+                )
             ).strip()
             item["render_protected_text"] = "" if same_meaningful_render_text(source_text, render_text) else render_text
             item["render_source_text"] = source_text

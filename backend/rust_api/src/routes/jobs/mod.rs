@@ -1,18 +1,11 @@
-use crate::error::AppError;
-use crate::models::{
-    ApiResponse, ArtifactLinksView, JobDetailView, JobStatusKind, JobSubmissionView,
-};
-use crate::routes::job_helpers::{build_submission_view, request_base_url, stream_file};
-use crate::services::jobs::{build_job_artifact_links_view, build_job_detail_view};
-use crate::AppState;
-use axum::http::HeaderMap;
-use axum::response::Response;
-use axum::Json;
-
+mod common;
 mod control;
 mod create;
 mod download;
+mod download_adapter;
 mod query;
+mod query_adapter;
+mod translation_debug;
 
 pub use control::{cancel_job, cancel_ocr_job};
 pub use create::{create_job, create_ocr_job, translate_bundle};
@@ -26,60 +19,10 @@ pub use query::{
     get_ocr_job_artifacts, get_ocr_job_artifacts_manifest, get_ocr_job_events, list_jobs,
     list_ocr_jobs,
 };
-
-fn build_job_detail_response(
-    state: &AppState,
-    headers: &HeaderMap,
-    job: &crate::models::JobSnapshot,
-) -> Result<Json<ApiResponse<JobDetailView>>, AppError> {
-    let base_url = request_base_url(headers, state);
-    Ok(Json(ApiResponse::ok(build_job_detail_view(
-        &state.config.data_root,
-        job,
-        &base_url,
-    ))))
-}
-
-fn build_job_artifacts_response(
-    state: &AppState,
-    headers: &HeaderMap,
-    job: &crate::models::JobSnapshot,
-) -> Result<Json<ApiResponse<ArtifactLinksView>>, AppError> {
-    let base_url = request_base_url(headers, state);
-    Ok(Json(ApiResponse::ok(build_job_artifact_links_view(
-        &state.config.data_root,
-        job,
-        &base_url,
-    ))))
-}
-
-fn build_job_submission_response(
-    state: &AppState,
-    headers: &HeaderMap,
-    job: &crate::models::JobSnapshot,
-    status: JobStatusKind,
-) -> Result<Json<ApiResponse<JobSubmissionView>>, AppError> {
-    let base_url = request_base_url(headers, state);
-    Ok(Json(ApiResponse::ok(build_submission_view(
-        job,
-        status,
-        job.workflow.clone(),
-        &base_url,
-    ))))
-}
-
-async fn download_job_file(
-    state: &AppState,
-    job: &crate::models::JobSnapshot,
-    job_id: &str,
-    resolve_path: impl Fn(&crate::models::JobSnapshot, &std::path::Path) -> Option<std::path::PathBuf>,
-    not_ready_label: &str,
-    content_type: &str,
-) -> Result<Response, AppError> {
-    let path = resolve_path(job, &state.config.data_root)
-        .ok_or_else(|| AppError::not_found(format!("{not_ready_label}: {job_id}")))?;
-    stream_file(path, content_type, None).await
-}
+pub use translation_debug::{
+    get_translation_diagnostics, get_translation_item, list_translation_items,
+    replay_translation_item_route,
+};
 
 #[cfg(test)]
 mod tests {

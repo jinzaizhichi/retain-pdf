@@ -1,5 +1,7 @@
 import re
 
+from services.translation.item_reader import item_is_textual
+
 
 COPYRIGHT_RE = re.compile(r"\b(copyright|all rights reserved|periodicals)\b", re.I)
 COPYRIGHT_TAIL_RE = re.compile(
@@ -70,7 +72,7 @@ def _looks_like_short_copyright_tail(text: str) -> bool:
 
 
 def looks_like_hard_nontranslatable_metadata(item: dict) -> bool:
-    if item.get("block_type") not in {"text", "title", "list"}:
+    if not item_is_textual(item):
         return False
 
     text = _normalized_text(item)
@@ -89,7 +91,7 @@ def looks_like_nontranslatable_metadata(item: dict) -> bool:
 
 
 def should_skip_metadata_fragment(item: dict) -> bool:
-    if item.get("block_type") not in {"text", "title", "list"}:
+    if not item_is_textual(item):
         return False
     if not item.get("should_translate", True):
         return False

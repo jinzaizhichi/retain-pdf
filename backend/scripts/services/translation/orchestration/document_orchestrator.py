@@ -36,6 +36,8 @@ def _filter_boundary_candidate_pairs(flat_payload: list[dict], pairs: list[dict]
         next_zone = str(next_item.get("layout_zone", "") or "")
         prev_role = str(prev_item.get("layout_boundary_role", "") or "")
         next_role = str(next_item.get("layout_boundary_role", "") or "")
+        if bool(prev_item.get("provider_body_repair_applied")) or bool(next_item.get("provider_body_repair_applied")):
+            continue
 
         if prev_page != next_page:
             boundary_pairs.append(pair)

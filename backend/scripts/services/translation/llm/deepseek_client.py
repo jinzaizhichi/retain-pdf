@@ -123,7 +123,7 @@ def _direct_typst_batch_user_prompt(
         lines.append("")
         lines.append(f"原文 {item['item_id']}:")
         lines.append(str(item.get("protected_source_text", "") or ""))
-        style_hint = structure_style_hint(item.get("metadata", {}) or {})
+        style_hint = structure_style_hint(item)
         if style_hint:
             lines.append(f"风格提示：{style_hint}")
         if mode == "sci":
@@ -157,7 +157,7 @@ def _direct_typst_single_user_prompt(
         "原文：",
         str(item.get("protected_source_text", "") or ""),
     ]
-    style_hint = structure_style_hint(item.get("metadata", {}) or {})
+    style_hint = structure_style_hint(item)
     if style_hint:
         lines.append(f"风格提示：{style_hint}")
     if mode == "sci":
@@ -234,7 +234,7 @@ def build_messages(
             "item_id": item["item_id"],
             "source_text": item["protected_source_text"],
         }
-        style_hint = structure_style_hint(item.get("metadata", {}) or {})
+        style_hint = structure_style_hint(item)
         if style_hint:
             item_payload["style_hint"] = style_hint
         if mode == "sci":
@@ -308,8 +308,8 @@ def build_single_item_fallback_messages(
                             "item_id": item["item_id"],
                             "source_text": item["protected_source_text"],
                             **(
-                                {"style_hint": structure_style_hint(item.get("metadata", {}) or {})}
-                                if structure_style_hint(item.get("metadata", {}) or {})
+                                {"style_hint": structure_style_hint(item)}
+                                if structure_style_hint(item)
                                 else {}
                             ),
                             "decision_hints": build_decision_hints(item),
@@ -352,7 +352,7 @@ def build_single_item_fallback_messages(
     }
     if direct_typst_mode:
         fallback_system = f"{fallback_system}\n{_direct_math_guidance()}"
-    style_hint = structure_style_hint(item.get("metadata", {}) or {})
+    style_hint = structure_style_hint(item)
     if style_hint:
         user_payload["item"]["style_hint"] = style_hint
     if item.get("continuation_prev_text"):

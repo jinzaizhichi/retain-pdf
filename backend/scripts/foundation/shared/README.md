@@ -57,7 +57,7 @@
 - `normalize.stage.v1`
 - `translate.stage.v1`
 - `render.stage.v1`
-- `mineru.stage.v1`
+- `provider.stage.v1`
 - `book.stage.v1`
 
 附加约定：

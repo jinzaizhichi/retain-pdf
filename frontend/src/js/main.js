@@ -43,6 +43,10 @@ import {
   fetchJobList,
   fetchJobPayload,
   fetchProtected,
+  fetchTranslationDiagnostics,
+  fetchTranslationItem,
+  fetchTranslationItems,
+  replayTranslationItem,
   submitJson,
   submitUploadRequest,
   validateMineruToken,
@@ -73,7 +77,7 @@ import {
 
 const DEVELOPER_AUTH_SESSION_KEY = "retainpdf.developer.auth.v1";
 const DEVELOPER_PASSWORD = "Gk265157!";
-const WORKFLOW_MINERU = "mineru";
+const WORKFLOW_BOOK = "book";
 const WORKFLOW_TRANSLATE = "translate";
 const WORKFLOW_RENDER = "render";
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -100,7 +104,7 @@ function normalizeWorkflow(value) {
   if (workflow === WORKFLOW_TRANSLATE || workflow === WORKFLOW_RENDER) {
     return workflow;
   }
-  return WORKFLOW_MINERU;
+  return WORKFLOW_BOOK;
 }
 
 function normalizeMathMode(value) {
@@ -251,7 +255,7 @@ function initializePage() {
       DEFAULT_MODE,
       DEFAULT_RULE_PROFILE,
       DEFAULT_RENDER_MODE,
-      WORKFLOW_MINERU,
+      WORKFLOW_BOOK,
       WORKFLOW_TRANSLATE,
       WORKFLOW_RENDER,
     },
@@ -324,7 +328,7 @@ function initializePage() {
     saveDesktopConfig,
     setDesktopBusy,
     desktopInvoke,
-    currentWorkflow: () => workflowFeature?.currentWorkflow() || WORKFLOW_MINERU,
+    currentWorkflow: () => workflowFeature?.currentWorkflow() || WORKFLOW_BOOK,
     workflowNeedsCredentials: (workflow) => workflowFeature?.workflowNeedsCredentials(workflow) ?? (workflow !== WORKFLOW_RENDER),
     workflowNeedsUpload: (workflow) => workflowFeature?.workflowNeedsUpload(workflow) ?? (workflow !== WORKFLOW_RENDER),
     currentRenderSourceJobId: () => workflowFeature?.currentRenderSourceJobId() || "",
@@ -333,7 +337,14 @@ function initializePage() {
     getJobRuntimeFeature: () => jobRuntimeFeature,
     onDesktopConfigSaved: () => workflowFeature?.applyWorkflowMode(),
   });
-  statusDetailFeature = mountStatusDetailFeature();
+  statusDetailFeature = mountStatusDetailFeature({
+    state,
+    apiPrefix: API_PREFIX,
+    fetchTranslationDiagnostics,
+    fetchTranslationItems,
+    fetchTranslationItem,
+    replayTranslationItem,
+  });
   jobRuntimeFeature = mountJobRuntimeFeature({
     state,
     apiBase,

@@ -1,4 +1,11 @@
 const MOCK_JOB_ID = "mock-job-20260415";
+const MOCK_MARKDOWN_CONTENT = [
+  "# Mock Markdown",
+  "",
+  "这是一段用于前端联调的 Markdown 预览。",
+  "",
+  '<div style="text-align: center;"><img src="page-1/imgs/mock-figure-1.png" alt="Mock Image" width="48%" /></div>',
+].join("\n");
 
 function currentMockScenario() {
   const value = new URLSearchParams(window.location.search).get("mock")?.trim().toLowerCase() || "";
@@ -21,8 +28,8 @@ function buildMockJobPayload(scenario = currentMockScenario()) {
   const status = normalized;
   return {
     job_id: MOCK_JOB_ID,
-    workflow: "mineru",
-    job_type: "mineru",
+    workflow: "book",
+    job_type: "book",
     status,
     stage: normalized === "queued" ? "queued" : normalized === "failed" ? "render" : "translate",
     stage_detail: progress.stage,
@@ -68,6 +75,14 @@ function buildMockJobPayload(scenario = currentMockScenario()) {
         enabled: status === "queued" || status === "running",
         url: "mock://cancel",
       },
+      open_markdown: {
+        enabled: status === "succeeded",
+        url: "mock://markdown.json",
+      },
+      open_markdown_raw: {
+        enabled: status === "succeeded",
+        url: "mock://markdown.raw",
+      },
       download_pdf: {
         enabled: status === "succeeded",
         url: "mock://translated.pdf",
@@ -81,6 +96,14 @@ function buildMockJobPayload(scenario = currentMockScenario()) {
       pdf_ready: status === "succeeded",
       markdown_ready: status === "succeeded",
       bundle_ready: status === "succeeded",
+      markdown: {
+        ready: status === "succeeded",
+        json_url: "mock://markdown.json",
+        raw_url: "mock://markdown.raw",
+        images_base_url: "mock://markdown/images/",
+        file_name: "full.md",
+        size_bytes: MOCK_MARKDOWN_CONTENT.length,
+      },
     },
     failure: status === "failed"
       ? {
@@ -103,6 +126,8 @@ function buildMockManifest(scenario = currentMockScenario()) {
     items: [
       { artifact_key: "source_pdf", ready: true, resource_url: "mock://source.pdf" },
       { artifact_key: "pdf", ready: true, resource_url: "mock://translated.pdf" },
+      { artifact_key: "markdown_raw", ready: true, resource_url: "mock://markdown.raw" },
+      { artifact_key: "markdown_images_dir", ready: true, resource_url: "mock://markdown/images/" },
       { artifact_key: "markdown_bundle_zip", ready: true, resource_url: "mock://bundle.zip" },
     ],
   };
@@ -226,6 +251,17 @@ export function getMockJobList() {
   };
 }
 
+export function getMockJobMarkdown() {
+  return {
+    job_id: MOCK_JOB_ID,
+    content: MOCK_MARKDOWN_CONTENT,
+    raw_url: "mock://markdown.raw",
+    raw_path: "mock://markdown.raw",
+    images_base_url: "mock://markdown/images/",
+    images_base_path: "mock://markdown/images/",
+  };
+}
+
 export function submitMockJob() {
   return buildMockJobPayload();
 }
@@ -262,6 +298,37 @@ export async function fetchMockProtected(url) {
       status: 200,
       headers: {
         "Content-Type": "application/zip",
+      },
+    });
+  }
+  if (normalized === "mock://markdown.raw") {
+    return new Response(MOCK_MARKDOWN_CONTENT, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/markdown; charset=utf-8",
+      },
+    });
+  }
+  if (normalized === "mock://markdown.json") {
+    return new Response(JSON.stringify(getMockJobMarkdown()), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+  }
+  if (normalized === "mock://markdown/images/page-1/imgs/mock-figure-1.png") {
+    const pixel = Uint8Array.from([
+      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
+      0, 0, 0, 1, 0, 0, 0, 1, 8, 4, 0, 0, 0, 181, 28, 12,
+      2, 0, 0, 0, 11, 73, 68, 65, 84, 120, 218, 99, 252, 255, 31, 0,
+      3, 3, 2, 0, 239, 212, 141, 245, 0, 0, 0, 0, 73, 69, 78, 68,
+      174, 66, 96, 130,
+    ]);
+    return new Response(pixel, {
+      status: 200,
+      headers: {
+        "Content-Type": "image/png",
       },
     });
   }

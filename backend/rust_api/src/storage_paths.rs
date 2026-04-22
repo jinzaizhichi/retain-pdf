@@ -39,6 +39,8 @@ pub const ARTIFACT_KEY_NORMALIZED_DOCUMENT_JSON: &str = "normalized_document_jso
 pub const ARTIFACT_KEY_NORMALIZATION_REPORT_JSON: &str = "normalization_report_json";
 pub const ARTIFACT_KEY_LAYOUT_JSON: &str = "layout_json";
 pub const ARTIFACT_KEY_TRANSLATION_MANIFEST_JSON: &str = "translation_manifest_json";
+pub const ARTIFACT_KEY_TRANSLATION_DIAGNOSTICS_JSON: &str = "translation_diagnostics_json";
+pub const ARTIFACT_KEY_TRANSLATION_DEBUG_INDEX_JSON: &str = "translation_debug_index_json";
 pub const ARTIFACT_KEY_PROVIDER_BUNDLE_ZIP: &str = "provider_bundle_zip";
 pub const ARTIFACT_KEY_PROVIDER_RESULT_JSON: &str = "provider_result_json";
 pub const ARTIFACT_KEY_PROVIDER_RAW_DIR: &str = "provider_raw_dir";
@@ -243,37 +245,15 @@ pub fn job_uses_legacy_path_storage(job: &JobSnapshot) -> bool {
 }
 
 pub fn resolve_markdown_path(job: &JobSnapshot, data_root: &Path) -> Option<PathBuf> {
-    let job_root = job.artifacts.as_ref()?.job_root.as_ref()?;
-    let root = resolve_data_path(data_root, job_root).ok()?;
-    let preferred = root.join(OUTPUT_MARKDOWN_DIR_NAME).join("full.md");
-    if preferred.exists() {
-        return Some(preferred);
-    }
-    let fallback = job
-        .artifacts
-        .as_ref()?
-        .provider_raw_dir
-        .as_ref()
-        .and_then(|path| resolve_data_path(data_root, path).ok())?
-        .join("full.md");
-    Some(fallback)
+    let root = resolve_job_root(job, data_root)?;
+    let published = root.join(OUTPUT_MARKDOWN_DIR_NAME).join("full.md");
+    published.exists().then_some(published)
 }
 
 pub fn resolve_markdown_images_dir(job: &JobSnapshot, data_root: &Path) -> Option<PathBuf> {
-    let job_root = job.artifacts.as_ref()?.job_root.as_ref()?;
-    let root = resolve_data_path(data_root, job_root).ok()?;
-    let preferred = root.join(OUTPUT_MARKDOWN_DIR_NAME).join("images");
-    if preferred.exists() {
-        return Some(preferred);
-    }
-    let fallback = job
-        .artifacts
-        .as_ref()?
-        .provider_raw_dir
-        .as_ref()
-        .and_then(|path| resolve_data_path(data_root, path).ok())?
-        .join("images");
-    Some(fallback)
+    let root = resolve_job_root(job, data_root)?;
+    let published = root.join(OUTPUT_MARKDOWN_DIR_NAME).join("images");
+    published.exists().then_some(published)
 }
 
 pub fn resolve_job_root(job: &JobSnapshot, data_root: &Path) -> Option<PathBuf> {
@@ -339,6 +319,28 @@ pub fn resolve_translation_manifest(job: &JobSnapshot, data_root: &Path) -> Opti
     let path = resolve_data_path(data_root, translations_dir)
         .ok()?
         .join(TRANSLATION_MANIFEST_FILE_NAME);
+    if path.exists() {
+        return Some(path);
+    }
+    None
+}
+
+pub fn resolve_translation_diagnostics(job: &JobSnapshot, data_root: &Path) -> Option<PathBuf> {
+    let job_root = resolve_job_root(job, data_root)?;
+    let path = job_root
+        .join(OUTPUT_ARTIFACTS_DIR_NAME)
+        .join("translation_diagnostics.json");
+    if path.exists() {
+        return Some(path);
+    }
+    None
+}
+
+pub fn resolve_translation_debug_index(job: &JobSnapshot, data_root: &Path) -> Option<PathBuf> {
+    let job_root = resolve_job_root(job, data_root)?;
+    let path = job_root
+        .join(OUTPUT_ARTIFACTS_DIR_NAME)
+        .join("translation_debug_index.json");
     if path.exists() {
         return Some(path);
     }
@@ -833,6 +835,44 @@ mod tests {
         assert!(items
             .iter()
             .any(|item| item.artifact_key == ARTIFACT_KEY_EVENTS_JSONL));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn provider_raw_markdown_is_not_exposed_as_published_markdown_artifact() {
+        let root = std::env::temp_dir().join(format!("rust-api-artifacts-{}", fastrand::u64(..)));
+        let data_root = root.join("data");
+        let job_root = data_root.join("jobs").join("job-raw-only");
+        let provider_raw_dir = job_root.join("ocr").join("paddle_raw");
+        fs::create_dir_all(provider_raw_dir.join("images")).expect("provider raw images dir");
+        fs::write(provider_raw_dir.join("full.md"), b"# raw only").expect("provider raw markdown");
+        fs::write(provider_raw_dir.join("images/page-1.png"), b"png").expect("provider raw image");
+
+        let mut job = JobSnapshot::new(
+            "job-raw-only".to_string(),
+            CreateJobInput::default(),
+            vec!["python".to_string()],
+        );
+        job.artifacts = Some(JobArtifacts {
+            job_root: Some(job_root.to_string_lossy().to_string()),
+            provider_raw_dir: Some(provider_raw_dir.to_string_lossy().to_string()),
+            ..JobArtifacts::default()
+        });
+
+        assert!(resolve_markdown_path(&job, &data_root).is_none());
+        assert!(resolve_markdown_images_dir(&job, &data_root).is_none());
+
+        let items = collect_job_artifact_entries(&job, &data_root).expect("collect entries");
+        assert!(!items
+            .iter()
+            .any(|item| item.artifact_key == ARTIFACT_KEY_MARKDOWN_RAW));
+        assert!(!items
+            .iter()
+            .any(|item| item.artifact_key == ARTIFACT_KEY_MARKDOWN_IMAGES_DIR));
+        assert!(!items
+            .iter()
+            .any(|item| item.artifact_key == ARTIFACT_KEY_MARKDOWN_BUNDLE_ZIP && item.ready));
 
         let _ = fs::remove_dir_all(root);
     }

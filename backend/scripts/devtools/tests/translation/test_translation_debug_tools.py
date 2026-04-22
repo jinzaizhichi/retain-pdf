@@ -22,6 +22,10 @@ def test_build_translation_debug_index_keeps_core_item_fields() -> None:
                 "page_idx": 0,
                 "block_idx": 1,
                 "block_type": "text",
+                "block_kind": "text",
+                "layout_role": "paragraph",
+                "semantic_role": "body",
+                "structure_role": "body",
                 "math_mode": "direct_typst",
                 "continuation_group": "cg-1",
                 "classification_label": "translate_literal",
@@ -46,6 +50,10 @@ def test_build_translation_debug_index_keeps_core_item_fields() -> None:
     assert index["schema"] == "translation_debug_index_v1"
     assert len(index["items"]) == 1
     assert index["items"][0]["item_id"] == "p001-b001"
+    assert index["items"][0]["block_kind"] == "text"
+    assert index["items"][0]["layout_role"] == "paragraph"
+    assert index["items"][0]["semantic_role"] == "body"
+    assert index["items"][0]["structure_role"] == "body"
     assert index["items"][0]["route_path"] == ["block_level", "direct_typst"]
     assert index["items"][0]["error_types"] == ["validation"]
     assert index["items"][0]["source_preview"].startswith("This is a long English")

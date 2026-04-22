@@ -4,6 +4,7 @@ import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from services.translation.item_reader import item_block_kind
 from services.translation.llm.deepseek_client import DEFAULT_BASE_URL
 from services.translation.llm.deepseek_client import get_api_key
 from services.translation.llm.deepseek_client import normalize_base_url
@@ -114,7 +115,7 @@ def _has_formula_identity(item: dict) -> bool:
 
 
 def should_reconstruct_garbled_item(item: dict) -> bool:
-    if str(item.get("block_type", "") or "") != "text":
+    if item_block_kind(item) != "text":
         return False
     if not item.get("should_translate", True):
         return False

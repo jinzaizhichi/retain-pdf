@@ -29,7 +29,7 @@ def translate_book_pipeline(
     batch_size: int = 8,
     workers: int = 1,
     mode: str = "fast",
-    math_mode: str = "placeholder",
+    math_mode: str = "direct_typst",
     classify_batch_size: int = 12,
     skip_title_translation: bool = False,
     model: str = "deepseek-chat",

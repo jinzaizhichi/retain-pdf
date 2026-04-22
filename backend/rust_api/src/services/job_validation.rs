@@ -128,7 +128,7 @@ pub fn validate_mineru_upload_limits(
 }
 
 fn request_uses_mineru(input: &CreateJobInput) -> bool {
-    matches!(input.workflow, crate::models::WorkflowKind::Mineru)
+    matches!(input.workflow, crate::models::WorkflowKind::Book)
         || input.ocr.provider.trim().eq_ignore_ascii_case("mineru")
 }
 

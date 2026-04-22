@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from services.translation.item_reader import item_block_kind
 import re
 
 from .common import (
@@ -8,6 +10,7 @@ from .common import (
     is_group_unit_id,
     translation_unit_id,
 )
+from .translation_units import refresh_payload_translation_units
 
 HEAVY_GROUP_MAX_FORMULA_SEGMENTS = 12
 HEAVY_GROUP_MAX_MEMBERS = 3
@@ -90,6 +93,7 @@ def _effective_formula_segment_count(source_text: str) -> int:
 
 def _reset_group_item_to_single(item: dict, *, reason: str) -> None:
     item_id = str(item.get("item_id", "") or "")
+    item["continuation_group"] = ""
     item["translation_unit_id"] = item_id
     item["translation_unit_kind"] = "single"
     item["translation_unit_member_ids"] = [item_id]
@@ -203,9 +207,18 @@ def _build_group_translation_unit(unit_id: str, items: list[dict]) -> dict | Non
     return {
         "item_id": unit_id,
         "translation_unit_id": unit_id,
-        "block_type": first_item.get("block_type", "text"),
+        "block_type": item_block_kind(first_item) or "text",
+        "block_kind": str(first_item.get("block_kind", "") or item_block_kind(first_item) or "text"),
+        "layout_role": str(first_item.get("layout_role", "") or ""),
+        "semantic_role": str(first_item.get("semantic_role", "") or ""),
+        "structure_role": str(first_item.get("structure_role", "") or ""),
+        "policy_translate": first_item.get("policy_translate"),
+        "asset_id": str(first_item.get("asset_id", "") or ""),
+        "reading_order": int(first_item.get("reading_order", first_item.get("block_idx", 0)) or 0),
+        "raw_block_type": str(first_item.get("raw_block_type", "") or first_item.get("block_type", "") or "").lower(),
+        "normalized_sub_type": str(first_item.get("normalized_sub_type", "") or "").lower(),
         "math_mode": str(first_item.get("math_mode", "placeholder") or "placeholder"),
-        "metadata": dict(first_item.get("metadata", {}) or {}),
+        "metadata": {},
         "formula_map": formula_map,
         "protected_map": protected_map,
         "continuation_group": str(first_item.get("continuation_group", "") or ""),
@@ -214,6 +227,7 @@ def _build_group_translation_unit(unit_id: str, items: list[dict]) -> dict | Non
 
 
 def pending_translation_items(payload: list[dict]) -> list[dict]:
+    refresh_payload_translation_units(payload)
     units: list[dict] = []
     groups: dict[str, list[dict]] = {}
 

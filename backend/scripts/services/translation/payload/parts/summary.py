@@ -2,12 +2,18 @@ from .common import has_any_translation
 
 
 def summarize_payload(payload: list[dict], translation_path: str, page_idx: int, classified_items: int) -> dict:
-    translated_count = sum(1 for item in payload if has_any_translation(item))
+    translated_count = sum(
+        1
+        for item in payload
+        if has_any_translation(item) or str(item.get("final_status", "") or "").strip() == "kept_origin"
+    )
     skipped_count = sum(1 for item in payload if not item.get("should_translate", True))
     pending_count = sum(
         1
         for item in payload
-        if item.get("should_translate", True) and not has_any_translation(item)
+        if item.get("should_translate", True)
+        and not has_any_translation(item)
+        and str(item.get("final_status", "") or "").strip() != "kept_origin"
     )
     return {
         "translation_path": translation_path,

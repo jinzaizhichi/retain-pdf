@@ -20,7 +20,7 @@ from services.document_schema import DOCUMENT_SCHEMA_REPORT_FILE_NAME
 from services.document_schema import load_normalization_report
 from services.mineru.artifacts import save_json
 from services.mineru.contracts import format_stdout_kv
-from services.mineru.contracts import MINERU_PIPELINE_SUMMARY_FILE_NAME
+from services.mineru.contracts import PIPELINE_SUMMARY_FILE_NAME
 from services.mineru.contracts import STDOUT_LABEL_JOB_ROOT
 from services.mineru.contracts import STDOUT_LABEL_LAYOUT_JSON
 from services.mineru.contracts import STDOUT_LABEL_NORMALIZATION_REPORT_JSON
@@ -29,6 +29,7 @@ from services.mineru.contracts import STDOUT_LABEL_SOURCE_JSON_USED
 from services.mineru.contracts import STDOUT_LABEL_SOURCE_PDF
 from services.mineru.contracts import STDOUT_LABEL_SUMMARY
 from services.mineru.contracts import STDOUT_LABEL_TRANSLATIONS_DIR
+from services.translation.diagnostics import write_translation_debug_index
 from services.translation.diagnostics import write_translation_diagnostics
 from services.translation.llm import DEFAULT_BASE_URL
 from services.translation.llm import get_api_key
@@ -98,7 +99,7 @@ def main() -> None:
     layout_json_path = Path(args.layout_json).resolve() if args.layout_json.strip() else source_json_path
     normalization_report_path = source_json_path.with_name(DOCUMENT_SCHEMA_REPORT_FILE_NAME)
     translations_dir = job_dirs.translated_dir
-    summary_path = job_dirs.artifacts_dir / MINERU_PIPELINE_SUMMARY_FILE_NAME
+    summary_path = job_dirs.artifacts_dir / PIPELINE_SUMMARY_FILE_NAME
 
     api_key = get_api_key(
         args.api_key,
@@ -141,6 +142,11 @@ def main() -> None:
         glossary=result.get("glossary"),
         translated_pages_map=result.get("translated_pages_map"),
     )
+    debug_index_path = job_dirs.artifacts_dir / "translation_debug_index.json"
+    write_translation_debug_index(
+        debug_index_path,
+        result.get("translated_pages_map", {}),
+    )
 
     schema_validation = build_validation_report_from_path(source_json_path)
     normalization_report = load_normalization_report(normalization_report_path)
@@ -165,6 +171,7 @@ def main() -> None:
             "translate_elapsed": elapsed,
             "total_elapsed": elapsed,
             "translation_diagnostics_path": str(diagnostics_path) if diagnostics_summary else "",
+            "translation_debug_index_path": str(debug_index_path),
             "translation_provider_family": diagnostics_summary.get("provider_family", ""),
             "translation_peak_inflight_requests": diagnostics_summary.get("concurrency_observed", {}).get(
                 "peak_inflight_all_llm_requests",

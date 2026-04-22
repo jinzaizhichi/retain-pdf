@@ -9,7 +9,7 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from foundation.config import layout
 from foundation.shared.job_dirs import job_dirs_from_explicit_args
 from foundation.shared.stage_specs import build_stage_invocation_metadata
-from foundation.shared.stage_specs import MineruStageSpec
+from foundation.shared.stage_specs import ProviderStageSpec
 from foundation.shared.stage_specs import resolve_credential_ref
 from foundation.shared.tee_output import enable_job_log_capture
 from services.document_schema import DOCUMENT_SCHEMA_REPORT_FILE_NAME
@@ -27,9 +27,9 @@ from services.translation.terms import parse_glossary_json
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="End-to-end MinerU pipeline: parse PDF with MinerU, build document.v1.json, then translate and render.",
+        description="End-to-end provider-backed pipeline: parse PDF with OCR provider, build document.v1.json, then translate and render.",
     )
-    parser.add_argument("--spec", type=str, required=True, help="Path to mineru stage spec JSON.")
+    parser.add_argument("--spec", type=str, required=True, help="Path to provider stage spec JSON.")
     return parser.parse_args()
 
 
@@ -37,7 +37,7 @@ def _serialize_glossary_entries(entries: list[dict]) -> str:
     return json.dumps(entries, ensure_ascii=False)
 
 
-def _args_from_spec(spec: MineruStageSpec) -> SimpleNamespace:
+def _args_from_spec(spec: ProviderStageSpec) -> SimpleNamespace:
     job_dirs = spec.job_dirs
     return SimpleNamespace(
         file_url=spec.source.file_url,
@@ -96,7 +96,7 @@ def _args_from_spec(spec: MineruStageSpec) -> SimpleNamespace:
 
 def main() -> None:
     args = parse_args()
-    spec = MineruStageSpec.load(Path(args.spec))
+    spec = ProviderStageSpec.load(Path(args.spec))
     stage_spec_schema_version = spec.schema_version
     args = _args_from_spec(spec)
     job_dirs = job_dirs_from_explicit_args(args)
@@ -156,7 +156,7 @@ def main() -> None:
         typst_font_family=args.typst_font_family,
         pdf_compress_dpi=args.pdf_compress_dpi,
         invocation=build_stage_invocation_metadata(
-            stage="mineru",
+            stage="provider",
             stage_spec_schema_version=stage_spec_schema_version,
         ),
     )
@@ -177,7 +177,7 @@ def main() -> None:
         render_mode=args.render_mode,
         pdf_compress_dpi=args.pdf_compress_dpi,
         invocation=build_stage_invocation_metadata(
-            stage="mineru",
+            stage="provider",
             stage_spec_schema_version=stage_spec_schema_version,
         ),
     )

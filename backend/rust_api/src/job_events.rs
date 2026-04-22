@@ -9,7 +9,6 @@ use tracing::warn;
 use crate::db::Db;
 use crate::models::{JobEventRecord, JobRuntimeState, JobSnapshot, JobStatusKind, WorkflowKind};
 use crate::storage_paths::resolve_data_path;
-use crate::AppState;
 
 const EVENTS_FILE_NAME: &str = "events.jsonl";
 
@@ -22,15 +21,6 @@ struct PendingJobEvent {
     payload: Option<Value>,
 }
 
-pub fn persist_job(state: &AppState, job: &JobSnapshot) -> Result<()> {
-    persist_job_with_resources(
-        state.db.as_ref(),
-        &state.config.data_root,
-        &state.config.output_root,
-        job,
-    )
-}
-
 pub fn persist_job_with_resources(
     db: &Db,
     data_root: &Path,
@@ -41,23 +31,8 @@ pub fn persist_job_with_resources(
     let mut current = job.clone();
     current.sync_runtime_state();
     db.save_job(&current)?;
-    emit_job_events_best_effort(
-        db,
-        data_root,
-        output_root,
-        previous.as_ref(),
-        &current,
-    );
+    emit_job_events_best_effort(db, data_root, output_root, previous.as_ref(), &current);
     Ok(())
-}
-
-pub fn persist_runtime_job(state: &AppState, job: &JobRuntimeState) -> Result<()> {
-    persist_runtime_job_with_resources(
-        state.db.as_ref(),
-        &state.config.data_root,
-        &state.config.output_root,
-        job,
-    )
 }
 
 pub fn persist_runtime_job_with_resources(
@@ -68,26 +43,6 @@ pub fn persist_runtime_job_with_resources(
 ) -> Result<()> {
     let snapshot = job.snapshot();
     persist_job_with_resources(db, data_root, output_root, &snapshot)
-}
-
-pub fn record_custom_job_event(
-    state: &AppState,
-    job: &JobSnapshot,
-    level: &str,
-    event: &str,
-    message: impl Into<String>,
-    payload: Option<Value>,
-) {
-    record_custom_job_event_with_resources(
-        state.db.as_ref(),
-        &state.config.data_root,
-        &state.config.output_root,
-        job,
-        level,
-        event,
-        message,
-        payload,
-    );
 }
 
 pub fn record_custom_job_event_with_resources(
@@ -107,36 +62,9 @@ pub fn record_custom_job_event_with_resources(
         message: message.into(),
         payload,
     };
-    if let Err(err) = append_pending_event(
-        db,
-        data_root,
-        output_root,
-        job,
-        pending,
-    ) {
+    if let Err(err) = append_pending_event(db, data_root, output_root, job, pending) {
         warn!("failed to append job event for {}: {}", job.job_id, err);
     }
-}
-
-pub fn record_custom_runtime_event(
-    state: &AppState,
-    job: &JobRuntimeState,
-    level: &str,
-    event: &str,
-    message: impl Into<String>,
-    payload: Option<Value>,
-) {
-    let snapshot = job.snapshot();
-    record_custom_runtime_event_with_resources(
-        state.db.as_ref(),
-        &state.config.data_root,
-        &state.config.output_root,
-        &snapshot,
-        level,
-        event,
-        message,
-        payload,
-    );
 }
 
 pub fn record_custom_runtime_event_with_resources(
@@ -149,7 +77,16 @@ pub fn record_custom_runtime_event_with_resources(
     message: impl Into<String>,
     payload: Option<Value>,
 ) {
-    record_custom_job_event_with_resources(db, data_root, output_root, job, level, event, message, payload);
+    record_custom_job_event_with_resources(
+        db,
+        data_root,
+        output_root,
+        job,
+        level,
+        event,
+        message,
+        payload,
+    );
 }
 
 fn emit_job_events_best_effort(
@@ -356,7 +293,7 @@ fn status_name(status: &JobStatusKind) -> &'static str {
 
 fn workflow_name(workflow: &WorkflowKind) -> &'static str {
     match workflow {
-        WorkflowKind::Mineru => "mineru",
+        WorkflowKind::Book => "book",
         WorkflowKind::Ocr => "ocr",
         WorkflowKind::Translate => "translate",
         WorkflowKind::Render => "render",

@@ -16,7 +16,24 @@ from services.translation.payload.manifest import write_translation_manifest
 
 def _write_payload(path: Path, translated_text: str) -> None:
     path.write_text(
-        json.dumps([{"translated_text": translated_text}], ensure_ascii=False),
+        json.dumps(
+            [
+                {
+                    "item_id": "p001-b001",
+                    "block_kind": "text",
+                    "layout_role": "paragraph",
+                    "semantic_role": "body",
+                    "structure_role": "body",
+                    "policy_translate": True,
+                    "asset_id": "",
+                    "reading_order": 0,
+                    "raw_block_type": "paragraph",
+                    "normalized_sub_type": "body",
+                    "translated_text": translated_text,
+                }
+            ],
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
 
@@ -50,19 +67,21 @@ def test_load_translated_pages_prefers_manifest() -> None:
         assert pages[2][0]["translated_text"] == "manifest text"
 
 
-def test_load_translated_pages_falls_back_to_legacy_page_payloads() -> None:
+def test_load_translated_pages_requires_manifest_even_if_legacy_page_payload_exists() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         translations_dir = Path(tmp)
         legacy_path = translations_dir / "page-002-deepseek.json"
         _write_payload(legacy_path, "legacy text")
 
-        pages = load_translated_pages(translations_dir)
+        try:
+            load_translated_pages(translations_dir)
+        except RuntimeError as exc:
+            assert "Translation manifest not found" in str(exc)
+        else:
+            raise AssertionError("expected translation manifest error")
 
-        assert sorted(pages) == [1]
-        assert pages[1][0]["translated_text"] == "legacy text"
 
-
-def test_load_translated_pages_requires_manifest_or_legacy_payloads() -> None:
+def test_load_translated_pages_requires_manifest() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         translations_dir = Path(tmp)
 

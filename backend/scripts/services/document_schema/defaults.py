@@ -26,19 +26,51 @@ SOFT_DEFAULT_PAGE_FIELDS = {}
 
 HARD_REQUIRED_BLOCK_KEYS = (
     "block_id",
-    "type",
-    "sub_type",
-    "bbox",
-    "text",
-    "lines",
-    "segments",
+    "geometry",
+    "content",
+    "layout_role",
+    "semantic_role",
+    "structure_role",
+    "policy",
+    "provenance",
 )
 
 SOFT_DEFAULT_BLOCK_FIELDS = {
+    "reading_order": 0,
     "tags": [],
     "metadata": {},
     "source": {},
 }
+
+
+def default_block_geometry() -> dict:
+    return {
+        "bbox": [0, 0, 0, 0],
+    }
+
+
+def default_block_content() -> dict:
+    return {
+        "kind": "unknown",
+        "text": "",
+    }
+
+
+def default_block_policy() -> dict:
+    return {
+        "translate": False,
+        "translate_reason": "missing_contract_fields",
+    }
+
+
+def default_block_provenance() -> dict:
+    return {
+        "provider": "",
+        "raw_label": "",
+        "raw_sub_type": "",
+        "raw_bbox": [0, 0, 0, 0],
+        "raw_path": "",
+    }
 
 
 def default_block_derived() -> dict:
@@ -113,11 +145,59 @@ def _apply_block_defaults(block: dict, *, page_index: int, order: int, report: d
         block["order"] = order
         if report is not None:
             _increment(report["block_defaults"], "order")
+    if "reading_order" not in block:
+        block["reading_order"] = int(block.get("order", order) or order)
+        if report is not None:
+            _increment(report["block_defaults"], "reading_order")
     for key, default in SOFT_DEFAULT_BLOCK_FIELDS.items():
         if key not in block:
             block[key] = deepcopy(default)
             if report is not None:
                 _increment(report["block_defaults"], key)
+    if "geometry" not in block:
+        bbox = block.get("bbox", []) or []
+        block["geometry"] = {
+            "bbox": list(bbox) if len(bbox) == 4 else [0, 0, 0, 0],
+        }
+        if report is not None:
+            _increment(report["block_defaults"], "geometry")
+    if "content" not in block:
+        kind = str(block.get("type", "unknown") or "unknown")
+        text = str(block.get("text", "") or "")
+        block["content"] = {
+            "kind": kind.strip().lower() or "unknown",
+            "text": text,
+        }
+        if report is not None:
+            _increment(report["block_defaults"], "content")
+    if "layout_role" not in block:
+        block["layout_role"] = "unknown"
+        if report is not None:
+            _increment(report["block_defaults"], "layout_role")
+    if "semantic_role" not in block:
+        block["semantic_role"] = "unknown"
+        if report is not None:
+            _increment(report["block_defaults"], "semantic_role")
+    if "structure_role" not in block:
+        block["structure_role"] = ""
+        if report is not None:
+            _increment(report["block_defaults"], "structure_role")
+    if "policy" not in block:
+        block["policy"] = default_block_policy()
+        if report is not None:
+            _increment(report["block_defaults"], "policy")
+    if "provenance" not in block:
+        provenance = default_block_provenance()
+        source = block.get("source", {}) or {}
+        bbox = block.get("bbox", []) or []
+        provenance["provider"] = str(source.get("provider", "") or "")
+        provenance["raw_label"] = str(source.get("raw_type", source.get("raw_label", "")) or "")
+        provenance["raw_sub_type"] = str(source.get("raw_sub_type", "") or "")
+        provenance["raw_bbox"] = list(bbox) if len(bbox) == 4 else [0, 0, 0, 0]
+        provenance["raw_path"] = str(source.get("raw_path", "") or "")
+        block["provenance"] = provenance
+        if report is not None:
+            _increment(report["block_defaults"], "provenance")
     if "derived" not in block:
         block["derived"] = default_block_derived()
         if report is not None:
@@ -178,7 +258,11 @@ __all__ = [
     "SOFT_DEFAULT_DOCUMENT_FIELDS",
     "SOFT_DEFAULT_PAGE_FIELDS",
     "default_block_continuation_hint",
+    "default_block_content",
     "default_block_derived",
+    "default_block_geometry",
+    "default_block_policy",
+    "default_block_provenance",
     "normalize_block_continuation_hint",
     "apply_document_defaults",
     "apply_document_defaults_with_report",

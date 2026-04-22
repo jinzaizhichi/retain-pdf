@@ -6,6 +6,7 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use reqwest::{multipart, Client};
 use serde_json::{json, Value};
 
+use crate::ocr_provider::paddle::errors::PaddleProviderError;
 use crate::ocr_provider::paddle::models::{
     PaddleJsonlLine, PaddlePollData, PaddlePollEnvelope, PaddleSubmitEnvelope,
 };
@@ -82,13 +83,31 @@ impl PaddleClient {
             .multipart(form)
             .send()
             .await
-            .context("Paddle submit local file request failed")?;
-        let envelope = parse_json_response::<PaddleSubmitEnvelope>(response).await?;
-        let data = envelope
-            .data
-            .ok_or_else(|| anyhow!("Paddle submit missing data"))?;
+            .map_err(|err| {
+                anyhow::Error::new(PaddleProviderError::request_failed("submit", &err, None))
+            })?;
+        let envelope = parse_json_response::<PaddleSubmitEnvelope>("submit", response).await?;
+        if envelope.error_code != 0 {
+            return Err(anyhow::Error::new(PaddleProviderError::provider_error(
+                "submit",
+                envelope.error_code,
+                &envelope.error_msg,
+                normalize_trace_id(&envelope.log_id).as_deref(),
+            )));
+        }
+        let data = envelope.data.ok_or_else(|| {
+            anyhow::Error::new(PaddleProviderError::invalid_response(
+                "submit",
+                "Paddle submit missing data",
+                normalize_trace_id(&envelope.log_id).as_deref(),
+            ))
+        })?;
         if data.job_id.trim().is_empty() {
-            return Err(anyhow!("Paddle submit returned empty jobId"));
+            return Err(anyhow::Error::new(PaddleProviderError::invalid_response(
+                "submit",
+                "Paddle submit returned empty jobId",
+                normalize_trace_id(&envelope.log_id).as_deref(),
+            )));
         }
         Ok(PaddleTrace {
             data: data.job_id,
@@ -115,13 +134,31 @@ impl PaddleClient {
             .json(&payload)
             .send()
             .await
-            .context("Paddle submit remote url request failed")?;
-        let envelope = parse_json_response::<PaddleSubmitEnvelope>(response).await?;
-        let data = envelope
-            .data
-            .ok_or_else(|| anyhow!("Paddle submit missing data"))?;
+            .map_err(|err| {
+                anyhow::Error::new(PaddleProviderError::request_failed("submit", &err, None))
+            })?;
+        let envelope = parse_json_response::<PaddleSubmitEnvelope>("submit", response).await?;
+        if envelope.error_code != 0 {
+            return Err(anyhow::Error::new(PaddleProviderError::provider_error(
+                "submit",
+                envelope.error_code,
+                &envelope.error_msg,
+                normalize_trace_id(&envelope.log_id).as_deref(),
+            )));
+        }
+        let data = envelope.data.ok_or_else(|| {
+            anyhow::Error::new(PaddleProviderError::invalid_response(
+                "submit",
+                "Paddle submit missing data",
+                normalize_trace_id(&envelope.log_id).as_deref(),
+            ))
+        })?;
         if data.job_id.trim().is_empty() {
-            return Err(anyhow!("Paddle submit returned empty jobId"));
+            return Err(anyhow::Error::new(PaddleProviderError::invalid_response(
+                "submit",
+                "Paddle submit returned empty jobId",
+                normalize_trace_id(&envelope.log_id).as_deref(),
+            )));
         }
         Ok(PaddleTrace {
             data: data.job_id,
@@ -136,8 +173,18 @@ impl PaddleClient {
             .header(AUTHORIZATION, self.auth_header())
             .send()
             .await
-            .with_context(|| format!("Paddle query job failed: {job_id}"))?;
-        let envelope = parse_json_response::<PaddlePollEnvelope>(response).await?;
+            .map_err(|err| {
+                anyhow::Error::new(PaddleProviderError::request_failed("poll", &err, None))
+            })?;
+        let envelope = parse_json_response::<PaddlePollEnvelope>("poll", response).await?;
+        if envelope.error_code != 0 {
+            return Err(anyhow::Error::new(PaddleProviderError::provider_error(
+                "poll",
+                envelope.error_code,
+                &envelope.error_msg,
+                normalize_trace_id(&envelope.log_id).as_deref(),
+            )));
+        }
         Ok(PaddleTrace {
             data: envelope.data.unwrap_or_default(),
             trace_id: normalize_trace_id(&envelope.log_id),
@@ -151,18 +198,41 @@ impl PaddleClient {
             .timeout(Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
             .send()
             .await
-            .context("Paddle download jsonl request failed")?
+            .map_err(|err| {
+                anyhow::Error::new(PaddleProviderError::request_failed("download", &err, None))
+            })?
             .error_for_status()
-            .context("Paddle download jsonl returned error status")?
+            .map_err(|err| {
+                let status = err.status().map(|value| value.as_u16());
+                anyhow::Error::new(PaddleProviderError::result_download_failed(
+                    format!("Paddle download jsonl returned error status: {err}"),
+                    None,
+                    status,
+                ))
+            })?
             .text()
             .await
-            .context("failed to read Paddle jsonl response body")?;
+            .map_err(|err| {
+                anyhow::Error::new(PaddleProviderError::request_failed("download", &err, None))
+            })?;
         let payload = combine_jsonl_payload(&text)?;
         Ok(PaddleResultPayload { payload })
     }
 
     fn auth_header(&self) -> String {
         format!("bearer {}", self.token.trim())
+    }
+}
+
+pub fn normalize_model_name(model: &str) -> String {
+    let trimmed = model.trim();
+    if trimmed.is_empty() {
+        return "PaddleOCR-VL-1.5".to_string();
+    }
+    match trimmed.to_ascii_lowercase().as_str() {
+        "paddleocr-vl" | "paddle-ocr-vl" => "PaddleOCR-VL".to_string(),
+        "paddleocr-vl-1.5" | "paddle-ocr-vl-1.5" => "PaddleOCR-VL-1.5".to_string(),
+        _ => trimmed.to_string(),
     }
 }
 
@@ -188,10 +258,22 @@ fn normalize_trace_id(raw: &str) -> Option<String> {
 }
 
 async fn parse_json_response<T: serde::de::DeserializeOwned>(
+    stage: &'static str,
     response: reqwest::Response,
 ) -> Result<T> {
-    let response = response.error_for_status()?;
-    let bytes = response.bytes().await?;
+    let status = response.status();
+    let bytes = response.bytes().await.map_err(|err| {
+        anyhow::Error::new(PaddleProviderError::request_failed(stage, &err, None))
+    })?;
+    if !status.is_success() {
+        return Err(anyhow::Error::new(PaddleProviderError::http_status(
+            stage,
+            status,
+            &String::from_utf8_lossy(&bytes),
+            None,
+            None,
+        )));
+    }
     let envelope = serde_json::from_slice::<T>(&bytes).with_context(|| {
         format!(
             "failed to parse Paddle JSON: {}",
@@ -211,8 +293,12 @@ fn combine_jsonl_payload(text: &str) -> Result<Value> {
             continue;
         }
         line_count += 1;
-        let parsed: PaddleJsonlLine = serde_json::from_str(trimmed)
-            .with_context(|| format!("failed to parse Paddle JSONL line: {trimmed}"))?;
+        let parsed: PaddleJsonlLine = serde_json::from_str(trimmed).map_err(|err| {
+            anyhow::Error::new(PaddleProviderError::result_unpack_failed(
+                format!("failed to parse Paddle JSONL line: {trimmed}; {err}"),
+                None,
+            ))
+        })?;
         let Some(result) = parsed.result else {
             continue;
         };
@@ -236,4 +322,52 @@ fn combine_jsonl_payload(text: &str) -> Result<Value> {
             "lineCount": line_count,
         }
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::combine_jsonl_payload;
+    use super::normalize_model_name;
+
+    #[test]
+    fn combine_jsonl_payload_merges_layout_results_and_data_info() {
+        let payload = r#"
+{"result":{"layoutParsingResults":[{"page":1}],"dataInfo":{"pages":[{"width":100}]}}}
+{"result":{"layoutParsingResults":[{"page":2}]}}
+"#;
+
+        let merged = combine_jsonl_payload(payload).expect("merged payload");
+
+        assert_eq!(
+            merged["layoutParsingResults"].as_array().map(|v| v.len()),
+            Some(2)
+        );
+        assert_eq!(merged["dataInfo"]["pages"][0]["width"], 100);
+        assert_eq!(merged["_meta"]["source"], "paddle_jsonl");
+        assert_eq!(merged["_meta"]["lineCount"], 2);
+    }
+
+    #[test]
+    fn combine_jsonl_payload_reports_unpack_error_for_bad_line() {
+        let err = combine_jsonl_payload("not-json").expect_err("expected error");
+        let provider = err
+            .downcast_ref::<crate::ocr_provider::paddle::errors::PaddleProviderError>()
+            .expect("paddle provider error");
+
+        assert_eq!(
+            provider.info().category,
+            crate::ocr_provider::types::OcrErrorCategory::ResultUnpackFailed
+        );
+    }
+
+    #[test]
+    fn normalize_model_name_maps_known_aliases() {
+        assert_eq!(normalize_model_name(""), "PaddleOCR-VL-1.5");
+        assert_eq!(
+            normalize_model_name("paddle-ocr-vl-1.5"),
+            "PaddleOCR-VL-1.5"
+        );
+        assert_eq!(normalize_model_name("paddleocr-vl-1.5"), "PaddleOCR-VL-1.5");
+        assert_eq!(normalize_model_name("paddle-ocr-vl"), "PaddleOCR-VL");
+    }
 }

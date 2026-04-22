@@ -38,10 +38,37 @@ Translation 阶段的正式输入和输出固定为：
   - `artifacts/translation_diagnostics.json`
   - `artifacts/translation_debug_index.json`
 
+## Translation Payload 口径
+
+逐页 translation payload 现在分成两层：
+
+1. 顶层 contract 字段
+2. `metadata` 调试/桥接字段
+
+顶层 contract 字段包括：
+
+- `block_kind`
+- `layout_role`
+- `semantic_role`
+- `structure_role`
+- `policy_translate`
+- `asset_id`
+- `reading_order`
+- `raw_block_type`
+- `normalized_sub_type`
+
+当前约定：
+
+- translation 的分类、style hint、policy、payload 回填和 diagnostics 主链优先只读这些顶层 contract 字段
+- `metadata` 可以继续保留，但职责只限于 debug、provider trace 和桥接 `continuation_hint/provider warning`
+- 新逻辑不要再把 `metadata.layout_role`、`metadata.semantic_role`、`metadata.structure_role` 当正式语义入口
+- 如果后续 block 语义变更，优先只改 `document.v1 -> TextItem -> payload` 这条 contract 投影，不要让下游模块各自再翻 `metadata`
+
 兼容约定：
 
 - 新任务目录应生成 `translation-manifest.json`
 - 翻译产物协议固定为 `translation-manifest.json` + 每页 payload，渲染阶段不再兼容旧的逐页 JSON 直扫模式
+- 默认加载口径已经是 strict contract；缺少上述顶层字段的 payload 会直接报错
 - Rust 主工作流调用的 `translate-only` worker 现在要求 `--spec`
 - `scripts/entrypoints/translate_book.py` 现在也是 spec-only 包装入口
 - API 凭证不再要求写入 stage spec；spec 中使用 `credential_ref`，由运行时环境注入真实 key
@@ -79,7 +106,7 @@ Rust API 对应暴露了：
 - `diagnostics/`
   结构化翻译诊断模型，承接 placeholder 异常、窗口降级和 keep-origin 降级事件。
 - `policy/`
-  翻译策略配置、正文噪声过滤、元数据过滤和策略应用。
+  翻译策略配置和显式契约消费。默认主链不再靠本地规则二次猜 OCR 语义。
 - `llm/`
   模型请求、缓存、重试、placeholder 守护、分段路由和控制上下文。
 - `payload/`
@@ -106,11 +133,22 @@ Rust API 对应暴露了：
 - translation 主线当前的默认落盘结果是“逐页 translation payload + translation-manifest.json”；这层负责产物内容和映射协议，不负责最终 PDF 文件名和渲染模式
 - `document.v1` 里凡是已经带 `skip_translation` tag 的块，必须在 `ocr/json_extractor.py` 抽取阶段就被挡掉，不能再漏进翻译候选
 - `abstract` 这类正文扩展语义可以继续进入翻译；`reference_entry`、`formula_number` 这类 provider 已明确标记跳过的块不应进入 payload
-- 抽取阶段会把 `derived.role / sub_type` 继续种成 `structure_role`；当前 `abstract/title/heading/image_caption/table_caption/table_footnote/...` 会进一步转成 `style_hint` 送给翻译提示层
+- 抽取阶段优先读取显式 `content.kind / layout_role / semantic_role / structure_role / policy.translate`；默认主链不再从 `derived.role / sub_type / raw_type / tags` 反推正文
 - 抽取阶段会把 block 上的 `continuation_hint` 展开成 payload 里的 `ocr_continuation_*` 字段
 - continuation 当前采用 provider-first 策略：优先消费同页 `intra_page` provider hint；跨页 `cross_page` hint 只在“相邻页 + 顺序明确 + layout_zone 命中页尾/页首阅读边界 + 文本长度足够”时受控消费，其余情况继续保留但不直接驱动拼接
 - 如果只想排查 OCR 规范化是否有问题，优先看 `document.v1.report.json`
 - Python 侧读取 report 摘要时，优先走 `document_schema/reporting.py`
+
+默认正文白名单现在固定为：
+
+- `content.kind == "text"`
+- 且 `policy.translate == true`
+
+这意味着：
+
+- 正文是否进入翻译链，应该在 normalize / adapter 阶段决定
+- translation 默认主链不再重新猜 `footer/header/page_number/table/image/code/reference_content`
+- `ref_text`、`mixed_literal`、`metadata_fragment` 这类旧本地 skip / rewrite 规则已经退出默认主链
 
 ## 术语表 v1
 
@@ -146,25 +184,26 @@ Translation 阶段当前只做两件事：
 - `precise`
   启用 LLM 分类器，只对可疑 OCR 块做额外判断。
 
-## Policy Config 兼容约定
+## Policy Config 兼容说明
 
-`policy/config.py` 里的 `build_translation_policy_config()` 目前保留了几个旧的 skip 开关，主要用于兼容老调用方和实验开关：
+`policy/config.py` 里的 `build_translation_policy_config()` 目前还保留了几个旧字段，但它们已经不属于默认主链语义：
 
 - `enable_narrow_body_noise_skip`
 - `enable_metadata_fragment_skip`
 - `metadata_fragment_max_page_idx`
+- `enable_reference_zone_skip`
+- `enable_reference_tail_skip`
 
-当前语义必须保持为：
+当前约定是：
 
-- 默认值由 policy builder 决定；当前这两个 legacy skip flag 默认关闭
-- 调用方如果显式传入 `True` 或 `False`，builder 必须尊重 override，不能再被内部默认值覆盖
-- `None` 表示“未指定”，这时才回落到默认策略
+- 默认主链不会消费这些字段去重建旧 skip 逻辑
+- 它们当前只作为 deprecated compatibility surface 保留，主要避免老测试/老调用方立刻报错
+- 新代码不要再基于这些字段设计行为
 
 注意：
 
 - 这属于内部 Python translation policy contract，不是外部 HTTP API 契约
-- “默认关闭旧 skip 规则”只是默认策略收紧，不代表系统永久禁止重新开启这些规则
-- 如果后续继续瘦身 skip 规则，不能把 `policy default` 改成 `hard constraint`
+- 真实的“是否翻译”主决策仍应来自 `document.v1` 的显式 block policy
 
 ## 协作规矩
 

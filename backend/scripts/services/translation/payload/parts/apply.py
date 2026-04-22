@@ -8,6 +8,7 @@ from .common import (
     is_group_unit_id,
     translation_unit_id,
 )
+from .translation_units import refresh_payload_translation_units
 
 KEEP_ORIGIN_LABEL = "skip_model_keep_origin"
 TOKEN_RE = re.compile(r"(<[futnvc]\d+-[0-9a-z]{3}/>|\[\[FORMULA_\d+]]|\s+|[A-Za-z0-9_\-./]+|[\u4e00-\u9fff]|.)")
@@ -46,6 +47,29 @@ def _normalize_result_entry(value) -> tuple[str, str]:
     if unwrapped is not None:
         return unwrapped
     return "translate", text
+
+
+def _extract_result_metadata(value) -> dict:
+    if isinstance(value, dict):
+        return dict(value)
+    raw = str(value or "").strip()
+    if not raw.startswith("{") or ("translated_text" not in raw and "translations" not in raw):
+        return {}
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _result_diagnostics_for_item(metadata: dict, item: dict) -> dict:
+    diagnostics = dict(metadata.get("translation_diagnostics") or {})
+    if not diagnostics:
+        return {}
+    diagnostics["item_id"] = item.get("item_id", "")
+    if item.get("page_idx") is not None:
+        diagnostics["page_idx"] = item.get("page_idx")
+    return diagnostics
 
 
 def _mark_keep_origin(item: dict) -> None:
@@ -146,6 +170,7 @@ def _split_group_protected_translation(protected_text: str, items: list[dict]) -
 
 
 def apply_translated_text_map(payload: list[dict], translated: dict) -> None:
+    refresh_payload_translation_units(payload)
     group_items: dict[str, list[dict]] = {}
     for item in payload:
         unit_id = translation_unit_id(item)
@@ -158,12 +183,15 @@ def apply_translated_text_map(payload: list[dict], translated: dict) -> None:
         items = group_items.get(item_id, [])
         if not items:
             continue
-        decision, protected_translated_text = _normalize_result_entry(protected_translated_text)
+        raw_result = protected_translated_text
+        metadata = _extract_result_metadata(raw_result)
+        decision, protected_translated_text = _normalize_result_entry(raw_result)
         if decision == "keep_origin":
             for item in items:
                 _mark_keep_origin(item)
-                if isinstance(protected_translated_text, dict):
-                    item["translation_diagnostics"] = dict(protected_translated_text.get("translation_diagnostics") or {})
+                diagnostics = _result_diagnostics_for_item(metadata, item)
+                if diagnostics:
+                    item["translation_diagnostics"] = diagnostics
             continue
         formula_map = items[0].get("translation_unit_formula_map") or items[0].get("group_formula_map", [])
         protected_map = items[0].get("translation_unit_protected_map") or items[0].get("group_protected_map") or formula_map
@@ -179,21 +207,23 @@ def apply_translated_text_map(payload: list[dict], translated: dict) -> None:
             item["group_translated_text"] = restored
             item["protected_translated_text"] = member_protected_text
             item["translated_text"] = restore_protected_tokens(member_protected_text, protected_map)
-            if isinstance(protected_translated_text, dict):
-                item["translation_diagnostics"] = dict(protected_translated_text.get("translation_diagnostics") or {})
-                item["final_status"] = str(protected_translated_text.get("final_status", "") or "translated")
-            else:
-                item["final_status"] = "translated"
+            diagnostics = _result_diagnostics_for_item(metadata, item)
+            if diagnostics:
+                item["translation_diagnostics"] = diagnostics
+            item["final_status"] = str(metadata.get("final_status", "") or "translated")
 
     for item in payload:
         item_id = item.get("item_id")
         if item_id not in translated:
             continue
-        decision, protected_translated_text = _normalize_result_entry(translated[item_id])
+        raw_result = translated[item_id]
+        metadata = _extract_result_metadata(raw_result)
+        decision, protected_translated_text = _normalize_result_entry(raw_result)
         if decision == "keep_origin":
             _mark_keep_origin(item)
-            if isinstance(translated[item_id], dict):
-                item["translation_diagnostics"] = dict(translated[item_id].get("translation_diagnostics") or {})
+            diagnostics = _result_diagnostics_for_item(metadata, item)
+            if diagnostics:
+                item["translation_diagnostics"] = diagnostics
             continue
         item["translation_unit_protected_translated_text"] = protected_translated_text
         item["translation_unit_translated_text"] = restore_protected_tokens(
@@ -222,8 +252,7 @@ def apply_translated_text_map(payload: list[dict], translated: dict) -> None:
             prefix = str(item.get("mixed_literal_prefix", "") or "")
             item["protected_translated_text"] = _join_prefix_and_tail(prefix, item["protected_translated_text"])
             item["translated_text"] = _join_prefix_and_tail(prefix, item["translated_text"])
-        if isinstance(translated[item_id], dict):
-            item["translation_diagnostics"] = dict(translated[item_id].get("translation_diagnostics") or {})
-            item["final_status"] = str(translated[item_id].get("final_status", "") or "translated")
-        else:
-            item["final_status"] = "translated"
+        diagnostics = _result_diagnostics_for_item(metadata, item)
+        if diagnostics:
+            item["translation_diagnostics"] = diagnostics
+        item["final_status"] = str(metadata.get("final_status", "") or "translated")

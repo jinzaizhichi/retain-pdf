@@ -1,4 +1,4 @@
-import { apiBase } from "./config.js";
+import { resolveJobMarkdownContract, toAbsoluteApiUrl } from "./job-artifacts.js";
 
 function numberOrNull(value) {
   const num = Number(value);
@@ -27,23 +27,6 @@ function firstNonEmpty(...values) {
     }
   }
   return "";
-}
-
-function toAbsoluteUrl(value) {
-  if (!value || typeof value !== "string") {
-    return "";
-  }
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return "";
-  }
-  if (/^https?:\/\//i.test(trimmed)) {
-    return trimmed;
-  }
-  if (trimmed.startsWith("/")) {
-    return `${apiBase()}${trimmed}`;
-  }
-  return `${apiBase()}/${trimmed}`;
 }
 
 export function isTerminalStatus(status) {
@@ -141,6 +124,7 @@ export function resolveJobActions(job) {
   const links = job.links || {};
   const actions = job.actions || {};
   const artifactActions = artifacts.actions || {};
+  const markdownContract = resolveJobMarkdownContract(job);
   const bundleEnabled = Boolean(
     actions.download_bundle?.enabled
     || artifactActions.download_bundle?.enabled
@@ -158,16 +142,12 @@ export function resolveJobActions(job) {
   const markdownJsonEnabled = Boolean(
     actions.open_markdown?.enabled
     || artifactActions.open_markdown?.enabled
-    || artifacts.markdown?.ready
-    || artifacts.markdown_ready
-    || job.markdown_ready
+    || markdownContract.ready
   );
   const markdownRawEnabled = Boolean(
     actions.open_markdown_raw?.enabled
     || artifactActions.open_markdown_raw?.enabled
-    || artifacts.markdown?.ready
-    || artifacts.markdown_ready
-    || job.markdown_ready
+    || markdownContract.ready
   );
   return {
     cancelEnabled: Boolean(actions.cancel?.enabled ?? artifactActions.cancel?.enabled ?? (job.status === "queued" || job.status === "running")),
@@ -175,47 +155,32 @@ export function resolveJobActions(job) {
     pdfEnabled,
     markdownJsonEnabled,
     markdownRawEnabled,
-    cancel: toAbsoluteUrl(firstNonEmpty(
+    cancel: toAbsoluteApiUrl(firstNonEmpty(
       actions.cancel?.url,
       artifactActions.cancel?.url,
       actions.cancel_url,
       links.cancel_url,
       links.cancel_path,
     )),
-    bundle: toAbsoluteUrl(firstNonEmpty(
+    bundle: toAbsoluteApiUrl(firstNonEmpty(
       actions.download_bundle?.url,
       artifactActions.download_bundle?.url,
-      actions.download_bundle_url,
-      actions.bundle_url,
       artifacts.bundle?.url,
       artifacts.bundle?.path,
-      artifacts.bundle_url,
     )),
-    pdf: toAbsoluteUrl(firstNonEmpty(
+    pdf: toAbsoluteApiUrl(firstNonEmpty(
       actions.download_pdf?.url,
       artifactActions.download_pdf?.url,
-      actions.download_pdf_url,
-      actions.pdf_url,
       artifacts.pdf?.url,
       artifacts.pdf?.path,
-      artifacts.pdf_url,
     )),
-    markdownJson: toAbsoluteUrl(firstNonEmpty(
+    markdownJson: markdownContract.jsonUrl || toAbsoluteApiUrl(firstNonEmpty(
       actions.open_markdown?.url,
       artifactActions.open_markdown?.url,
-      actions.open_markdown_json_url,
-      actions.markdown_json_url,
-      artifacts.markdown?.json_url,
-      artifacts.markdown?.json_path,
-      artifacts.markdown_url,
     )),
-    markdownRaw: toAbsoluteUrl(firstNonEmpty(
+    markdownRaw: markdownContract.rawUrl || toAbsoluteApiUrl(firstNonEmpty(
       actions.open_markdown_raw?.url,
       artifactActions.open_markdown_raw?.url,
-      actions.download_markdown_url,
-      actions.markdown_raw_url,
-      artifacts.markdown?.raw_url,
-      artifacts.markdown?.raw_path,
     )),
   };
 }

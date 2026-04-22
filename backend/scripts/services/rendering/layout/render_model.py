@@ -24,6 +24,7 @@ from services.rendering.layout.typography.geometry import inner_bbox
 from services.rendering.layout.typography.measurement import bbox_width
 from services.rendering.layout.payload.text_common import is_flag_like_plain_text_block
 from services.rendering.layout.payload.text_common import restore_render_protected_text
+from services.translation.item_reader import item_block_kind
 
 
 def _compact_zh_len(text: str) -> int:
@@ -125,7 +126,7 @@ def _layout_block_from_item(
 
 
 def _page_text_width_med(items: list[dict]) -> float:
-    text_widths = [bbox_width(item) for item in items if item.get("block_type") == "text"]
+    text_widths = [bbox_width(item) for item in items if item_block_kind(item) == "text"]
     if not text_widths:
         return 0.0
     text_widths = sorted(text_widths)

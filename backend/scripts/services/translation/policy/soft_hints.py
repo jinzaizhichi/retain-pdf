@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 
-from services.document_schema.semantics import is_body_structure_role
+from services.translation.item_reader import item_block_kind
+from services.translation.item_reader import item_is_plain_text_block
+from services.translation.item_reader import item_is_bodylike
 
 
 EN_WORD_RE = re.compile(r"[A-Za-z]+(?:[-'][A-Za-z]+)?")
@@ -84,12 +86,11 @@ def looks_like_code_literal_text_value(text: str) -> bool:
 
 
 def looks_like_code_literal_text(item: dict) -> bool:
-    block_type = str(item.get("block_type", "") or "")
-    if block_type == "code_body":
+    if item_block_kind(item) == "code":
         return True
-    if block_type not in {"", "text"}:
+    if item_block_kind(item) != "text":
         return False
-    if not is_body_structure_role(item.get("metadata", {}) or {}):
+    if not item_is_bodylike(item):
         return False
     return looks_like_code_literal_text_value(normalized_source_text(item))
 
@@ -225,9 +226,7 @@ def build_soft_rule_hints(item: dict) -> list[str]:
         return hints
 
     line_texts = extract_line_texts(item)
-    block_type = str(item.get("block_type", "") or "")
-
-    if is_body_structure_role(item.get("metadata", {}) or {}) and block_type == "text":
+    if item_is_bodylike(item) and item_block_kind(item) == "text":
         hints.append("body_text_block")
     if natural_word_count(text) >= 8:
         hints.append("long_english_prose")
@@ -251,23 +250,6 @@ def build_soft_rule_hints(item: dict) -> list[str]:
     return hints
 
 
-def should_route_to_mixed_literal_llm(item: dict) -> bool:
-    if not item.get("should_translate", True):
-        return False
-    if str(item.get("block_type", "") or "") == "code_body":
-        return False
-    if not is_body_structure_role(item.get("metadata", {}) or {}):
-        return False
-    hints = set(build_soft_rule_hints(item))
-    return bool(
-        {
-            "command_prefix_then_prose_tail",
-            "single_line_command_prefix_with_prose_tail",
-        }
-        & hints
-    )
-
-
 __all__ = [
     "build_soft_rule_hints",
     "extract_command_prefix",
@@ -276,5 +258,4 @@ __all__ = [
     "looks_like_code_literal_text_value",
     "natural_word_count",
     "normalized_source_text",
-    "should_route_to_mixed_literal_llm",
 ]

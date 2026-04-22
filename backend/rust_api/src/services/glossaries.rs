@@ -54,12 +54,8 @@ pub fn list_glossaries(db: &Db) -> Result<Vec<GlossaryRecord>, AppError> {
     Ok(items)
 }
 
-pub fn load_glossary_or_404(
-    db: &Db,
-    glossary_id: &str,
-) -> Result<GlossaryRecord, AppError> {
-    db
-        .get_glossary(glossary_id)
+pub fn load_glossary_or_404(db: &Db, glossary_id: &str) -> Result<GlossaryRecord, AppError> {
+    db.get_glossary(glossary_id)
         .map_err(|_| AppError::not_found(format!("glossary not found: {glossary_id}")))
 }
 
@@ -405,8 +401,8 @@ mod tests {
             rust_api_root,
             data_root: data_root.clone(),
             scripts_dir: scripts_dir.clone(),
-            run_mineru_case_script: scripts_dir.join("run_mineru_case.py"),
-            run_ocr_job_script: scripts_dir.join("run_ocr_job.py"),
+            run_provider_case_script: scripts_dir.join("run_provider_case.py"),
+            run_provider_ocr_script: scripts_dir.join("run_provider_ocr.py"),
             run_normalize_ocr_script: scripts_dir.join("run_normalize_ocr.py"),
             run_translate_from_ocr_script: scripts_dir.join("run_translate_from_ocr.py"),
             run_translate_only_script: scripts_dir.join("run_translate_only.py"),
@@ -547,7 +543,12 @@ mod tests {
         let loaded =
             load_glossary_or_404(state.db.as_ref(), &created.glossary_id).expect("load glossary");
         assert_eq!(loaded.name, "semiconductor");
-        assert_eq!(list_glossaries(state.db.as_ref()).expect("list glossaries").len(), 1);
+        assert_eq!(
+            list_glossaries(state.db.as_ref())
+                .expect("list glossaries")
+                .len(),
+            1
+        );
 
         let updated = update_glossary(
             state.db.as_ref(),
@@ -586,8 +587,8 @@ mod tests {
         input.translation.glossary_id = glossary.glossary_id;
         input.translation.glossary_entries = vec![entry("extra-term", "额外词")];
 
-        let err = resolve_task_glossary_request(state.db.as_ref(), &input)
-            .expect_err("should reject");
+        let err =
+            resolve_task_glossary_request(state.db.as_ref(), &input).expect_err("should reject");
         assert!(err
             .to_string()
             .contains("merged glossary entry count exceeds"));

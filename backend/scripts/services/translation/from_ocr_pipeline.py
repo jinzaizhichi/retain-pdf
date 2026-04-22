@@ -16,7 +16,7 @@ from foundation.shared.stage_specs import resolve_credential_ref
 from foundation.shared.tee_output import enable_job_log_capture
 from runtime.pipeline.book_pipeline import run_book_pipeline
 from services.document_schema import DOCUMENT_SCHEMA_REPORT_FILE_NAME
-from services.mineru.contracts import MINERU_PIPELINE_SUMMARY_FILE_NAME
+from services.mineru.contracts import PIPELINE_SUMMARY_FILE_NAME
 from services.mineru.summary import print_pipeline_summary
 from services.mineru.summary import write_pipeline_summary
 from services.translation.llm import DEFAULT_BASE_URL
@@ -145,7 +145,7 @@ def main() -> None:
         ),
     )
 
-    summary_path = job_dirs.artifacts_dir / MINERU_PIPELINE_SUMMARY_FILE_NAME
+    summary_path = job_dirs.artifacts_dir / PIPELINE_SUMMARY_FILE_NAME
     write_pipeline_summary(
         summary_path=summary_path,
         job_root=job_dirs.root,

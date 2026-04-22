@@ -45,3 +45,35 @@ pub fn map_task_status(
         trace_id,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn done_maps_to_succeeded_translation_prepare() {
+        let mapped = map_task_status(
+            "done",
+            OcrTaskHandle::default(),
+            Some("ok".to_string()),
+            Some("trace-1".to_string()),
+        );
+
+        assert_eq!(mapped.state, OcrTaskState::Succeeded);
+        assert_eq!(mapped.stage.as_deref(), Some("translation_prepare"));
+        assert_eq!(mapped.trace_id.as_deref(), Some("trace-1"));
+    }
+
+    #[test]
+    fn unknown_state_is_preserved() {
+        let mapped = map_task_status("mystery", OcrTaskHandle::default(), None, None);
+
+        assert_eq!(mapped.state, OcrTaskState::Unknown);
+        assert_eq!(mapped.raw_state.as_deref(), Some("mystery"));
+        assert!(mapped
+            .detail
+            .as_deref()
+            .unwrap_or_default()
+            .contains("mystery"));
+    }
+}

@@ -1,33 +1,11 @@
 use axum::extract::{Multipart, State};
 use axum::Json;
 
-use crate::config::AppConfig;
-use crate::db::Db;
 use crate::error::AppError;
-use crate::models::{upload_to_response, ApiResponse, UploadRecord};
-use crate::services::jobs::{store_pdf_upload, UploadedPdfInput};
+use crate::models::{ApiResponse, UploadRecord};
+use crate::routes::common::{build_upload_route_deps, ok_json, UploadRouteDeps};
+use crate::services::upload_api::{store_upload as store_upload_service, store_upload_view};
 use crate::AppState;
-
-async fn store_upload_with_resources(
-    db: &Db,
-    config: &AppConfig,
-    filename: String,
-    bytes: Vec<u8>,
-    developer_mode: bool,
-) -> Result<UploadRecord, AppError> {
-    store_pdf_upload(
-        db,
-        &config.uploads_dir,
-        config.upload_max_bytes,
-        config.upload_max_pages,
-        UploadedPdfInput {
-            filename,
-            bytes,
-            developer_mode,
-        },
-    )
-    .await
-}
 
 pub async fn upload_pdf(
     State(state): State<AppState>,
@@ -63,21 +41,32 @@ pub async fn upload_pdf(
     let filename =
         file_name.ok_or_else(|| AppError::bad_request("missing multipart field: file"))?;
     let bytes = file_bytes.ok_or_else(|| AppError::bad_request("empty upload"))?;
-    let upload =
-        store_upload_with_resources(state.db.as_ref(), state.config.as_ref(), filename, bytes, developer_mode)
-            .await?;
-    Ok(Json(ApiResponse::ok(upload_to_response(&upload))))
+    let deps = build_upload_route_deps(&state);
+    Ok(ok_json(
+        store_upload_view(
+            deps.db,
+            deps.uploads_dir,
+            deps.upload_max_bytes,
+            deps.upload_max_pages,
+            filename,
+            bytes,
+            developer_mode,
+        )
+        .await?,
+    ))
 }
 
 pub async fn store_upload(
-    state: &AppState,
+    deps: &UploadRouteDeps<'_>,
     filename: String,
     bytes: Vec<u8>,
     developer_mode: bool,
 ) -> Result<UploadRecord, AppError> {
-    store_upload_with_resources(
-        state.db.as_ref(),
-        state.config.as_ref(),
+    store_upload_service(
+        deps.db,
+        deps.uploads_dir,
+        deps.upload_max_bytes,
+        deps.upload_max_pages,
         filename,
         bytes,
         developer_mode,

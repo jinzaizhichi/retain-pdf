@@ -25,6 +25,7 @@ class StatusDetailDialog extends HTMLElement {
               <button id="detail-tab-overview" type="button" class="detail-tab is-active" data-tab="overview" role="tab" aria-selected="true">概览</button>
               <button id="detail-tab-failure" type="button" class="detail-tab" data-tab="failure" role="tab" aria-selected="false">失败</button>
               <button id="detail-tab-events" type="button" class="detail-tab" data-tab="events" role="tab" aria-selected="false">事件</button>
+              <button id="detail-tab-translation" type="button" class="detail-tab" data-tab="translation" role="tab" aria-selected="false">翻译调试</button>
             </div>
 
             <div class="detail-tab-panels">
@@ -127,6 +128,97 @@ class StatusDetailDialog extends HTMLElement {
                   <p class="events-lead">按时间倒序展示最近事件，适合定位任务卡在哪个阶段以及最后一次失败前发生了什么。</p>
                   <div id="events-empty" class="events-empty">暂无事件</div>
                   <div id="events-list" class="events-list hidden"></div>
+                </div>
+              </section>
+
+              <section id="detail-panel-translation" class="detail-tab-panel" data-panel="translation" role="tabpanel" hidden>
+                <div class="status-panel translation-debug-panel">
+                  <div class="status-panel-head">
+                    <h3>翻译调试</h3>
+                    <span id="translation-debug-status" class="status-panel-note">按 item 排查为什么没翻译、为什么保留原文</span>
+                  </div>
+                  <div id="translation-debug-empty" class="events-empty hidden">暂无翻译调试数据</div>
+                  <div id="translation-debug-content" class="translation-debug-content">
+                    <section class="translation-summary-shell">
+                      <div class="translation-summary-grid">
+                        <div class="translation-summary-card">
+                          <span class="label">已翻译</span>
+                          <span id="translation-count-translated" class="info-value">-</span>
+                        </div>
+                        <div class="translation-summary-card">
+                          <span class="label">保留原文</span>
+                          <span id="translation-count-kept-origin" class="info-value">-</span>
+                        </div>
+                        <div class="translation-summary-card">
+                          <span class="label">已跳过</span>
+                          <span id="translation-count-skipped" class="info-value">-</span>
+                        </div>
+                        <div class="translation-summary-card">
+                          <span class="label">Provider</span>
+                          <span id="translation-provider-family" class="info-value">-</span>
+                        </div>
+                      </div>
+                      <div class="translation-summary-notes">
+                        <span id="translation-summary-scope" class="status-panel-note">摘要统计范围：-</span>
+                        <span id="translation-list-filter" class="status-panel-note">当前列表筛选：-</span>
+                      </div>
+                    </section>
+
+                    <section class="translation-filter-panel">
+                      <div class="translation-filter-row">
+                        <label class="translation-filter-field">
+                          <span class="label">状态</span>
+                          <select id="translation-filter-final-status">
+                            <option value="kept_origin" selected>保留原文</option>
+                            <option value="translated">已翻译</option>
+                            <option value="skipped">已跳过</option>
+                            <option value="">全部</option>
+                          </select>
+                        </label>
+                        <label class="translation-filter-field translation-filter-search">
+                          <span class="label">检索</span>
+                          <input id="translation-filter-query" type="search" placeholder="输入 item_id、路由、原文片段" />
+                        </label>
+                        <button id="translation-filter-apply" type="button" class="button-link secondary">刷新</button>
+                      </div>
+                    </section>
+
+                    <div class="translation-debug-layout">
+                      <section class="translation-debug-column translation-debug-column-list">
+                        <div class="translation-debug-subhead">
+                          <h4>Item 列表</h4>
+                          <span id="translation-items-meta" class="status-panel-note">-</span>
+                        </div>
+                        <div class="translation-panel-body">
+                          <div id="translation-items-loading" class="events-empty hidden">正在读取翻译 item...</div>
+                          <div id="translation-items-empty" class="events-empty hidden">没有匹配的翻译 item</div>
+                          <div id="translation-items-list" class="translation-items-list"></div>
+                        </div>
+                        <div class="translation-items-pagination">
+                          <button id="translation-items-prev" type="button" class="button-link secondary" disabled>上一页</button>
+                          <span id="translation-items-page" class="status-panel-note">-</span>
+                          <button id="translation-items-next" type="button" class="button-link secondary" disabled>下一页</button>
+                        </div>
+                      </section>
+
+                      <section class="translation-debug-column translation-debug-column-detail">
+                        <div class="translation-debug-subhead">
+                          <h4>Item 详情</h4>
+                          <span id="translation-item-meta" class="status-panel-note">-</span>
+                        </div>
+                        <div class="translation-panel-body translation-panel-body-detail">
+                          <div id="translation-item-loading" class="events-empty hidden">正在读取 item 详情...</div>
+                          <div id="translation-item-empty" class="events-empty">请选择左侧 item</div>
+                          <div id="translation-item-detail" class="translation-item-detail hidden"></div>
+                        </div>
+                        <div class="translation-replay-actions">
+                          <button id="translation-item-replay" type="button" class="button-link secondary" disabled>重放当前 item</button>
+                          <span id="translation-replay-status" class="status-panel-note">-</span>
+                        </div>
+                        <div id="translation-replay-result" class="translation-replay-result hidden"></div>
+                      </section>
+                    </div>
+                  </div>
                 </div>
               </section>
             </div>
@@ -267,6 +359,169 @@ class StatusDetailDialog extends HTMLElement {
     this.setFailureDetails(failure);
     this.renderStageHistory(stageHistory);
     this.renderEvents(events);
+  }
+
+  renderTranslationSummary({
+    counts = {},
+    finalStatusCounts = {},
+    providerFamily = "",
+    emptyText = "",
+    hidden = false,
+    summaryScopeText = "-",
+    filterText = "-",
+  } = {}) {
+    const content = this.querySelector("#translation-debug-content");
+    const empty = this.querySelector("#translation-debug-empty");
+    const status = this.querySelector("#translation-debug-status");
+    const scope = this.querySelector("#translation-summary-scope");
+    const filter = this.querySelector("#translation-list-filter");
+    const normalizedCounts = Object.keys(finalStatusCounts || {}).length ? finalStatusCounts : (counts || {});
+    const entries = [
+      ["translation-count-translated", normalizedCounts.translated],
+      ["translation-count-kept-origin", normalizedCounts.kept_origin],
+      ["translation-count-skipped", normalizedCounts.skipped],
+      ["translation-provider-family", providerFamily || "-"],
+    ];
+    entries.forEach(([id, value]) => {
+      const el = this.querySelector(`#${id}`);
+      if (el) {
+        el.textContent = value ?? 0;
+      }
+    });
+    if (status) {
+      status.textContent = hidden ? "暂无翻译调试数据" : "按 item 查看保留原文、跳过与重放结果";
+    }
+    if (scope) {
+      scope.textContent = `摘要统计范围：${summaryScopeText}`;
+    }
+    if (filter) {
+      filter.textContent = `当前列表筛选：${filterText}`;
+    }
+    if (content) {
+      content.classList.toggle("hidden", hidden);
+    }
+    if (empty) {
+      empty.textContent = emptyText || "暂无翻译调试数据";
+      empty.classList.toggle("hidden", !hidden);
+    }
+  }
+
+  renderTranslationItems({
+    markup = "",
+    hasItems = false,
+    emptyText = "没有匹配的翻译 item",
+    meta = "-",
+    loading = false,
+    pageLabel = "-",
+    canPrev = false,
+    canNext = false,
+  } = {}) {
+    const list = this.querySelector("#translation-items-list");
+    const empty = this.querySelector("#translation-items-empty");
+    const loadingEl = this.querySelector("#translation-items-loading");
+    const metaEl = this.querySelector("#translation-items-meta");
+    const pageEl = this.querySelector("#translation-items-page");
+    const prevBtn = this.querySelector("#translation-items-prev");
+    const nextBtn = this.querySelector("#translation-items-next");
+    if (metaEl) {
+      metaEl.textContent = meta;
+    }
+    if (pageEl) {
+      pageEl.textContent = pageLabel;
+    }
+    if (prevBtn) {
+      prevBtn.disabled = loading || !canPrev;
+    }
+    if (nextBtn) {
+      nextBtn.disabled = loading || !canNext;
+    }
+    if (loadingEl) {
+      loadingEl.classList.toggle("hidden", !loading);
+    }
+    if (!list || !empty) {
+      return;
+    }
+    if (loading) {
+      list.innerHTML = "";
+      list.classList.add("hidden");
+      empty.classList.add("hidden");
+      return;
+    }
+    if (!hasItems) {
+      list.innerHTML = "";
+      list.classList.add("hidden");
+      empty.textContent = emptyText;
+      empty.classList.remove("hidden");
+      return;
+    }
+    empty.classList.add("hidden");
+    list.classList.remove("hidden");
+    list.innerHTML = markup;
+  }
+
+  renderTranslationItemDetail({
+    markup = "",
+    meta = "-",
+    hasItem = false,
+    emptyText = "请选择左侧 item",
+    loading = false,
+    replayEnabled = false,
+  } = {}) {
+    const detail = this.querySelector("#translation-item-detail");
+    const empty = this.querySelector("#translation-item-empty");
+    const loadingEl = this.querySelector("#translation-item-loading");
+    const metaEl = this.querySelector("#translation-item-meta");
+    const replayButton = this.querySelector("#translation-item-replay");
+    if (metaEl) {
+      metaEl.textContent = meta;
+    }
+    if (loadingEl) {
+      loadingEl.classList.toggle("hidden", !loading);
+    }
+    if (replayButton) {
+      replayButton.disabled = !replayEnabled;
+    }
+    if (!detail || !empty) {
+      return;
+    }
+    if (loading) {
+      detail.innerHTML = "";
+      detail.classList.add("hidden");
+      empty.classList.add("hidden");
+      return;
+    }
+    if (!hasItem) {
+      detail.innerHTML = "";
+      detail.classList.add("hidden");
+      empty.textContent = emptyText;
+      empty.classList.remove("hidden");
+      return;
+    }
+    empty.classList.add("hidden");
+    detail.classList.remove("hidden");
+    detail.innerHTML = markup;
+  }
+
+  renderTranslationReplay({
+    markup = "",
+    hasResult = false,
+    status = "-",
+  } = {}) {
+    const result = this.querySelector("#translation-replay-result");
+    const statusEl = this.querySelector("#translation-replay-status");
+    if (statusEl) {
+      statusEl.textContent = status;
+    }
+    if (!result) {
+      return;
+    }
+    if (!hasResult) {
+      result.innerHTML = "";
+      result.classList.add("hidden");
+      return;
+    }
+    result.innerHTML = markup;
+    result.classList.remove("hidden");
   }
 }
 

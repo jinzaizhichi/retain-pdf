@@ -3,8 +3,6 @@ import re
 
 from foundation.config import fonts
 from foundation.config import layout
-from services.document_schema.semantics import is_body_structure_role
-from services.document_schema.semantics import is_caption_like_block
 from services.rendering.layout.typography.geometry import cover_bbox
 from services.rendering.layout.typography.geometry import inner_bbox
 from services.rendering.layout.typography.measurement import bbox_height
@@ -24,6 +22,14 @@ from services.rendering.layout.typography.measurement import source_compactness_
 from services.rendering.layout.typography.measurement import source_visual_line_count
 from services.rendering.layout.typography.measurement import source_text_height_limit_pt
 from services.rendering.layout.typography.measurement import visual_line_count
+from services.translation.item_reader import item_is_bodylike
+from services.translation.item_reader import item_is_caption_like
+from services.translation.item_reader import item_is_plain_text_block
+from services.translation.item_reader import item_is_textual
+from services.translation.item_reader import item_is_title_like
+from services.translation.item_reader import item_block_kind
+from services.translation.item_reader import item_layout_role
+from services.translation.item_reader import item_semantic_role
 
 
 MIN_FONT_SIZE_PT = 8.4
@@ -54,7 +60,6 @@ BODY_LEADING_TIGHTEN_PER_PT = 0.12
 NON_BODY_LEADING_TIGHTEN_PER_PT = 0.07
 BODY_LEADING_TIGHTEN_RATIO_PER_PT = 0.12
 NON_BODY_LEADING_TIGHTEN_RATIO_PER_PT = 0.04
-LOCAL_TEXTUAL_BLOCK_TYPES = {"text", "title", "image_caption", "table_caption", "table_footnote"}
 CAPTION_FONT_SCALE = 0.92
 CAPTION_MAX_FONT_SIZE_PT = 10.6
 HIGH_DENSITY_LEADING_RATIO = 0.9
@@ -72,13 +77,25 @@ WIDE_ASPECT_ZH_LEADING_WEIGHT = 0.5
 WIDE_ASPECT_COMPACT_LEADING_TIGHTEN_MAX = 0.025
 
 def _is_caption_like(item: dict) -> bool:
-    return is_caption_like_block(item)
+    return item_is_caption_like(item)
+
+
+def _item_layout_role(item: dict) -> str:
+    return item_layout_role(item)
+
+
+def _item_semantic_role(item: dict) -> str:
+    return item_semantic_role(item)
 
 
 def _is_local_textual_item(item: dict) -> bool:
     if _is_caption_like(item):
         return True
-    return item.get("block_type") in LOCAL_TEXTUAL_BLOCK_TYPES
+    if item_is_title_like(item):
+        return True
+    if item_block_kind(item) == "text":
+        return True
+    return item_is_textual(item)
 
 
 def local_font_size_pt(item: dict) -> float:
@@ -96,7 +113,12 @@ def local_font_size_pt(item: dict) -> float:
 def is_body_text_candidate(item: dict, page_text_width_med: float) -> bool:
     if _is_caption_like(item):
         return False
-    if item.get("block_type") != "text":
+    layout_role = _item_layout_role(item)
+    semantic_role = _item_semantic_role(item)
+    if not item_is_plain_text_block(item):
+        if layout_role not in {"paragraph", "list_item"}:
+            return False
+    if semantic_role not in {"", "body", "abstract"}:
         return False
     if formula_ratio(item) > BODY_FORMULA_RATIO_MAX:
         return False
@@ -108,7 +130,7 @@ def is_body_text_candidate(item: dict, page_text_width_med: float) -> bool:
         # keep it in the body bucket so page-level normalization does not shrink
         # it into caption-like sizing.
         if not (
-            is_body_structure_role(item.get("metadata", {}) or {})
+            item_is_bodylike(item)
             and text_len >= 36
             and source_visual_line_count(item) >= 2
         ):
@@ -117,9 +139,9 @@ def is_body_text_candidate(item: dict, page_text_width_med: float) -> bool:
 
 
 def is_default_text_block(item: dict) -> bool:
-    if item.get("block_type") == "title":
+    if item_is_title_like(item):
         return True
-    if item.get("block_type") != "text":
+    if not item_is_plain_text_block(item):
         return False
     line_count = len(item.get("lines", []))
     text_len = len(re.sub(r"\s+", "", item.get("source_text", "")))
@@ -127,20 +149,7 @@ def is_default_text_block(item: dict) -> bool:
 
 
 def is_title_like_block(item: dict) -> bool:
-    if _is_caption_like(item):
-        return False
-    block_type = str(item.get("block_type", "") or "").strip().lower()
-    if block_type == "title":
-        return True
-    metadata = item.get("metadata", {}) or {}
-    normalized_sub_type = str(metadata.get("normalized_sub_type", "") or "").strip().lower()
-    structure_role = str(metadata.get("structure_role", "") or "").strip().lower()
-    tags = {str(tag or "").strip().lower() for tag in metadata.get("tags", []) if str(tag or "").strip()}
-    return (
-        normalized_sub_type in {"title", "heading"}
-        or structure_role in {"title", "heading", "section_heading"}
-        or bool(tags & {"title", "heading"})
-    )
+    return item_is_title_like(item)
 
 
 def resolve_font_weight(item: dict) -> str:

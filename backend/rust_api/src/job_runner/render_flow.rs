@@ -1,17 +1,16 @@
 use anyhow::{anyhow, Result};
 
-use crate::job_events::persist_runtime_job;
+use crate::job_events::persist_runtime_job_with_resources;
 use crate::models::{now_iso, JobArtifacts, JobRuntimeState, JobStatusKind};
 use crate::storage_paths::{build_job_paths, resolve_data_path};
-use crate::AppState;
 
 use super::{
     attach_job_paths, build_render_only_command, clear_job_failure, execute_process_job,
-    sync_runtime_state,
+    sync_runtime_state, ProcessRuntimeDeps,
 };
 
 pub(super) async fn run_render_job_from_artifacts(
-    state: AppState,
+    deps: ProcessRuntimeDeps,
     mut job: JobRuntimeState,
 ) -> Result<JobRuntimeState> {
     let source_job_id = job
@@ -23,7 +22,7 @@ pub(super) async fn run_render_job_from_artifacts(
     if source_job_id.is_empty() {
         return Err(anyhow!("render workflow requires source.artifact_job_id"));
     }
-    let source_job = state.db.get_job(&source_job_id)?;
+    let source_job = deps.db.get_job(&source_job_id)?;
     let source_artifacts = source_job
         .artifacts
         .as_ref()
@@ -32,12 +31,12 @@ pub(super) async fn run_render_job_from_artifacts(
         .source_pdf
         .as_deref()
         .ok_or_else(|| anyhow!("artifact source job is missing source_pdf: {source_job_id}"))
-        .and_then(|raw| resolve_data_path(&state.config.data_root, raw))?;
+        .and_then(|raw| resolve_data_path(&deps.config.data_root, raw))?;
     let translations_dir = source_artifacts
         .translations_dir
         .as_deref()
         .ok_or_else(|| anyhow!("artifact source job is missing translations_dir: {source_job_id}"))
-        .and_then(|raw| resolve_data_path(&state.config.data_root, raw))?;
+        .and_then(|raw| resolve_data_path(&deps.config.data_root, raw))?;
     if !source_pdf_path.exists() {
         return Err(anyhow!(
             "source_pdf not found for artifact job {source_job_id}: {}",
@@ -51,7 +50,7 @@ pub(super) async fn run_render_job_from_artifacts(
         ));
     }
 
-    let job_paths = build_job_paths(&state.config.output_root, &job.job_id)?;
+    let job_paths = build_job_paths(&deps.config.output_root, &job.job_id)?;
     attach_job_paths(&mut job, &job_paths);
     let artifacts = job.artifacts.get_or_insert_with(JobArtifacts::default);
     artifacts.source_pdf = source_artifacts.source_pdf.clone();
@@ -62,7 +61,7 @@ pub(super) async fn run_render_job_from_artifacts(
     artifacts.translations_dir = source_artifacts.translations_dir.clone();
 
     job.command = build_render_only_command(
-        state.config.as_ref(),
+        deps.config.as_ref(),
         &job.request_payload,
         &job_paths,
         &source_pdf_path,
@@ -75,7 +74,12 @@ pub(super) async fn run_render_job_from_artifacts(
     job.stage_detail = Some("正在基于已有翻译产物重新渲染".to_string());
     clear_job_failure(&mut job);
     sync_runtime_state(&mut job);
-    persist_runtime_job(&state, &job)?;
+    persist_runtime_job_with_resources(
+        deps.db.as_ref(),
+        &deps.config.data_root,
+        &deps.config.output_root,
+        &job,
+    )?;
 
-    execute_process_job(state, job, &[]).await
+    execute_process_job(deps, job, &[]).await
 }

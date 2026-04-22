@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from services.document_schema.semantics import structure_role
-
-
 STYLE_HINTS_BY_ROLE = {
     "abstract": "This block is an abstract sentence or paragraph. Translate it as compact academic summary prose.",
     "heading": "This block is a section heading. Translate it as a short academic heading, not as a full sentence.",
@@ -17,9 +14,10 @@ STYLE_HINTS_BY_ROLE = {
 }
 
 
-def structure_style_hint(metadata: dict | None) -> str:
-    role = structure_role(metadata or {})
-    return STYLE_HINTS_BY_ROLE.get(role, "")
+def structure_style_hint(payload: dict | None) -> str:
+    source = payload or {}
+    explicit = str(source.get("structure_role", "") or "").strip().lower()
+    return STYLE_HINTS_BY_ROLE.get(explicit, "")
 
 
 __all__ = ["structure_style_hint"]

@@ -17,6 +17,8 @@ from services.document_schema import DOCUMENT_SCHEMA_REPORT_FILE_NAME
 from services.document_schema import adapt_path_to_document_v1_with_report
 from services.document_schema import validate_saved_document_path
 from services.document_schema.reporting import build_normalization_summary
+from services.document_schema.provider_adapters.paddle.content_extract import build_lines as build_paddle_lines
+from services.document_schema.provider_adapters.paddle.content_extract import tighten_text_bbox as tighten_paddle_text_bbox
 
 
 def _save_json(path: Path, payload: dict) -> None:
@@ -96,6 +98,46 @@ def _rescale_document_geometry_to_pdf(document: dict, source_pdf_path: Path) -> 
     return document
 
 
+def _post_rescale_rebuild_paddle_text_geometry(document: dict) -> dict:
+    source = document.get("source") or {}
+    if str(source.get("provider", "") or "").strip().lower() != "paddle":
+        return document
+
+    for page in document.get("pages", []) or []:
+        for block in page.get("blocks", []) or []:
+            block_type = str(block.get("type", "") or "")
+            sub_type = str(block.get("sub_type", "") or "")
+            text = str(block.get("text", "") or "")
+            raw_label = str((block.get("source") or {}).get("raw_type", "") or "")
+            original_bbox = list(block.get("bbox", []) or [])
+            tightened_bbox = tighten_paddle_text_bbox(
+                bbox=original_bbox,
+                text=text,
+                block_type=block_type,
+                sub_type=sub_type,
+            )
+            if tightened_bbox != original_bbox:
+                block["bbox"] = tightened_bbox
+                source_payload = block.get("source") or {}
+                if source_payload:
+                    source_payload["raw_bbox"] = tightened_bbox
+                metadata = block.get("metadata") or {}
+                metadata["provider_bbox_tightened"] = True
+                metadata["provider_bbox_original"] = original_bbox
+                block["metadata"] = metadata
+            rebuilt_lines = build_paddle_lines(
+                bbox=block.get("bbox", []),
+                segments=block.get("segments", []) or [],
+                text=text,
+                raw_label=raw_label,
+                block_type=block_type,
+                sub_type=sub_type,
+            )
+            if rebuilt_lines:
+                block["lines"] = rebuilt_lines
+    return document
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Normalize an already-downloaded OCR provider payload into document.v1 artifacts.",
@@ -158,6 +200,7 @@ def main() -> None:
         provider_version=str(args.provider_version or ""),
     )
     normalized_document = _rescale_document_geometry_to_pdf(normalized_document, source_pdf_path)
+    normalized_document = _post_rescale_rebuild_paddle_text_geometry(normalized_document)
     _save_json(normalized_json_path, normalized_document)
     _save_json(normalized_report_json_path, normalization_report)
 
@@ -184,8 +227,11 @@ def main() -> None:
         "normalized document report: "
         f"provider={normalization_summary['provider']} "
         f"detected={normalization_summary['detected_provider']} "
-        f"defaults_pages={normalization_summary['defaults_pages']} "
-        f"defaults_blocks={normalization_summary['defaults_blocks']} "
+        f"pages_observed={normalization_summary['pages_observed']} "
+        f"blocks_observed={normalization_summary['blocks_observed']} "
+        f"defaulted_document_fields={normalization_summary['defaulted_document_fields']} "
+        f"defaulted_page_fields={normalization_summary['defaulted_page_fields']} "
+        f"defaulted_block_fields={normalization_summary['defaulted_block_fields']} "
         f"path={normalized_report_json_path}",
         flush=True,
     )

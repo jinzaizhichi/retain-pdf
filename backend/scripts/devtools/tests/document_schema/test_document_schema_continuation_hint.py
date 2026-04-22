@@ -6,6 +6,7 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 from services.document_schema.defaults import apply_document_defaults
 from services.document_schema.defaults import default_block_continuation_hint
+from services.document_schema.contract_v1 import enrich_document_contract_v1
 from services.document_schema.provider_adapters.paddle.continuation import assign_paddle_continuation_hints
 from services.document_schema.validator import DocumentSchemaValidationError
 from services.document_schema.validator import validate_document_payload
@@ -49,9 +50,12 @@ def _minimal_document(*, schema_version: str = "1.1") -> dict:
 
 
 def test_apply_document_defaults_adds_default_continuation_hint() -> None:
-    upgraded = apply_document_defaults(_minimal_document())
+    upgraded = enrich_document_contract_v1(apply_document_defaults(_minimal_document()))
     block = upgraded["pages"][0]["blocks"][0]
     assert block["continuation_hint"] == default_block_continuation_hint()
+    assert block["geometry"]["bbox"] == [0, 0, 100, 20]
+    assert block["content"]["kind"] == "text"
+    assert block["policy"]["translate"] is True
     validate_document_payload(upgraded)
 
 
@@ -170,3 +174,44 @@ def test_paddle_continuation_hints_ignore_multi_block_groups_without_order() -> 
 
     assert pages[0]["blocks"][0]["continuation_hint"] == default_block_continuation_hint()
     assert pages[0]["blocks"][1]["continuation_hint"] == default_block_continuation_hint()
+
+
+def test_paddle_continuation_hints_are_suppressed_for_cross_column_merge_suspects() -> None:
+    pages = [
+        {
+            "page_index": 0,
+            "blocks": [
+                {
+                    "block_id": "p001-b0001",
+                    "page_index": 0,
+                    "order": 0,
+                    "metadata": {
+                        "raw_group_id": "12",
+                        "raw_global_group_id": "",
+                        "raw_block_order": 0,
+                        "provider_cross_column_merge_suspected": True,
+                        "provider_reading_order_unreliable": True,
+                    },
+                },
+                {
+                    "block_id": "p001-b0002",
+                    "page_index": 0,
+                    "order": 1,
+                    "metadata": {
+                        "raw_group_id": "12",
+                        "raw_global_group_id": "",
+                        "raw_block_order": 1,
+                    },
+                },
+            ],
+        }
+    ]
+
+    assign_paddle_continuation_hints(pages)
+
+    first, second = pages[0]["blocks"]
+    assert first["continuation_hint"] == default_block_continuation_hint()
+    assert second["continuation_hint"] == default_block_continuation_hint()
+    assert first["metadata"]["provider_continuation_suppressed"] is True
+    assert second["metadata"]["provider_continuation_suppressed"] is True
+    assert first["metadata"]["provider_continuation_suppressed_reason"] == "cross_column_merge_suspected"

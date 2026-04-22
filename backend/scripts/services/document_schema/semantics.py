@@ -25,6 +25,25 @@ def normalized_sub_type(payload: dict | None) -> str:
     return str(source.get("sub_type", "") or "").strip().lower()
 
 
+def layout_role(payload: dict | None) -> str:
+    source = payload or {}
+    return str(source.get("layout_role", "") or "").strip().lower()
+
+
+def semantic_role(payload: dict | None) -> str:
+    source = payload or {}
+    return str(source.get("semantic_role", "") or "").strip().lower()
+
+
+def policy_translate(payload: dict | None) -> bool | None:
+    source = payload or {}
+    policy = source.get("policy", {}) or {}
+    value = policy.get("translate")
+    if isinstance(value, bool):
+        return value
+    return None
+
+
 def has_any_tag(payload: dict | None, tags: set[str]) -> bool:
     source = payload or {}
     return bool(normalize_tags(source.get("tags", [])) & tags)
@@ -75,3 +94,18 @@ def is_body_structure_role(payload: dict | None) -> bool:
 def is_body_like_structure_role(payload: dict | None) -> bool:
     role = structure_role(payload)
     return role in {"", "body", "example_line"}
+
+
+def body_repair_applied(payload: dict | None) -> bool:
+    source = payload or {}
+    return bool(source.get("body_repair_applied") or source.get("provider_body_repair_applied"))
+
+
+def body_repair_role(payload: dict | None) -> str:
+    source = payload or {}
+    return str(source.get("body_repair_role", source.get("provider_body_repair_role", "")) or "").strip().lower()
+
+
+def body_repair_peer_block_id(payload: dict | None) -> str:
+    source = payload or {}
+    return str(source.get("body_repair_peer_block_id", source.get("provider_suspected_peer_block_id", "")) or "").strip()

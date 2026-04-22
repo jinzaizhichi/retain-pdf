@@ -27,7 +27,7 @@ export function mountWorkflowFeature({
     DEFAULT_MODE,
     DEFAULT_RULE_PROFILE,
     DEFAULT_RENDER_MODE,
-    WORKFLOW_MINERU,
+    WORKFLOW_BOOK,
     WORKFLOW_TRANSLATE,
     WORKFLOW_RENDER,
   } = constants;
@@ -84,7 +84,7 @@ export function mountWorkflowFeature({
   }
 
   function workflowUsesRenderStage(workflow = currentWorkflow()) {
-    return workflow === WORKFLOW_MINERU || workflow === WORKFLOW_RENDER;
+    return workflow === WORKFLOW_BOOK || workflow === WORKFLOW_RENDER;
   }
 
   function workflowSubmitLabel(workflow = currentWorkflow()) {
@@ -93,7 +93,7 @@ export function mountWorkflowFeature({
         return "开始渲染";
       case WORKFLOW_TRANSLATE:
         return "开始翻译";
-      case WORKFLOW_MINERU:
+      case WORKFLOW_BOOK:
         return hasAppliedPageRange() ? "开始翻译" : "全书翻译";
       default:
         return hasAppliedPageRange() ? "开始翻译" : "全书翻译";
@@ -121,7 +121,7 @@ export function mountWorkflowFeature({
         ? "render 会跳过 OCR 与翻译，直接复用已有任务产物重新渲染 PDF。"
         : workflow === WORKFLOW_TRANSLATE
           ? "translate 会执行 OCR 与翻译，但不会进入最终 PDF 渲染。"
-          : "mineru 会完整执行 OCR、翻译与 PDF 渲染。";
+          : "book 会完整执行 OCR、翻译与 PDF 渲染。";
     }
   }
 
@@ -264,7 +264,7 @@ export function mountWorkflowFeature({
         timeout_seconds: developerConfig.timeoutSeconds,
       },
     };
-    if (workflow === WORKFLOW_MINERU || workflow === WORKFLOW_TRANSLATE) {
+    if (workflow === WORKFLOW_BOOK || workflow === WORKFLOW_TRANSLATE) {
       payload.ocr = {
         provider: "mineru",
         mineru_token: $("mineru_token").value || defaultMineruToken(),

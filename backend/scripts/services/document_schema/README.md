@@ -210,8 +210,10 @@ provider 原始 OCR 不应直接进入翻译/渲染主线。
 
 - `services/document_schema/providers.py`
   稳定 OCR provider 标识常量，adapter、fixture registry、回归脚本优先共用这一层
+- `services/pipeline_shared/`
+  主线共享的 `pipeline_summary.json`、stdout 标签、JSON IO 和 source-json 选择规则
 - `services/mineru/contracts.py`
-  当前 provider 实现使用的原始文件名、目录名和 stdout 标签约定
+  仅保留 MinerU provider 私有原始文件名、目录名约定
 
 当前正式 provider adapter 有：
 

@@ -5,7 +5,7 @@ import os
 import re
 
 from services.rendering.layout.payload.shared import get_render_protected_text
-from services.translation.llm.deepseek_client import request_chat_content
+from services.translation.llm.shared.provider_runtime import request_chat_content
 
 
 TYPST_REPAIR_MODEL_ENV = "TYPST_REPAIR_MODEL"

@@ -25,5 +25,5 @@
 更细的实现细节仍保留在后端目录：
 
 - `backend/rust_api/API_SPEC.md`
-- `backend/rust_api/MinerU_OCR_Service_API.md`
-  当前 OCR provider 接入实现说明（文件名仍保留历史命名）
+- `backend/rust_api/OCR_Service_API.md`
+  当前 OCR-only 接入实现说明

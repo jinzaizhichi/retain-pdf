@@ -16,12 +16,18 @@ from foundation.shared.stage_specs import resolve_credential_ref
 from foundation.shared.tee_output import enable_job_log_capture
 from runtime.pipeline.book_pipeline import run_book_pipeline
 from services.document_schema import DOCUMENT_SCHEMA_REPORT_FILE_NAME
-from services.mineru.contracts import PIPELINE_SUMMARY_FILE_NAME
-from services.mineru.summary import print_pipeline_summary
-from services.mineru.summary import write_pipeline_summary
-from services.translation.llm import DEFAULT_BASE_URL
-from services.translation.llm import get_api_key
-from services.translation.llm import normalize_base_url
+from services.pipeline_shared.contracts import PIPELINE_SUMMARY_FILE_NAME
+from services.pipeline_shared.contracts import PIPELINE_EVENTS_FILE_NAME
+from services.pipeline_shared.contracts import STDOUT_LABEL_EVENTS_JSONL
+from services.pipeline_shared.events import emit_artifact_published
+from services.pipeline_shared.events import emit_stage_transition
+from services.pipeline_shared.events import PipelineEventWriter
+from services.pipeline_shared.events import pipeline_event_writer_scope
+from services.pipeline_shared.summary import print_pipeline_summary
+from services.pipeline_shared.summary import write_pipeline_summary
+from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL
+from services.translation.llm.shared.provider_runtime import get_api_key
+from services.translation.llm.shared.provider_runtime import normalize_base_url
 from services.translation.terms import parse_glossary_json
 
 
@@ -99,6 +105,12 @@ def main() -> None:
 
     job_dirs = job_dirs_from_explicit_args(args)
     enable_job_log_capture(job_dirs.logs_dir, prefix="translate-from-ocr")
+    event_writer = PipelineEventWriter(
+        job_id=spec.job.job_id,
+        job_root=job_dirs.root,
+        logs_dir=job_dirs.logs_dir,
+        workflow=spec.job.workflow,
+    )
     source_json_path = Path(args.source_json).resolve()
     source_pdf_path = Path(args.source_pdf).resolve()
     layout_json_path = Path(args.layout_json).resolve() if args.layout_json.strip() else source_json_path
@@ -107,74 +119,94 @@ def main() -> None:
     translated_pdf_name = args.translated_pdf_name.strip() or f"{source_pdf_path.stem}-translated.pdf"
     output_pdf_path = job_dirs.rendered_dir / translated_pdf_name
 
-    api_key = get_api_key(
-        args.api_key,
-        required=normalize_base_url(args.base_url) == normalize_base_url(DEFAULT_BASE_URL),
-    )
-    result = run_book_pipeline(
-        source_json_path=source_json_path,
-        source_pdf_path=source_pdf_path,
-        output_dir=translations_dir,
-        output_pdf_path=output_pdf_path,
-        api_key=api_key,
-        start_page=args.start_page,
-        end_page=args.end_page,
-        batch_size=args.batch_size,
-        workers=args.workers,
-        model=args.model,
-        base_url=args.base_url,
-        mode=args.mode,
-        math_mode=args.math_mode,
-        classify_batch_size=args.classify_batch_size,
-        skip_title_translation=args.skip_title_translation,
-        render_mode=args.render_mode,
-        rule_profile_name=args.rule_profile_name,
-        custom_rules_text=args.custom_rules_text,
-        glossary_id=args.glossary_id,
-        glossary_name=args.glossary_name,
-        glossary_resource_entry_count=args.glossary_resource_entry_count,
-        glossary_inline_entry_count=args.glossary_inline_entry_count,
-        glossary_overridden_entry_count=args.glossary_overridden_entry_count,
-        glossary_entries=parse_glossary_json(args.glossary_json),
-        compile_workers=args.compile_workers or None,
-        typst_font_family=args.typst_font_family,
-        pdf_compress_dpi=args.pdf_compress_dpi,
-        invocation=build_stage_invocation_metadata(
-            stage="book",
-            stage_spec_schema_version=stage_spec_schema_version,
-        ),
-    )
+    with pipeline_event_writer_scope(event_writer):
+        emit_stage_transition(
+            stage="startup",
+            message="translate-from-ocr worker 已启动",
+        )
+        print(f"{STDOUT_LABEL_EVENTS_JSONL}: {event_writer.path}", flush=True)
+        api_key = get_api_key(
+            args.api_key,
+            required=normalize_base_url(args.base_url) == normalize_base_url(DEFAULT_BASE_URL),
+        )
+        emit_stage_transition(
+            stage="translation_prepare",
+            message="开始准备翻译和渲染阶段",
+        )
+        result = run_book_pipeline(
+            source_json_path=source_json_path,
+            source_pdf_path=source_pdf_path,
+            output_dir=translations_dir,
+            output_pdf_path=output_pdf_path,
+            api_key=api_key,
+            start_page=args.start_page,
+            end_page=args.end_page,
+            batch_size=args.batch_size,
+            workers=args.workers,
+            model=args.model,
+            base_url=args.base_url,
+            mode=args.mode,
+            math_mode=args.math_mode,
+            classify_batch_size=args.classify_batch_size,
+            skip_title_translation=args.skip_title_translation,
+            render_mode=args.render_mode,
+            rule_profile_name=args.rule_profile_name,
+            custom_rules_text=args.custom_rules_text,
+            glossary_id=args.glossary_id,
+            glossary_name=args.glossary_name,
+            glossary_resource_entry_count=args.glossary_resource_entry_count,
+            glossary_inline_entry_count=args.glossary_inline_entry_count,
+            glossary_overridden_entry_count=args.glossary_overridden_entry_count,
+            glossary_entries=parse_glossary_json(args.glossary_json),
+            compile_workers=args.compile_workers or None,
+            typst_font_family=args.typst_font_family,
+            pdf_compress_dpi=args.pdf_compress_dpi,
+            invocation=build_stage_invocation_metadata(
+                stage="book",
+                stage_spec_schema_version=stage_spec_schema_version,
+            ),
+        )
 
-    summary_path = job_dirs.artifacts_dir / PIPELINE_SUMMARY_FILE_NAME
-    write_pipeline_summary(
-        summary_path=summary_path,
-        job_root=job_dirs.root,
-        source_pdf_path=source_pdf_path,
-        layout_json_path=layout_json_path,
-        normalized_json_path=source_json_path,
-        normalization_report_path=normalization_report_path,
-        source_json_path=source_json_path,
-        result=result,
-        mode=args.mode,
-        model=args.model,
-        base_url=args.base_url,
-        render_mode=args.render_mode,
-        pdf_compress_dpi=args.pdf_compress_dpi,
-        invocation=build_stage_invocation_metadata(
-            stage="book",
-            stage_spec_schema_version=stage_spec_schema_version,
-        ),
-    )
-    print_pipeline_summary(
-        job_root=job_dirs.root,
-        source_pdf_path=source_pdf_path,
-        layout_json_path=layout_json_path,
-        normalized_json_path=source_json_path,
-        normalization_report_path=normalization_report_path,
-        source_json_path=source_json_path,
-        summary_path=summary_path,
-        result=result,
-    )
+        summary_path = job_dirs.artifacts_dir / PIPELINE_SUMMARY_FILE_NAME
+        write_pipeline_summary(
+            summary_path=summary_path,
+            job_root=job_dirs.root,
+            source_pdf_path=source_pdf_path,
+            layout_json_path=layout_json_path,
+            normalized_json_path=source_json_path,
+            normalization_report_path=normalization_report_path,
+            source_json_path=source_json_path,
+            result=result,
+            mode=args.mode,
+            model=args.model,
+            base_url=args.base_url,
+            render_mode=args.render_mode,
+            pdf_compress_dpi=args.pdf_compress_dpi,
+            invocation=build_stage_invocation_metadata(
+                stage="book",
+                stage_spec_schema_version=stage_spec_schema_version,
+            ),
+        )
+        emit_artifact_published(
+            artifact_key="pipeline_events_jsonl",
+            path=event_writer.path,
+            stage="saving",
+            message="统一事件流已写出",
+        )
+        emit_stage_transition(
+            stage="finished",
+            message="translate-from-ocr 全流程完成",
+        )
+        print_pipeline_summary(
+            job_root=job_dirs.root,
+            source_pdf_path=source_pdf_path,
+            layout_json_path=layout_json_path,
+            normalized_json_path=source_json_path,
+            normalization_report_path=normalization_report_path,
+            source_json_path=source_json_path,
+            summary_path=summary_path,
+            result=result,
+        )
 
 
 if __name__ == "__main__":

@@ -15,6 +15,11 @@
 - `devtools/`
   实验、迁移、示例、测试探针、诊断脚本。
 
+其中 `services/` 内部现在又明确分成两类：
+
+- provider / translation / rendering 这类能力模块
+- `services/pipeline_shared/` 这类跨阶段共享协议模块
+
 ## 主链路
 
 核心流程可以概括成：
@@ -56,7 +61,7 @@
 - `scripts/entrypoints/run_book.py`
   当前最上层完整入口。通过 `book.stage.v1` 串起 `normalize -> translate -> render`，适合人工本地跑整条主链路。
 - `scripts/entrypoints/run_provider_case.py`
-  本地一条命令跑“provider -> normalize -> translate -> render”的通用入口名。当前底层实现仍接 MinerU，但入口名不再暴露 provider。
+  本地一条命令跑“provider -> normalize -> translate -> render”的通用入口名。底层由 provider 分发层决定具体 OCR 实现，入口名不暴露 provider。
 - `scripts/entrypoints/run_document_flow.py`
   已经有 OCR JSON 和 PDF 时，优先用这个中性入口名跑完整流程。
 - `scripts/entrypoints/run_normalize_ocr.py`
@@ -87,6 +92,12 @@
 1. `run_book.py --spec <job_root>/specs/book.spec.json`
 2. 或 Rust API 提交 job，让 Rust 通过 spec 驱动三个 worker
 
+如果要改翻译链路，推荐阅读顺序是：
+
+1. `services/translation/README.md`
+2. `services/translation/llm/README.md`
+3. 再按需要进入 `services/translation/llm/providers/` 或 `services/translation/llm/shared/orchestration/`
+
 ## 新 Provider 接入顺序
 
 如果后续要接新的 OCR provider，先按这个顺序走，不要直接改翻译/渲染主线：
@@ -108,6 +119,8 @@
 
 - `services/mineru`
   MinerU 接入、下载、解包、job 组织。
+- `services/pipeline_shared`
+  provider / translate / render 共用的阶段协议、summary 和 JSON IO。
 - `services/translation`
   OCR payload 到翻译 JSON。
 - `services/rendering`
@@ -178,7 +191,7 @@
 - `job.job_root` 是路径推导锚点；各阶段内部通过 `job_dirs.py` 派生 `source/ocr/translated/rendered/artifacts/logs`
 - 密钥不明文写入 spec
   - 翻译 key 通过 `credential_ref=env:RETAIN_TRANSLATION_API_KEY`
-  - MinerU token 通过 `credential_ref=env:RETAIN_MINERU_API_TOKEN`
+  - 如果 provider 是 `mineru`，对应 token 通过 `credential_ref=env:RETAIN_MINERU_API_TOKEN`
   - 运行时由 Rust 注入环境变量，Python 通过 `stage_specs.resolve_credential_ref(...)` 读取
 - Rust 主工作流和本地 book/translate 入口都已切到 spec-only
   - `run_normalize_ocr.py`
@@ -215,6 +228,7 @@
 
 ## 子目录文档
 
+- [PIPELINE_DIRECTORY_MAP.md](./PIPELINE_DIRECTORY_MAP.md)
 - [foundation/config/README.md](./foundation/config/README.md)
 - [foundation/shared/README.md](./foundation/shared/README.md)
 - [runtime/pipeline/README.md](./runtime/pipeline/README.md)
@@ -235,3 +249,20 @@
 - `foundation/` 不承载具体业务流程
 - `entrypoints/` 只做入口，不承载核心实现
 - `devtools/` 不能反向成为主链路依赖
+
+## 架构检查
+
+日常改动建议至少跑这两条：
+
+- `python3 backend/rust_api/scripts/check_architecture.py`
+- `python3 backend/scripts/devtools/check_pipeline_architecture.py`
+
+第二条负责卡住 Python 主链最容易回退的边界：
+
+- `runtime/pipeline` 重新直接 import `services.ocr_provider` / `services.mineru`
+- `runtime/pipeline` 重新理解 provider raw token，例如 `layoutParsingResults`
+- `services/translation` / `services/rendering` 重新碰 provider raw adapter
+- `entrypoints/*` 绕过稳定入口，直接连深层实现
+- `services/ocr_provider/__init__.py` 丢掉显式公共导出面
+- `services/ocr_provider/provider_pipeline.py` 丢掉稳定 compat symbol 或不再承担主链 handoff
+- `services/ocr_provider/paddle_*` 反向依赖 `runtime/pipeline` / `services/translation` / `services/rendering`

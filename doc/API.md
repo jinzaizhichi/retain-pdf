@@ -13,4 +13,4 @@
 后端实现相关的补充资料仍保留在：
 
 - `backend/rust_api/API_SPEC.md`
-- `backend/rust_api/MinerU_OCR_Service_API.md`
+- `backend/rust_api/OCR_Service_API.md`

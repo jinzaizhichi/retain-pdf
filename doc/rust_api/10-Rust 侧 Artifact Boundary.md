@@ -113,14 +113,14 @@ Rust 侧不应把 provider raw 和 normalized 混成一个概念。
 Rust 侧与这四层最直接相关的文件是：
 
 - `backend/rust_api/src/storage_paths.rs`
-- `backend/rust_api/src/services/artifacts.rs`
+- `backend/rust_api/src/services/artifacts/mod.rs`
 - `backend/rust_api/src/routes/jobs/download.rs`
 
 这三处的边界约定是：
 
 - `storage_paths.rs`
   负责路径约定、artifact key、文件解析和 published artifact 发现
-- `services/artifacts.rs`
+- `services/artifacts/*`
   负责 artifact registry、bundle 构建、资源路径映射
 - `routes/jobs/download.rs`
   负责 HTTP 下载入口适配
@@ -134,5 +134,5 @@ Rust 侧与这四层最直接相关的文件是：
 正确方向通常是：
 
 - provider 变化，改 adapter / normalize
-- published artifact 变化，改 `storage_paths.rs` / `services/artifacts.rs`
+- published artifact 变化，改 `storage_paths.rs` / `services/artifacts/*`
 - HTTP 暴露变化，改下载 route / facade

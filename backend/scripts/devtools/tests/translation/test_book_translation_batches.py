@@ -14,8 +14,8 @@ from runtime.pipeline.book_translation_batches import _dedupe_pending_items
 from runtime.pipeline.book_translation_batches import _expand_duplicate_results
 from runtime.pipeline.book_translation_batches import _effective_translation_batch_size
 from runtime.pipeline.book_translation_batches import _translate_batch_or_keep_origin
-from services.translation.llm.control_context import build_translation_control_context
-from services.translation.llm.control_context import resolve_engine_profile
+from services.translation.llm.shared.control_context import build_translation_control_context
+from services.translation.llm.shared.control_context import resolve_engine_profile
 from services.translation.orchestration.units import finalize_payload_orchestration_metadata
 from services.translation.payload.parts.units import pending_translation_items
 

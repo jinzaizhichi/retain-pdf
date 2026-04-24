@@ -107,6 +107,22 @@ provider transport
 
 - [ocr_flow/mod.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/ocr_flow/mod.rs)
 
+当前额外约束：
+
+- `ocr_flow/mod.rs`
+  是 OCR 子流程唯一 orchestrator
+- 只有它可以：
+  - 选择 local upload / remote url transport 分支
+  - 组装 provider client 并分发到具体 transport helper
+  - 组装 normalize stage command
+  - 把 OCR 子流程交回通用 `process_runner`
+- `ocr_flow/*` 其他子模块只负责：
+  - provider transport
+  - workspace/path 准备
+  - provider result/raw artifact 处理
+  - source pdf 恢复
+  - 已准备上传文件或远程 source pdf 的叶子 helper
+
 ## 4. 运行时主模块
 
 ### 4.1 `lifecycle`
@@ -119,18 +135,33 @@ provider transport
 
 - 任务进入队列
 - 获取执行槽位
+- cancel 短路与 queued 持久化
 - 根据 workflow 分发到：
   - `ocr_flow`
   - `translation_flow`
   - `render_flow`
 
-### 4.2 `commands`
+当前约定：
 
-目录：
+- `lifecycle.rs` 只保留 runner 顶层编排
+- `should_skip_job_execution(...)`
+  负责 cancel / canceled 短路
+- `persist_queued_job(...)`
+  负责 queued 状态持久化
+- `dispatch_workflow(...)`
+  负责 workflow -> runner flow 分发
+- `persist_failed_job(...)`
+  负责失败收尾
+- `clear_job_cancel_request(...)`
+  负责统一清理 cancel registry
 
-- [commands.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/commands.rs)
-- [commands/stage_specs.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/commands/stage_specs.rs)
-- [commands/entrypoints.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/commands/entrypoints.rs)
+### 4.2 stage command factory
+
+文件：
+
+- [job_command_factory.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_command_factory.rs)
+- [job_command_factory/stage_specs.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_command_factory/stage_specs.rs)
+- [job_command_factory/entrypoints.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_command_factory/entrypoints.rs)
 
 职责：
 
@@ -155,14 +186,29 @@ provider transport
 文件：
 
 - [process_runner.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner.rs)
+- [process_runner/startup.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner/startup.rs)
+- [process_runner/execution.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner/execution.rs)
+- [process_runner/result_support.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner/result_support.rs)
+- [process_runner/timeout_support.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner/timeout_support.rs)
+- [process_runner/failure_ai_diagnosis.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner/failure_ai_diagnosis.rs)
+- [process_runner/io_support.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner/io_support.rs)
 
 职责：
 
-- 执行命令
-- 读取 stdout/stderr
-- 超时处理
-- 完成态归类
-- AI failure diagnosis
+- `process_runner.rs`
+  只保留 orchestrator
+- `startup.rs`
+  启动 worker、写入 running 初始状态
+- `execution.rs`
+  读取 stdout/stderr、等待进程结束、处理 timeout 分支
+- `result_support.rs`
+  回填 `ProcessResult`
+- `timeout_support.rs`
+  timeout 落态和持久化
+- `failure_ai_diagnosis.rs`
+  AI failure diagnosis
+- `io_support.rs`
+  stdout/stderr 消费策略；叶子 helper 只拿 `JobPersistDeps + canceled_jobs`
 
 ### 4.5 `runtime_state`
 

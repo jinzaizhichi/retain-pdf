@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::error::AppError;
 use crate::models::CreateJobInput;
 use crate::services::artifacts::build_bundle_for_job;
-use crate::services::job_factory::start_job_execution;
+use crate::services::job_launcher::start_job_execution;
 
 use super::super::{validate_mineru_upload_limits, wait_for_terminal_job};
 use super::context::BundleBuildDeps;
@@ -30,25 +30,29 @@ async fn build_translation_bundle_artifact_with_resources(
     upload: UploadedPdfInput,
 ) -> Result<BundleArtifact, AppError> {
     let stored = store_pdf_upload(
-        ctx.creation.db,
-        &ctx.creation.config.uploads_dir,
-        ctx.creation.config.upload_max_bytes,
-        ctx.creation.config.upload_max_pages,
+        ctx.submit.uploads.db,
+        ctx.submit.uploads.uploads_dir,
+        ctx.submit.uploads.upload_max_bytes,
+        ctx.submit.uploads.upload_max_pages,
         upload,
     )
     .await?;
     request.source.upload_id = stored.upload_id.clone();
     validate_mineru_upload_limits(request, &stored)?;
-    let job = build_translation_job_snapshot(&ctx.creation, request)?;
-    let job = start_job_execution(&ctx.creation.launcher, job)?;
-    let finished_job =
-        wait_for_terminal_job(ctx.creation.db, &job.job_id, request.ocr.poll_timeout).await?;
+    let job = build_translation_job_snapshot(&ctx.submit.snapshot, request)?;
+    let job = start_job_execution(&ctx.submit.launcher, job)?;
+    let finished_job = wait_for_terminal_job(
+        ctx.submit.snapshot.db,
+        &job.job_id,
+        request.ocr.poll_timeout,
+    )
+    .await?;
 
     let _guard = ctx.downloads_lock.lock().await;
     let zip_path = build_bundle_for_job(
-        ctx.creation.db,
-        &ctx.creation.config.data_root,
-        &ctx.creation.config.downloads_dir,
+        ctx.submit.snapshot.db,
+        &ctx.submit.snapshot.config.data_root,
+        &ctx.submit.snapshot.config.downloads_dir,
         &finished_job,
     )?;
     Ok(BundleArtifact {

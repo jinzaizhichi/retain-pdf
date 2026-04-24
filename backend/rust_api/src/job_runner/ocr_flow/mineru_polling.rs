@@ -29,7 +29,7 @@ pub(super) async fn poll_uploaded_batch_until_ready(
     let started = std::time::Instant::now();
 
     loop {
-        if should_stop_polling(deps, &job.job_id).await {
+        if should_stop_polling(&deps.canceled_jobs, &job.job_id).await {
             return Ok(());
         }
         let Some(batch) = query_with_retry(
@@ -84,7 +84,7 @@ pub(super) async fn poll_remote_task_until_ready(
     let started = std::time::Instant::now();
 
     loop {
-        if should_stop_polling(deps, &job.job_id).await {
+        if should_stop_polling(&deps.canceled_jobs, &job.job_id).await {
             return Ok(());
         }
         let Some(task) = query_with_retry(

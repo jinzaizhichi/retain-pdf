@@ -35,6 +35,7 @@
 - translation 阶段允许读取源 PDF 做领域推断或策略辅助，但不拥有源 PDF 的渲染控制权
 - 如果启用了术语表，translation 阶段还会把术语表摘要写入 `translation-manifest.json`、诊断文件和 pipeline summary；这些字段属于元数据，不改变渲染输入协议
 - pipeline summary 与 translation manifest 现在还会写入 `invocation` 字段，用来声明当前阶段 schema 版本
+- 各阶段 worker 现在还会在 `logs/pipeline_events.jsonl` 追加统一阶段事件；这份文件是后续 Rust API 收口事件协议的过渡落点
 
 ### 3. Rendering 阶段
 
@@ -57,6 +58,8 @@
   只负责翻译阶段。输入 `document.v1.json` 和输出目录，完成页范围裁剪、学术模式策略装配和全书翻译，输出逐页 translation payload。
 - `render_stage.py`
   只负责渲染阶段。输入源 PDF 和翻译产物，按 `overlay`、`typst`、`dual` 等模式生成最终 PDF。
+- `services/pipeline_shared/`
+  不属于 `runtime/pipeline/`，但它承载跨阶段共享的 stdout contract、summary、统一 `pipeline_events.jsonl` 事件流和 JSON IO；pipeline 应依赖这层，而不是回头依赖某个 provider 模块的共享 helper。
 - `render_inputs.py`
   只负责校验 Render-only 调用协议，把 `source_pdf_path + translations_dir/translation_manifest_path` 规范化成渲染阶段可消费的稳定输入。
 - `render_mode.py`

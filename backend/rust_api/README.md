@@ -18,11 +18,13 @@
    [`API_SPEC.md`](/home/wxyhgk/tmp/Code/backend/rust_api/API_SPEC.md)
 6. Rust 和 Python stage spec 契约：
    [`STAGE_EXECUTION_CONTRACT.md`](/home/wxyhgk/tmp/Code/backend/rust_api/STAGE_EXECUTION_CONTRACT.md)
-7. OCR provider 边界：
+7. 阶段事件与失败协议：
+   [`../doc/rust_api/11-阶段事件与失败协议.md`](/home/wxyhgk/tmp/Code/doc/rust_api/11-%E9%98%B6%E6%AE%B5%E4%BA%8B%E4%BB%B6%E4%B8%8E%E5%A4%B1%E8%B4%A5%E5%8D%8F%E8%AE%AE.md)
+8. OCR provider 边界：
    [`OCR_PROVIDER_CONTRACT.md`](/home/wxyhgk/tmp/Code/backend/rust_api/OCR_PROVIDER_CONTRACT.md)
-8. Paddle OCR 异步 API 摘要：
+9. Paddle OCR 异步 API 摘要：
    [`src/ocr_provider/paddle/API_SUMMARY.md`](/home/wxyhgk/tmp/Code/backend/rust_api/src/ocr_provider/paddle/API_SUMMARY.md)
-8. Paddle Markdown / artifact 边界：
+10. Paddle Markdown / artifact 边界：
    [`../doc/paddle_ocr_api/06_job_artifact_boundary.md`](/home/wxyhgk/tmp/Code/doc/paddle_ocr_api/06_job_artifact_boundary.md)
 
 ## 每篇文档解决什么问题
@@ -39,6 +41,8 @@
   只看外部 HTTP 行为，重点回答“接口怎么调、返回什么、哪些字段是正式契约”。
 - [`STAGE_EXECUTION_CONTRACT.md`](/home/wxyhgk/tmp/Code/backend/rust_api/STAGE_EXECUTION_CONTRACT.md)
   只看 stage worker 的 spec 协议，重点回答“Rust 如何给 Python 传执行输入”。
+- [`../doc/rust_api/11-阶段事件与失败协议.md`](/home/wxyhgk/tmp/Code/doc/rust_api/11-%E9%98%B6%E6%AE%B5%E4%BA%8B%E4%BB%B6%E4%B8%8E%E5%A4%B1%E8%B4%A5%E5%8D%8F%E8%AE%AE.md)
+  只看状态/失败收口方向，重点回答“前后端与 Rust/Python 应该围绕哪套正式字段对齐”。
 - [`OCR_PROVIDER_CONTRACT.md`](/home/wxyhgk/tmp/Code/backend/rust_api/OCR_PROVIDER_CONTRACT.md)
   只看 provider adapter 边界，重点回答“MinerU / Paddle 在哪一层分发和收口”。
 - [`src/ocr_provider/paddle/API_SUMMARY.md`](/home/wxyhgk/tmp/Code/backend/rust_api/src/ocr_provider/paddle/API_SUMMARY.md)
@@ -69,5 +73,10 @@
 - `AppState` 回流到 `services/job_runner/ocr_provider`
 - `routes` 直接依赖 `job_runner`
 - `routes/jobs/*` 重新手写局部 `route_deps(...)`
+- `ProcessRuntimeDeps::new(...)` 在 `app` 边界层之外被随手组装
+- `JobPersistDeps` 从 leaf helper 边界重新外溢
+- `runtime_deps` 结构体被重新散落回多个 runner 文件
+- `state.rs` 重新把 stale running job recovery 混回 bootstrap
+- `lifecycle.rs` 重新退化回一个大函数，丢掉已收口的 helper 边界
 - artifact/download 边界层重新开始理解 provider raw 内部字段
 - published markdown artifact 重新从 `provider_raw_dir/full.md|images` 反推

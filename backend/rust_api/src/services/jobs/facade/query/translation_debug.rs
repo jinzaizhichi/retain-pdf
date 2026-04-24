@@ -3,11 +3,12 @@ use crate::models::{
     ListTranslationItemsQuery, TranslationDebugItemView, TranslationDebugListView,
     TranslationDiagnosticsView, TranslationReplayView,
 };
-use crate::services::jobs::{
-    load_supported_job, load_translation_debug_item_view, load_translation_debug_list_view,
+
+use super::super::super::debug::{
+    load_translation_debug_item_view, load_translation_debug_list_view,
     load_translation_diagnostics_view, replay_translation_item,
 };
-
+use super::super::super::presentation::load_supported_job;
 use super::super::JobsFacade;
 
 impl<'a> JobsFacade<'a> {

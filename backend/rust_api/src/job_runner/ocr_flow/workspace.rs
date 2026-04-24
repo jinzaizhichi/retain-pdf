@@ -2,14 +2,14 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
+use crate::config::AppConfig;
 use crate::models::JobRuntimeState;
 use crate::ocr_provider::OcrProviderKind;
 use crate::storage_paths::{build_job_paths, JobPaths};
 
 use crate::job_runner::{
-    attach_job_paths, job_artifacts_mut, ocr_provider_diagnostics_mut, ProcessRuntimeDeps,
-    MINERU_BUNDLE_FILE_NAME, MINERU_LAYOUT_JSON_FILE_NAME, MINERU_RESULT_FILE_NAME,
-    MINERU_UNPACK_DIR_NAME,
+    attach_job_paths, job_artifacts_mut, ocr_provider_diagnostics_mut, MINERU_BUNDLE_FILE_NAME,
+    MINERU_LAYOUT_JSON_FILE_NAME, MINERU_RESULT_FILE_NAME, MINERU_UNPACK_DIR_NAME,
 };
 
 pub(super) struct OcrWorkspace {
@@ -23,13 +23,13 @@ pub(super) struct OcrWorkspace {
 
 impl OcrWorkspace {
     pub(super) fn prepare(
-        deps: &ProcessRuntimeDeps,
+        config: &AppConfig,
         job: &mut JobRuntimeState,
         provider_kind: &OcrProviderKind,
         output_job_id_override: Option<String>,
     ) -> Result<Self> {
         let output_job_id = output_job_id_override.unwrap_or_else(|| job.job_id.clone());
-        let job_paths = build_job_paths(&deps.config.output_root, &output_job_id)?;
+        let job_paths = build_job_paths(&config.output_root, &output_job_id)?;
         attach_job_paths(job, &job_paths);
 
         let source_dir = job_paths.source_dir.clone();

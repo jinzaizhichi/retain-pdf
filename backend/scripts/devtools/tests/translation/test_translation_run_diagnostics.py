@@ -26,6 +26,8 @@ def load_deepseek_client():
         "services": REPO_SCRIPTS_ROOT / "services",
         "services.translation": REPO_SCRIPTS_ROOT / "services" / "translation",
         "services.translation.llm": REPO_SCRIPTS_ROOT / "services" / "translation" / "llm",
+        "services.translation.llm.providers": REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "providers",
+        "services.translation.llm.providers.deepseek": REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "providers" / "deepseek",
         "services.translation.policy": REPO_SCRIPTS_ROOT / "services" / "translation" / "policy",
         "services.document_schema": REPO_SCRIPTS_ROOT / "services" / "document_schema",
     }
@@ -36,8 +38,8 @@ def load_deepseek_client():
             module.__path__ = [str(path)]
             sys.modules[name] = module
     spec = importlib.util.spec_from_file_location(
-        "services.translation.llm.deepseek_client",
-        REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "deepseek_client.py",
+        "services.translation.llm.providers.deepseek.client",
+        REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "providers" / "deepseek" / "client.py",
     )
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module

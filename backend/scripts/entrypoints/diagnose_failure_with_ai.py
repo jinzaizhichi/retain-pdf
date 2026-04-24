@@ -7,18 +7,19 @@ import sys
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from services.translation.llm import DEFAULT_BASE_URL
-from services.translation.llm import extract_json_text
-from services.translation.llm import get_api_key
-from services.translation.llm import normalize_base_url
-from services.translation.llm import request_chat_content
+from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL
+from services.translation.llm.shared.provider_runtime import DEFAULT_MODEL
+from services.translation.llm.shared.provider_runtime import get_api_key
+from services.translation.llm.shared.provider_runtime import normalize_base_url
+from services.translation.llm.shared.provider_runtime import request_chat_content
+from services.translation.llm.shared.response_parsing import extract_json_text
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Best-effort AI diagnosis for unknown job failures.")
     parser.add_argument("--input-json", type=str, required=True, help="Path to failure context JSON")
     parser.add_argument("--api-key", type=str, default="", help="Optional model API key")
-    parser.add_argument("--model", type=str, default="deepseek-chat", help="Model name")
+    parser.add_argument("--model", type=str, default=DEFAULT_MODEL, help="Model name")
     parser.add_argument("--base-url", type=str, default=DEFAULT_BASE_URL, help="OpenAI-compatible API base URL")
     parser.add_argument("--timeout", type=int, default=45, help="Diagnosis request timeout in seconds")
     return parser.parse_args()
@@ -43,7 +44,7 @@ def build_messages(payload: dict) -> list[dict[str, str]]:
 def main() -> None:
     args = parse_args()
     payload = json.loads(Path(args.input_json).read_text(encoding="utf-8"))
-    model = (args.model or "").strip() or "deepseek-chat"
+    model = (args.model or "").strip() or DEFAULT_MODEL
     base_url = (args.base_url or "").strip() or DEFAULT_BASE_URL
 
     api_key = get_api_key(

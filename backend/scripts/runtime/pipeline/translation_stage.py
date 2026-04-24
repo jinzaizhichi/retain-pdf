@@ -13,7 +13,8 @@ from services.translation.session_context import build_translation_context_from_
 from services.translation.terms import GlossaryEntry
 from services.translation.terms import summarize_glossary_usage
 from runtime.pipeline.render_mode import resolve_page_range
-from services.translation.llm import DEFAULT_BASE_URL
+from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL
+from services.translation.llm.shared.provider_runtime import DEFAULT_MODEL
 from services.translation.policy import build_book_translation_policy_config
 from services.translation.workflow import default_page_translation_name
 from runtime.pipeline.book_translation_flow import translate_book_with_global_continuations
@@ -32,7 +33,7 @@ def translate_book_pipeline(
     math_mode: str = "direct_typst",
     classify_batch_size: int = 12,
     skip_title_translation: bool = False,
-    model: str = "deepseek-chat",
+    model: str = DEFAULT_MODEL,
     base_url: str = DEFAULT_BASE_URL,
     source_pdf_path: Path | None = None,
     rule_profile_name: str = "general_sci",

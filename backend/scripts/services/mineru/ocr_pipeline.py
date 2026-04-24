@@ -9,12 +9,12 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from foundation.shared.job_dirs import add_explicit_job_dir_args
 from services.document_schema import DOCUMENT_SCHEMA_REPORT_FILE_NAME
 from services.mineru.artifacts import build_mineru_artifact_paths
-from services.mineru.contracts import STDOUT_LABEL_JOB_ROOT
-from services.mineru.contracts import STDOUT_LABEL_LAYOUT_JSON
-from services.mineru.contracts import STDOUT_LABEL_NORMALIZATION_REPORT_JSON
-from services.mineru.contracts import STDOUT_LABEL_NORMALIZED_DOCUMENT_JSON
-from services.mineru.contracts import STDOUT_LABEL_SOURCE_PDF
-from services.mineru.contracts import format_stdout_kv
+from services.pipeline_shared.contracts import STDOUT_LABEL_JOB_ROOT
+from services.pipeline_shared.contracts import STDOUT_LABEL_LAYOUT_JSON
+from services.pipeline_shared.contracts import STDOUT_LABEL_NORMALIZATION_REPORT_JSON
+from services.pipeline_shared.contracts import STDOUT_LABEL_NORMALIZED_DOCUMENT_JSON
+from services.pipeline_shared.contracts import STDOUT_LABEL_SOURCE_PDF
+from services.pipeline_shared.contracts import format_stdout_kv
 from services.mineru.job_flow import run_mineru_to_job_dir
 
 

@@ -192,26 +192,25 @@ Job status values:
 Typical stage values:
 
 - `queued`
-- `mineru_upload`
-- `mineru_processing`
+- `startup`
+- `ocr_submitting`
+- `ocr_processing`
+- `normalization`
 - `translation_prepare`
 - `domain_inference`
 - `continuation_review`
 - `page_policies`
 - `translating`
+- `render_prepare`
 - `rendering`
 - `saving`
 - `finished`
 - `failed`
 - `canceled`
 
-Additional OCR-child-related stage values used by the current pipeline:
-
-- `ocr_submitting`
-- `mineru_upload`
-- `mineru_processing`
-- `translation_prepare`
-- `normalizing`
+Provider-specific state is no longer part of the formal top-level stage enum.
+Provider-private progress may still appear through `provider` + `provider_stage`,
+for example `mineru_upload`, `mineru_processing`, or `paddle_running`.
 
 Queue semantics:
 
@@ -234,8 +233,20 @@ Query parameters:
 Behavior:
 
 - events are returned in ascending `seq` order
-- each event includes `job_id`, `seq`, `ts`, `level`, `stage`, `event`, `message`, `payload`
-- runtime also persists the same stream to `DATA_ROOT/jobs/<job_id>/logs/events.jsonl`
+- runtime merges DB events and `DATA_ROOT/jobs/<job_id>/logs/pipeline_events.jsonl`
+- each event includes legacy compatibility fields:
+  - `job_id`, `seq`, `ts`, `level`, `stage`, `event`, `message`, `payload`
+- each event also includes formal fields when available:
+  - `stage_detail`
+  - `provider`
+  - `provider_stage`
+  - `event_type`
+  - `progress_current`
+  - `progress_total`
+  - `retry_count`
+  - `elapsed_ms`
+- `event` remains a compatibility alias for legacy clients; new clients should prefer `event_type`
+- `stage` uses the unified pipeline stage enum, while provider-private state stays in `provider_stage`
 
 ## 1. Upload PDF
 
@@ -274,7 +285,7 @@ Response:
 
 Note:
 
-- `workflow = "book"` is the current API workflow identifier for the provider-backed full flow
+- `workflow = "book"` is the current API workflow identifier for the full document flow
 - this is a protocol enum; OCR provider selection remains under `ocr.provider`
 - local manual entrypoints may use the neutral `run_provider_case.py` name while the API enum remains unchanged
 
@@ -313,7 +324,7 @@ Canonical JSON request:
     "custom_rules_text": "",
     "glossary_id": "",
     "glossary_entries": [],
-    "model": "deepseek-chat",
+    "model": "deepseek-v4-flash",
     "base_url": "https://api.deepseek.com/v1",
     "api_key": "sk-xxxx",
     "start_page": 0,
@@ -358,10 +369,12 @@ Endpoint boundary:
 
 - `/api/v1/jobs` is for `book`, `translate`, and `render`
 - `/api/v1/ocr/jobs` is for OCR-only jobs
+- `/api/v1/translate/bundle` is the synchronous multipart helper for the same full flow; flat multipart fields remain supported here, including `provider=paddle|mineru`
 
 Required provider fields:
 
-- `ocr.mineru_token` when the workflow/provider needs MinerU
+- `ocr.mineru_token` when `ocr.provider=mineru`
+- `ocr.paddle_token` when `ocr.provider=paddle`
 - `translation.base_url`, `translation.api_key`, and `translation.model` when translation is required
 
 Translation options:
@@ -375,6 +388,7 @@ Validation:
 - `ocr.mineru_token` must not be a URL-like string
 - `translation.base_url` must start with `http://` or `https://`
 - `translation.api_key` must not be a URL-like string
+- provider-specific upstream limits apply only to the selected OCR provider, not to the shared `workflow=book` protocol itself
 - Rust API no longer supplies default OCR provider / LLM credentials for `create_job`
 - legacy flat JSON fields such as `upload_id`, `model`, and `api_key` are rejected by `/api/v1/jobs`; flat field mapping only remains in selected multipart helper endpoints
 
@@ -636,6 +650,25 @@ Response:
   }
 }
 ```
+
+Failure contract:
+
+- `data.failure` is the formal failure object when a job has entered structured failure classification
+- formal failure fields include:
+  - `failed_stage`
+  - `failure_code`
+  - `failure_category`
+  - `provider`
+  - `provider_stage`
+  - `provider_code`
+  - `summary`
+  - `root_cause`
+  - `retryable`
+  - `upstream_host`
+  - `suggestion`
+  - `last_log_line`
+  - `raw_excerpt`
+- `data.failure_diagnostic` is kept as a compatibility projection for older clients and is derived from `data.failure` when formal fields are present
 
 Main job detail now also includes OCR-child-facing fields in `artifacts` / detail payload:
 
@@ -1088,5 +1121,5 @@ Legacy jobs using `originPDF/jsonPDF/transPDF/typstPDF` or absolute-path artifac
 - Rust only orchestrates jobs and exposes resources
 - Python worker remains the single execution implementation, driven by stage spec files
 - later migration to dedicated Python worker service is straightforward because the API contract is already stable
-- `workflow = "book"` is the current protocol identifier for the provider-backed full flow
+- `workflow = "book"` is the current protocol identifier for the full document flow
 - it is kept for API stability and does not imply user-facing entrypoint names must expose the provider

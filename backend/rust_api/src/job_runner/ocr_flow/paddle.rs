@@ -106,7 +106,7 @@ async fn run_paddle_poll_loop(
 
     let started = std::time::Instant::now();
     loop {
-        if should_stop_polling(deps, &job.job_id).await {
+        if should_stop_polling(&deps.canceled_jobs, &job.job_id).await {
             return Ok(());
         }
         let task = client

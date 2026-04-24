@@ -27,7 +27,7 @@
 ## 推荐入口
 
 - `scripts/entrypoints/run_provider_case.py`
-  本地人工使用时优先走这个通用入口名。当前底层仍复用 MinerU pipeline，但入口不再把 provider 名字写死。
+  本地人工使用时优先走这个通用入口名。它是中性入口名，不把 provider 名字写死。
 - `mineru_pipeline.py`
   `entrypoints/run_provider_case.py` 背后的稳定实现。
 - `mineru_job.py`
@@ -62,13 +62,18 @@
 - `document_v1.py`
   只负责 MinerU 的 `layout.json -> document.v1.json`
 - `artifacts.py`
-  只负责 MinerU 产物路径和主链路 source JSON 选择
+  只负责 MinerU 产物路径和 provider 内部文件组织
 - `contracts.py`
-  只负责 MinerU 主线共享约定：产物文件名、目录名、stdout 标签
+  只负责 MinerU provider 私有产物文件名、目录名
 - `job_flow.py`
   只负责任务编排、下载解包和持久化
 - `mineru_pipeline.py`
   只负责把规范化后的 OCR 输入送进翻译/渲染主链路
+
+注意：
+
+- 主线 `pipeline_summary.json`、stdout labels、source-json 选择规则都已经收口到 `services/pipeline_shared/`
+- `services/mineru/` 不再承担任何共享规范壳
 
 现在这条链路已经通过 `services/document_schema/adapters.py` 暴露为统一 adapter，
 也就是 MinerU 不再直接把自己的原始结构泄漏到翻译主线。

@@ -1,149 +1,55 @@
-use std::path::Path;
-use std::process::Stdio;
-use std::time::Instant;
-
-use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
-use tokio::time::{timeout, Duration};
-use tracing::info;
-
-use crate::job_events::{
-    persist_job_with_resources, persist_runtime_job_with_resources,
-    record_custom_runtime_event_with_resources,
-};
 #[cfg(test)]
 use crate::models::JobArtifacts;
-use crate::models::{
-    now_iso, public_request_payload, JobAiDiagnostic, JobRuntimeState, JobStatusKind, ProcessResult,
-};
-use crate::storage_paths::resolve_data_path;
+use crate::models::JobRuntimeState;
+use anyhow::Result;
 
 use super::cancel_registry::is_cancel_requested_any;
-use super::runtime_state::apply_job_stdout_line;
-use super::{
-    attach_job_provider_failure, clear_canceled_runtime_artifacts, clear_job_failure,
-    refresh_job_failure, sync_runtime_state, terminate_job_process_tree,
-    worker_process::spawn_worker_process, ProcessRuntimeDeps,
+use super::ProcessRuntimeDeps;
+
+mod completion;
+mod execution;
+mod failure_ai_diagnosis;
+mod io_support;
+mod result_support;
+mod startup;
+mod timeout_support;
+
+use self::completion::{
+    apply_process_completion, classify_process_completion, should_treat_shutdown_noise_as_success,
 };
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ProcessCompletionKind {
-    Canceled,
-    Succeeded,
-    SucceededWithShutdownNoise,
-    Failed,
-}
-
-#[derive(Debug, Serialize)]
-struct FailureAiDiagnosisRequest<'a> {
-    job_id: &'a str,
-    workflow: &'a crate::models::WorkflowKind,
-    status: &'a JobStatusKind,
-    stage: Option<&'a str>,
-    stage_detail: Option<&'a str>,
-    failure: &'a crate::models::JobFailureInfo,
-    error: Option<&'a str>,
-    log_tail: &'a [String],
-    request_payload: &'a crate::models::PublicResolvedJobSpec,
-    runtime: Option<&'a crate::models::JobRuntimeInfo>,
-    ocr_provider_diagnostics: Option<&'a crate::ocr_provider::OcrProviderDiagnostics>,
-}
-
-#[derive(Debug, Deserialize)]
-struct FailureAiDiagnosisResponse {
-    status: Option<String>,
-    summary: Option<String>,
-    root_cause: Option<String>,
-    suggestion: Option<String>,
-    confidence: Option<String>,
-    observed_signals: Option<Vec<String>>,
-}
+#[cfg(test)]
+use self::completion::{is_shutdown_noise, ProcessCompletionKind};
+use self::execution::{collect_process_execution, ProcessExecution};
+use self::failure_ai_diagnosis::maybe_attach_ai_failure_diagnosis;
+#[cfg(test)]
+use self::io_support::should_continue_after_cancel;
+use self::result_support::attach_process_result;
+use self::startup::spawn_started_process;
+#[cfg(test)]
+use self::timeout_support::apply_timeout_failure;
+#[cfg(test)]
+use self::timeout_support::timeout_detail_for_stage;
 
 pub(crate) async fn execute_process_job(
     deps: ProcessRuntimeDeps,
-    mut job: JobRuntimeState,
+    job: JobRuntimeState,
     extra_cancel_job_ids: &[String],
 ) -> Result<JobRuntimeState> {
-    job.status = JobStatusKind::Running;
-    if job.started_at.is_none() {
-        job.started_at = Some(now_iso());
-    }
-    if job.stage.is_none() || matches!(job.stage.as_deref(), Some("queued")) {
-        job.stage = Some("running".to_string());
-        job.stage_detail = Some("正在启动 Python worker".to_string());
-    }
-    job.updated_at = now_iso();
-    sync_runtime_state(&mut job);
-
-    let mut child = spawn_worker_process(&deps, &job)?;
-    job.pid = child.id();
-    persist_runtime_job_with_resources(
-        deps.db.as_ref(),
-        &deps.config.data_root,
-        &deps.config.output_root,
-        &job,
-    )?;
-    info!("started job {} pid={:?}", job.job_id, job.pid);
-
-    if is_cancel_requested_any(&deps.canceled_jobs, &job.job_id, extra_cancel_job_ids).await {
-        if let Some(pid) = job.pid {
-            terminate_job_process_tree(pid).await?;
-        }
-    }
-
-    let stdout = child.stdout.take().context("missing stdout pipe")?;
-    let stderr = child.stderr.take().context("missing stderr pipe")?;
-    let child_pid = job.pid;
-    let timeout_secs = job.request_payload.runtime.timeout_seconds;
-    let stdout_handle = tokio::spawn(read_stdout(
-        deps.clone(),
-        job,
-        stdout,
-        extra_cancel_job_ids.to_vec(),
-    ));
-    let stderr_handle = tokio::spawn(read_stream(stderr));
-    let started = Instant::now();
-
-    let status = if timeout_secs > 0 {
-        match timeout(Duration::from_secs(timeout_secs as u64), child.wait()).await {
-            Ok(result) => result?,
-            Err(_) => {
-                if let Some(pid) = child_pid {
-                    let _ = terminate_job_process_tree(pid).await;
-                }
-                let mut timed_out_job = deps.db.get_job(&stdout_handle.await??.1.job_id)?;
-                apply_timeout_failure(&mut timed_out_job, now_iso());
-                persist_job_with_resources(
-                    deps.db.as_ref(),
-                    &deps.config.data_root,
-                    &deps.config.output_root,
-                    &timed_out_job,
-                )?;
-                return Ok(timed_out_job.into_runtime());
-            }
-        }
-    } else {
-        child.wait().await?
+    let (job, child) = spawn_started_process(&deps, job, extra_cancel_job_ids).await?;
+    let execution = collect_process_execution(&deps, child, job, extra_cancel_job_ids).await?;
+    let completed = match execution {
+        ProcessExecution::Completed(completed) => completed,
+        ProcessExecution::TimedOut(timed_out_job) => return Ok(timed_out_job),
     };
-    let stdout_job = stdout_handle.await??;
-    let stderr_text = stderr_handle.await??;
-    let stdout_text = stdout_job.0;
-    let mut latest_job = stdout_job.1;
-    latest_job.updated_at = now_iso();
-    latest_job.finished_at = Some(now_iso());
-    latest_job.pid = None;
-    latest_job.result = Some(ProcessResult {
-        success: status.success(),
-        return_code: status.code().unwrap_or(-1),
-        duration_seconds: started.elapsed().as_secs_f64(),
-        command: latest_job.command.clone(),
-        cwd: deps.config.project_root.to_string_lossy().to_string(),
-        stdout: stdout_text,
-        stderr: stderr_text.clone(),
-    });
+    let mut latest_job = completed.latest_job;
+    attach_process_result(
+        &mut latest_job,
+        &completed.status,
+        completed.started,
+        completed.stdout_text,
+        &completed.stderr_text,
+        &deps.config.project_root,
+    );
 
     let completion = classify_process_completion(
         is_cancel_requested_any(
@@ -152,325 +58,13 @@ pub(crate) async fn execute_process_job(
             extra_cancel_job_ids,
         )
         .await,
-        status.success(),
-        should_treat_shutdown_noise_as_success(&latest_job, &stderr_text),
+        completed.status.success(),
+        should_treat_shutdown_noise_as_success(&latest_job, &completed.stderr_text),
     );
-    apply_process_completion(&mut latest_job, completion, &stderr_text);
+    apply_process_completion(&mut latest_job, completion, &completed.stderr_text);
     maybe_attach_ai_failure_diagnosis(deps.db.as_ref(), deps.config.as_ref(), &mut latest_job)
         .await;
     Ok(latest_job)
-}
-
-fn timeout_detail_for_stage(stage: Option<&str>) -> &'static str {
-    match stage {
-        Some("normalizing") => "normalization timeout",
-        _ => "provider timeout",
-    }
-}
-
-fn apply_timeout_failure(job: &mut crate::models::JobSnapshot, timestamp: String) {
-    let timeout_detail = timeout_detail_for_stage(job.stage.as_deref()).to_string();
-    job.pid = None;
-    job.updated_at = timestamp.clone();
-    job.finished_at = Some(timestamp);
-    job.status = JobStatusKind::Failed;
-    job.stage = Some("failed".to_string());
-    job.stage_detail = Some(timeout_detail.clone());
-    job.error = Some(timeout_detail);
-    job.sync_runtime_state();
-    job.replace_failure_info(crate::job_failure::classify_job_failure(job));
-}
-
-fn classify_process_completion(
-    canceled: bool,
-    process_success: bool,
-    shutdown_noise_success: bool,
-) -> ProcessCompletionKind {
-    if canceled {
-        ProcessCompletionKind::Canceled
-    } else if process_success {
-        ProcessCompletionKind::Succeeded
-    } else if shutdown_noise_success {
-        ProcessCompletionKind::SucceededWithShutdownNoise
-    } else {
-        ProcessCompletionKind::Failed
-    }
-}
-
-fn apply_process_completion(
-    job: &mut JobRuntimeState,
-    completion: ProcessCompletionKind,
-    stderr_text: &str,
-) {
-    match completion {
-        ProcessCompletionKind::Canceled => {
-            job.status = JobStatusKind::Canceled;
-            job.stage = Some("canceled".to_string());
-            job.stage_detail = Some("任务已取消".to_string());
-            clear_canceled_runtime_artifacts(job);
-            clear_job_failure(job);
-        }
-        ProcessCompletionKind::Succeeded => {
-            job.status = JobStatusKind::Succeeded;
-            job.stage = Some("finished".to_string());
-            job.stage_detail = Some("任务完成".to_string());
-            clear_job_failure(job);
-        }
-        ProcessCompletionKind::SucceededWithShutdownNoise => {
-            job.status = JobStatusKind::Succeeded;
-            job.stage = Some("finished".to_string());
-            job.stage_detail = Some("任务完成（已忽略 Python 退出阶段的收尾噪音）".to_string());
-            job.error = None;
-            clear_job_failure(job);
-            job.append_log(
-                "INFO: ignored Python shutdown noise after artifacts were already written successfully",
-            );
-        }
-        ProcessCompletionKind::Failed => {
-            attach_job_provider_failure(job, stderr_text);
-            job.status = JobStatusKind::Failed;
-            job.stage = Some("failed".to_string());
-            if job
-                .stage_detail
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .is_none()
-            {
-                job.stage_detail = Some("Python worker 执行失败".to_string());
-            }
-            job.error = Some(stderr_text.to_string());
-            refresh_job_failure(job);
-        }
-    }
-    sync_runtime_state(job);
-}
-
-fn should_treat_shutdown_noise_as_success(job: &JobRuntimeState, stderr_text: &str) -> bool {
-    let stderr = stderr_text.trim();
-    if stderr.is_empty() {
-        return false;
-    }
-    let is_shutdown_noise = is_shutdown_noise(stderr);
-    if !is_shutdown_noise {
-        return false;
-    }
-    let Some(artifacts) = job.artifacts.as_ref() else {
-        return false;
-    };
-    let output_pdf_ready = artifacts
-        .output_pdf
-        .as_deref()
-        .map(Path::new)
-        .is_some_and(Path::exists);
-    let translations_ready = artifacts
-        .translations_dir
-        .as_deref()
-        .map(Path::new)
-        .is_some_and(Path::exists);
-    let summary_ready = artifacts
-        .summary
-        .as_deref()
-        .map(Path::new)
-        .is_some_and(Path::exists);
-    match job.workflow {
-        crate::models::WorkflowKind::Translate => translations_ready && summary_ready,
-        _ => output_pdf_ready && summary_ready,
-    }
-}
-
-async fn maybe_attach_ai_failure_diagnosis(
-    db: &crate::db::Db,
-    config: &crate::config::AppConfig,
-    job: &mut JobRuntimeState,
-) {
-    let Some(failure_snapshot) = job.failure.clone() else {
-        return;
-    };
-    if failure_snapshot.category != "unknown" || failure_snapshot.ai_diagnostic.is_some() {
-        return;
-    }
-    let script_path = &config.run_failure_ai_diagnosis_script;
-    if !script_path.exists() {
-        return;
-    }
-
-    let job_root = job
-        .artifacts
-        .as_ref()
-        .and_then(|artifacts| artifacts.job_root.as_ref())
-        .and_then(|job_root| resolve_data_path(&config.data_root, job_root).ok())
-        .unwrap_or_else(|| config.output_root.join(&job.job_id));
-    let logs_dir = job_root.join("logs");
-    let request_path = logs_dir.join("failure-ai-diagnosis.request.json");
-    let response_path = logs_dir.join("failure-ai-diagnosis.response.json");
-    if std::fs::create_dir_all(&logs_dir).is_err() {
-        return;
-    }
-
-    let public_request_payload = public_request_payload(&job.request_payload);
-    let request_payload = FailureAiDiagnosisRequest {
-        job_id: &job.job_id,
-        workflow: &job.workflow,
-        status: &job.status,
-        stage: job.stage.as_deref(),
-        stage_detail: job.stage_detail.as_deref(),
-        failure: &failure_snapshot,
-        error: job.error.as_deref(),
-        log_tail: &job.log_tail,
-        request_payload: &public_request_payload,
-        runtime: job.runtime.as_ref(),
-        ocr_provider_diagnostics: job
-            .artifacts
-            .as_ref()
-            .and_then(|artifacts| artifacts.ocr_provider_diagnostics.as_ref()),
-    };
-
-    let request_json = match serde_json::to_string_pretty(&request_payload) {
-        Ok(value) => value,
-        Err(_) => return,
-    };
-    if std::fs::write(&request_path, request_json).is_err() {
-        return;
-    }
-
-    let mut command = Command::new(&config.python_bin);
-    command
-        .arg("-u")
-        .arg(script_path)
-        .arg("--input-json")
-        .arg(&request_path)
-        .arg("--model")
-        .arg(&job.request_payload.translation.model)
-        .arg("--base-url")
-        .arg(&job.request_payload.translation.base_url)
-        .env("RUST_API_DATA_ROOT", &config.data_root)
-        .env("RUST_API_OUTPUT_ROOT", &config.output_root)
-        .env("OUTPUT_ROOT", &config.output_root)
-        .env("PYTHONUNBUFFERED", "1")
-        .current_dir(&config.project_root)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if !job.request_payload.translation.api_key.trim().is_empty() {
-        command.env(
-            "RETAIN_TRANSLATION_API_KEY",
-            job.request_payload.translation.api_key.trim(),
-        );
-    }
-
-    let output = match timeout(Duration::from_secs(60), command.output()).await {
-        Ok(Ok(value)) => value,
-        _ => return,
-    };
-
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let response_record = json!({
-        "status_code": output.status.code(),
-        "stdout": stdout,
-        "stderr": stderr,
-    });
-    let _ = std::fs::write(
-        &response_path,
-        serde_json::to_string_pretty(&response_record).unwrap_or_default(),
-    );
-
-    if !output.status.success() || stdout.is_empty() {
-        return;
-    }
-
-    let Ok(response) = serde_json::from_str::<FailureAiDiagnosisResponse>(&stdout) else {
-        return;
-    };
-    if response.status.as_deref() != Some("ok") {
-        return;
-    }
-    let summary = response.summary.unwrap_or_default().trim().to_string();
-    if summary.is_empty() {
-        return;
-    }
-    let ai_diagnostic = JobAiDiagnostic {
-        summary: summary.clone(),
-        root_cause: response.root_cause.filter(|value| !value.trim().is_empty()),
-        suggestion: response.suggestion.filter(|value| !value.trim().is_empty()),
-        confidence: response.confidence.filter(|value| !value.trim().is_empty()),
-        observed_signals: response.observed_signals.unwrap_or_default(),
-    };
-    if let Some(failure) = job.failure.as_mut() {
-        failure.ai_diagnostic = Some(ai_diagnostic.clone());
-    }
-    job.updated_at = now_iso();
-    let event_payload = json!({
-        "category": failure_snapshot.category,
-        "summary": failure_snapshot.summary,
-        "ai_diagnostic": ai_diagnostic,
-    });
-    record_custom_runtime_event_with_resources(
-        db,
-        &config.data_root,
-        &config.output_root,
-        &job.snapshot(),
-        "info",
-        "failure_ai_diagnosed",
-        "AI 辅助诊断已生成",
-        Some(event_payload),
-    );
-}
-
-async fn read_stream<R>(reader: R) -> Result<String>
-where
-    R: tokio::io::AsyncRead + Unpin,
-{
-    let mut lines = BufReader::new(reader).lines();
-    let mut out = String::new();
-    while let Some(line) = lines.next_line().await? {
-        out.push_str(&line);
-        out.push('\n');
-    }
-    Ok(out)
-}
-
-async fn read_stdout(
-    deps: ProcessRuntimeDeps,
-    mut job: JobRuntimeState,
-    stdout: tokio::process::ChildStdout,
-    extra_cancel_job_ids: Vec<String>,
-) -> Result<(String, JobRuntimeState)> {
-    let mut out = String::new();
-    let mut lines = BufReader::new(stdout).lines();
-    while let Some(line) = lines.next_line().await? {
-        if is_cancel_requested_any(&deps.canceled_jobs, &job.job_id, &extra_cancel_job_ids).await
-            && !should_continue_after_cancel(&job)
-        {
-            break;
-        }
-        out.push_str(&line);
-        out.push('\n');
-        apply_job_stdout_line(&mut job, &line);
-        if is_cancel_requested_any(&deps.canceled_jobs, &job.job_id, &extra_cancel_job_ids).await
-            && !should_continue_after_cancel(&job)
-        {
-            break;
-        }
-        job.updated_at = now_iso();
-        persist_runtime_job_with_resources(
-            deps.db.as_ref(),
-            &deps.config.data_root,
-            &deps.config.output_root,
-            &job,
-        )?;
-    }
-    Ok((out, job))
-}
-
-fn should_continue_after_cancel(job: &JobRuntimeState) -> bool {
-    matches!(job.stage.as_deref(), Some("normalizing"))
-}
-
-fn is_shutdown_noise(stderr: &str) -> bool {
-    stderr.contains("Exception ignored in")
-        || stderr.contains("sys.unraisablehook")
-        || stderr.contains("Exception ignored in sys.unraisablehook")
 }
 
 #[cfg(test)]
@@ -483,7 +77,8 @@ mod tests {
     use crate::config::AppConfig;
     use crate::db::Db;
     use crate::job_events::persist_runtime_job_with_resources;
-    use crate::models::CreateJobInput;
+    use crate::models::{now_iso, CreateJobInput, JobStatusKind};
+    use crate::ocr_provider::{provider_token_env_name, OcrProviderKind};
     use crate::AppState;
     use tokio::sync::{Mutex, RwLock, Semaphore};
 
@@ -701,6 +296,11 @@ print(json.dumps({
             stage: "translation".to_string(),
             category: "unknown".to_string(),
             code: None,
+            failed_stage: Some("translation".to_string()),
+            failure_code: Some("unknown".to_string()),
+            failure_category: Some("internal".to_string()),
+            provider_stage: None,
+            provider_code: None,
             summary: "任务失败，但暂未识别出明确根因".to_string(),
             root_cause: Some("Traceback (most recent call last):".to_string()),
             retryable: true,
@@ -708,6 +308,7 @@ print(json.dumps({
             provider: Some("translation".to_string()),
             suggestion: Some("查看日志".to_string()),
             last_log_line: Some("RuntimeError: boom".to_string()),
+            raw_excerpt: Some("RuntimeError: boom".to_string()),
             raw_error_excerpt: Some("RuntimeError: boom".to_string()),
             raw_diagnostic: None,
             ai_diagnostic: None,
@@ -792,19 +393,22 @@ print(json.dumps({
     #[tokio::test]
     async fn execute_process_job_injects_provider_and_translation_envs() {
         let state = test_state("provider-envs");
+        let paddle_env = provider_token_env_name(&OcrProviderKind::Paddle).expect("paddle env");
+        let mineru_env = provider_token_env_name(&OcrProviderKind::Mineru).expect("mineru env");
         let mut job = crate::models::JobSnapshot::new(
             "job-provider-envs".to_string(),
             CreateJobInput::default(),
             vec![
                 "python3".to_string(),
                 "-c".to_string(),
-                r#"import json, os
-print(json.dumps({
+                format!(
+                    r#"import json, os
+print(json.dumps({{
   "translation": os.environ.get("RETAIN_TRANSLATION_API_KEY", ""),
-  "paddle": os.environ.get("RETAIN_PADDLE_API_TOKEN", ""),
-  "mineru": os.environ.get("RETAIN_MINERU_API_TOKEN", "")
-}, ensure_ascii=False))"#
-                    .to_string(),
+  "paddle": os.environ.get({paddle_env:?}, ""),
+  "mineru": os.environ.get({mineru_env:?}, "")
+}}, ensure_ascii=False))"#
+                ),
             ],
         )
         .into_runtime();
@@ -814,9 +418,18 @@ print(json.dumps({
         job.request_payload.ocr.paddle_token = "paddle-env-test".to_string();
         job.request_payload.ocr.mineru_token = String::new();
 
-        let finished = execute_process_job(ProcessRuntimeDeps::from_state(&state), job, &[])
-            .await
-            .expect("execute process job");
+        let finished = execute_process_job(
+            ProcessRuntimeDeps::new(
+                state.config.clone(),
+                state.db.clone(),
+                state.canceled_jobs.clone(),
+                state.job_slots.clone(),
+            ),
+            job,
+            &[],
+        )
+        .await
+        .expect("execute process job");
 
         assert_eq!(finished.status, JobStatusKind::Succeeded);
         let result = finished.result.as_ref().expect("process result");

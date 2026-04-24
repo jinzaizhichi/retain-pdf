@@ -80,7 +80,7 @@
 
 注意：
 
-- `book` 是现在 provider-backed full flow 的正式 API 标识
+- `book` 是现在完整主链路的正式 API 标识
 - **不是** `mineru`
 - OCR provider 选择不靠 workflow，而靠 `ocr.provider`
 
@@ -99,7 +99,7 @@
 关键代码：
 
 - Rust 写 spec：
-  - [`src/job_runner/commands.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/commands.rs)
+  - [`src/services/job_command_factory.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_command_factory.rs)
 - Python 按 provider 分发：
   - [`backend/scripts/services/ocr_provider/provider_pipeline.py`](/home/wxyhgk/tmp/Code/backend/scripts/services/ocr_provider/provider_pipeline.py)
 
@@ -149,8 +149,9 @@ Rust 路由：
 
 主要代码：
 
-- [`src/services/jobs/creation.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/jobs/creation.rs)
-- [`src/services/job_factory.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_factory.rs)
+- [`src/services/jobs/creation`](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/jobs/creation)
+- [`src/services/job_snapshot_factory.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_snapshot_factory.rs)
+- [`src/services/job_launcher.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_launcher.rs)
 
 注意：
 
@@ -158,7 +159,7 @@ Rust 路由：
 - `jobs` 相关用例已经统一先经过 `JobsFacade`
 - `uploads` / `glossaries` 也分别经过 `upload_api` / `glossary_api`
 
-### 第三步：job_runner 选择 worker
+### 第三步：Rust 组装 stage 命令和 spec
 
 Rust 根据 workflow 组装命令：
 
@@ -169,7 +170,9 @@ Rust 根据 workflow 组装命令：
 
 主要代码：
 
-- [`src/job_runner/commands.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/commands.rs)
+- [`src/services/job_command_factory.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_command_factory.rs)
+- [`src/services/job_command_factory/entrypoints.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_command_factory/entrypoints.rs)
+- [`src/services/job_command_factory/stage_specs.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_command_factory/stage_specs.rs)
 
 ### 第四步：Rust 写 stage spec
 
@@ -189,7 +192,16 @@ Rust 根据 workflow 组装命令：
 
 - `ocr.provider`
 
-### 第五步：Rust 启动 Python worker
+### 第五步：job_runner 进入运行时主链
+
+当前真实入口：
+
+- [`src/app/jobs.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/app/jobs.rs)
+  把 `AppState` 压缩成 `ProcessRuntimeDeps`
+- [`src/job_runner/lifecycle.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/lifecycle.rs)
+  负责 queued、执行槽位、workflow 分发
+
+### 第六步：Rust 启动 Python worker
 
 这里会把必要 env 注入进去：
 
@@ -200,8 +212,11 @@ Rust 根据 workflow 组装命令：
 主要代码：
 
 - [`src/job_runner/process_runner.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner.rs)
+- [`src/job_runner/process_runner/startup.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner/startup.rs)
+- [`src/job_runner/process_runner/execution.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner/execution.rs)
+- [`src/job_runner/worker_process.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/worker_process.rs)
 
-### 第六步：Python worker 执行
+### 第七步：Python worker 执行
 
 `run_provider_case.py` -> `provider_pipeline.main()`
 
@@ -280,13 +295,39 @@ Rust 根据 workflow 组装命令：
 - 主协议认 `provider.stage.v1`
 - 主 summary 文件认 `pipeline_summary.json`
 
-## 9. 现在最该记住的三句话
+## 9. 当前事件与失败收口
+
+当前正式事件流已经是：
+
+- Python worker 写 `DATA_ROOT/jobs/<job_id>/logs/pipeline_events.jsonl`
+- Rust 查询层合并 DB events 和 `pipeline_events.jsonl`
+- Rust detail/list 优先使用 live pipeline stage 快照，而不是陈旧的 DB `job.stage`
+
+当前正式失败口径已经是：
+
+- `data.failure`
+
+兼容字段仍保留，但角色已经固定：
+
+- `data.failure_diagnostic`
+  仅作为 `failure` 的兼容投影
+- `events[*].event`
+  兼容旧客户端；新客户端应优先读 `event_type`
+- `events[*].message`
+  调试/兼容文案；正式语义优先看 `stage_detail` + `event_type`
+
+阶段分层规则也已经固定：
+
+- 顶层统一阶段放在 `stage`
+- provider 私有状态放在 `provider_stage`
+
+## 10. 现在最该记住的三句话
 
 1. `workflow=book` 才是 provider-backed 全流程，不再是 `mineru`
 2. OCR provider 选择看 `ocr.provider`，不是看 workflow 名字
 3. Rust 和 Python 的稳定边界是 `--spec <stage>.spec.json`
 
-## 10. 排查时先看哪几个文件
+## 11. 排查时先看哪几个文件
 
 如果你只想快速定位问题，优先按这个顺序看：
 
@@ -296,7 +337,7 @@ Rust 根据 workflow 组装命令：
 
 ### 看 Rust 到底起了哪个 Python 脚本
 
-- [`src/job_runner/commands.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/commands.rs)
+- [`src/services/job_command_factory.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_command_factory.rs)
 
 ### 看 Python provider 总入口怎么分发
 

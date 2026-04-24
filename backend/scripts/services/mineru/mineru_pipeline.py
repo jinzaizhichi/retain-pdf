@@ -13,15 +13,15 @@ from foundation.shared.stage_specs import ProviderStageSpec
 from foundation.shared.stage_specs import resolve_credential_ref
 from foundation.shared.tee_output import enable_job_log_capture
 from services.document_schema import DOCUMENT_SCHEMA_REPORT_FILE_NAME
-from services.mineru.artifacts import resolve_translation_source_json_path
-from services.mineru.contracts import MINERU_PIPELINE_SUMMARY_FILE_NAME
 from services.mineru.job_flow import run_mineru_to_job_dir
-from services.mineru.summary import print_pipeline_summary
-from services.mineru.summary import write_pipeline_summary
+from services.pipeline_shared.contracts import PIPELINE_SUMMARY_FILE_NAME
+from services.pipeline_shared.summary import print_pipeline_summary
+from services.pipeline_shared.summary import write_pipeline_summary
+from services.pipeline_shared.source_json import resolve_translation_source_json_path
 from runtime.pipeline.book_pipeline import run_book_pipeline
-from services.translation.llm import DEFAULT_BASE_URL
-from services.translation.llm import get_api_key
-from services.translation.llm import normalize_base_url
+from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL
+from services.translation.llm.shared.provider_runtime import get_api_key
+from services.translation.llm.shared.provider_runtime import normalize_base_url
 from services.translation.terms import parse_glossary_json
 
 
@@ -161,7 +161,7 @@ def main() -> None:
         ),
     )
 
-    summary_path = job_dirs.artifacts_dir / MINERU_PIPELINE_SUMMARY_FILE_NAME
+    summary_path = job_dirs.artifacts_dir / PIPELINE_SUMMARY_FILE_NAME
     write_pipeline_summary(
         summary_path=summary_path,
         job_root=job_dirs.root,

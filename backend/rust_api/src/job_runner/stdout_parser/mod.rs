@@ -1,26 +1,19 @@
-use crate::models::{JobArtifacts, JobSnapshot};
-use crate::ocr_provider::{
-    ensure_provider_diagnostics, parse_provider_kind, OcrProviderDiagnostics,
-};
+use crate::models::JobSnapshot;
 
 mod artifact_rules;
 mod failure;
+mod labels;
 mod stage_rules;
+mod state;
 
 pub use failure::attach_provider_failure;
-
-pub const STDOUT_LABEL_JOB_ROOT: &str = "job root";
-pub const STDOUT_LABEL_SOURCE_PDF: &str = "source pdf";
-pub const STDOUT_LABEL_LAYOUT_JSON: &str = "layout json";
-pub const STDOUT_LABEL_NORMALIZED_DOCUMENT_JSON: &str = "normalized document json";
-pub const STDOUT_LABEL_NORMALIZATION_REPORT_JSON: &str = "normalization report json";
-pub const STDOUT_LABEL_PROVIDER_RAW_DIR: &str = "provider raw dir";
-pub const STDOUT_LABEL_PROVIDER_ZIP: &str = "provider zip";
-pub const STDOUT_LABEL_PROVIDER_SUMMARY_JSON: &str = "provider summary json";
-pub const STDOUT_LABEL_SCHEMA_VERSION: &str = "schema version";
-pub const STDOUT_LABEL_TRANSLATIONS_DIR: &str = "translations dir";
-pub const STDOUT_LABEL_OUTPUT_PDF: &str = "output pdf";
-pub const STDOUT_LABEL_SUMMARY: &str = "summary";
+pub use labels::{
+    STDOUT_LABEL_JOB_ROOT, STDOUT_LABEL_LAYOUT_JSON, STDOUT_LABEL_NORMALIZATION_REPORT_JSON,
+    STDOUT_LABEL_NORMALIZED_DOCUMENT_JSON, STDOUT_LABEL_OUTPUT_PDF, STDOUT_LABEL_PROVIDER_RAW_DIR,
+    STDOUT_LABEL_PROVIDER_SUMMARY_JSON, STDOUT_LABEL_PROVIDER_ZIP, STDOUT_LABEL_SCHEMA_VERSION,
+    STDOUT_LABEL_SOURCE_PDF, STDOUT_LABEL_SUMMARY, STDOUT_LABEL_TRANSLATIONS_DIR,
+};
+pub(crate) use state::{job_artifacts_mut, ocr_provider_diagnostics_mut, parse_labeled_value};
 
 pub fn apply_line(job: &mut JobSnapshot, line: &str) {
     let stripped = line.trim();
@@ -32,26 +25,6 @@ pub fn apply_line(job: &mut JobSnapshot, line: &str) {
     artifact_rules::apply_artifact_line(job, stripped);
     artifact_rules::apply_metric_line(job, stripped);
     stage_rules::apply_stage_line(job, stripped);
-}
-
-fn parse_labeled_value<'a>(line: &'a str, label: &str) -> Option<&'a str> {
-    line.strip_prefix(label)
-        .and_then(|rest| rest.strip_prefix(':'))
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-}
-
-fn job_artifacts_mut(job: &mut JobSnapshot) -> &mut JobArtifacts {
-    if job.artifacts.is_none() {
-        job.artifacts = Some(JobArtifacts::default());
-    }
-    job.artifacts.as_mut().unwrap()
-}
-
-fn ocr_provider_diagnostics_mut(job: &mut JobSnapshot) -> &mut OcrProviderDiagnostics {
-    let provider_kind = parse_provider_kind(&job.request_payload.ocr.provider);
-    let artifacts = job_artifacts_mut(job);
-    ensure_provider_diagnostics(artifacts, provider_kind)
 }
 
 #[cfg(test)]
@@ -124,11 +97,11 @@ mod tests {
     }
 
     #[test]
-    fn apply_line_moves_to_normalizing_on_layout_json_marker() {
+    fn apply_line_moves_to_normalizing_on_normalization_report_marker() {
         let mut job = build_job();
         apply_line(
             &mut job,
-            &format!("{STDOUT_LABEL_LAYOUT_JSON}: /tmp/layout.json"),
+            &format!("{STDOUT_LABEL_NORMALIZATION_REPORT_JSON}: /tmp/document.v1.report.json"),
         );
         assert_eq!(job.stage.as_deref(), Some("normalizing"));
     }
@@ -162,6 +135,17 @@ mod tests {
                 .as_ref()
                 .and_then(|s| s.stage.as_deref()),
             Some("mineru_processing")
+        );
+    }
+
+    #[test]
+    fn apply_line_no_longer_guesses_translation_stage_from_text_progress() {
+        let mut job = build_job();
+        apply_line(&mut job, "book: completed batch 2/10");
+        assert_eq!(job.stage.as_deref(), Some("queued"));
+        assert_eq!(
+            job.stage_detail.as_deref(),
+            Some("任务已创建，等待可用执行槽位")
         );
     }
 

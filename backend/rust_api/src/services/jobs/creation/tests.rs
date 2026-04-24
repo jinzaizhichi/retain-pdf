@@ -9,9 +9,11 @@ use crate::config::AppConfig;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{now_iso, CreateJobInput, JobSnapshot, UploadRecord, WorkflowKind};
+use crate::services::job_launcher::JobLaunchDeps;
+use crate::services::runtime_gateway::JobRuntimeLauncher;
 use crate::AppState;
 
-use super::context::CreationDeps;
+use super::context::{JobSubmitDeps, SnapshotBuildDeps, UploadStoreDeps};
 use super::job_builders::{build_ocr_job_snapshot, build_translation_job_snapshot};
 use super::submit::create_translation_job;
 use super::upload::{store_pdf_upload, UploadedPdfInput};
@@ -71,8 +73,26 @@ fn test_state(test_name: &str) -> AppState {
     }
 }
 
-fn creation_context<'a>(state: &'a AppState) -> CreationDeps<'a> {
-    CreationDeps::from_state(state)
+fn snapshot_context<'a>(state: &'a AppState) -> SnapshotBuildDeps<'a> {
+    SnapshotBuildDeps::new(state.db.as_ref(), state.config.as_ref())
+}
+
+fn submit_context<'a>(state: &'a AppState) -> JobSubmitDeps<'a> {
+    JobSubmitDeps::new(
+        snapshot_context(state),
+        UploadStoreDeps::new(
+            state.db.as_ref(),
+            &state.config.uploads_dir,
+            state.config.upload_max_bytes,
+            state.config.upload_max_pages,
+        ),
+        JobLaunchDeps::new(
+            state.db.as_ref(),
+            &state.config.data_root,
+            &state.config.output_root,
+            JobRuntimeLauncher::new(Arc::new(|_| {})),
+        ),
+    )
 }
 
 fn build_test_pdf_bytes() -> Vec<u8> {
@@ -169,7 +189,7 @@ fn create_translation_job_rejects_missing_upload_id_for_translate_workflow() {
     let state = test_state("translate-missing-upload");
     let input = base_translation_input(WorkflowKind::Translate);
 
-    let err = create_translation_job(&creation_context(&state), &input)
+    let err = create_translation_job(&submit_context(&state), &input)
         .expect_err("missing upload should fail");
     match err {
         AppError::BadRequest(message) => assert_eq!(message, "upload_id is required"),
@@ -182,7 +202,7 @@ fn create_translation_job_rejects_missing_artifact_job_for_render_workflow() {
     let state = test_state("render-missing-artifact");
     let input = base_translation_input(WorkflowKind::Render);
 
-    let err = create_translation_job(&creation_context(&state), &input)
+    let err = create_translation_job(&submit_context(&state), &input)
         .expect_err("missing artifact job should fail");
     match err {
         AppError::BadRequest(message) => assert_eq!(
@@ -224,7 +244,7 @@ fn build_translation_job_snapshot_for_full_pipeline_succeeds() {
     let mut input = base_translation_input(WorkflowKind::Book);
     input.source.upload_id = upload.upload_id.clone();
 
-    let job = build_translation_job_snapshot(&creation_context(&state), &input)
+    let job = build_translation_job_snapshot(&snapshot_context(&state), &input)
         .expect("build full pipeline snapshot");
 
     assert_eq!(job.workflow, WorkflowKind::Book);
@@ -243,7 +263,7 @@ fn build_translation_job_snapshot_for_render_succeeds_with_existing_artifact_job
     let mut input = base_translation_input(WorkflowKind::Render);
     input.source.artifact_job_id = "artifact-source-job".to_string();
 
-    let job = build_translation_job_snapshot(&creation_context(&state), &input)
+    let job = build_translation_job_snapshot(&snapshot_context(&state), &input)
         .expect("build render snapshot");
 
     assert_eq!(job.workflow, WorkflowKind::Render);
@@ -260,7 +280,7 @@ fn build_ocr_job_snapshot_supports_source_url_without_upload() {
     let mut input = base_translation_input(WorkflowKind::Ocr);
     input.source.source_url = "https://example.com/input.pdf".to_string();
 
-    let job = build_ocr_job_snapshot(&creation_context(&state), &input, None)
+    let job = build_ocr_job_snapshot(&snapshot_context(&state), &input, None)
         .expect("build ocr snapshot");
 
     assert_eq!(job.workflow, WorkflowKind::Ocr);

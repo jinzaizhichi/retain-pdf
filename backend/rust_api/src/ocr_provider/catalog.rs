@@ -1,4 +1,4 @@
-use crate::models::JobArtifacts;
+use crate::models::{JobArtifacts, OcrInput};
 
 use super::{mineru, paddle, OcrProviderCapabilities, OcrProviderDiagnostics, OcrProviderKind};
 
@@ -6,6 +6,9 @@ use super::{mineru, paddle, OcrProviderCapabilities, OcrProviderDiagnostics, Ocr
 pub struct OcrProviderDefinition {
     pub kind: OcrProviderKind,
     pub key: &'static str,
+    pub display_name: &'static str,
+    pub token_field_name: &'static str,
+    pub token_env_name: &'static str,
     pub capabilities: OcrProviderCapabilities,
 }
 
@@ -14,11 +17,17 @@ pub fn provider_definition(kind: &OcrProviderKind) -> Option<OcrProviderDefiniti
         OcrProviderKind::Mineru => Some(OcrProviderDefinition {
             kind: OcrProviderKind::Mineru,
             key: "mineru",
+            display_name: "MinerU",
+            token_field_name: "mineru_token",
+            token_env_name: "RETAIN_MINERU_API_TOKEN",
             capabilities: mineru::capabilities(),
         }),
         OcrProviderKind::Paddle => Some(OcrProviderDefinition {
             kind: OcrProviderKind::Paddle,
             key: "paddle",
+            display_name: "Paddle",
+            token_field_name: "paddle_token",
+            token_env_name: "RETAIN_PADDLE_API_TOKEN",
             capabilities: paddle::capabilities(),
         }),
         OcrProviderKind::Unknown => None,
@@ -27,6 +36,34 @@ pub fn provider_definition(kind: &OcrProviderKind) -> Option<OcrProviderDefiniti
 
 pub fn provider_capabilities(kind: &OcrProviderKind) -> Option<OcrProviderCapabilities> {
     provider_definition(kind).map(|definition| definition.capabilities)
+}
+
+pub fn provider_display_name(kind: &OcrProviderKind) -> Option<&'static str> {
+    provider_definition(kind).map(|definition| definition.display_name)
+}
+
+pub fn provider_token_field_name(kind: &OcrProviderKind) -> Option<&'static str> {
+    provider_definition(kind).map(|definition| definition.token_field_name)
+}
+
+pub fn provider_token_env_name(kind: &OcrProviderKind) -> Option<&'static str> {
+    provider_definition(kind).map(|definition| definition.token_env_name)
+}
+
+pub fn provider_token<'a>(kind: &OcrProviderKind, input: &'a OcrInput) -> &'a str {
+    match kind {
+        OcrProviderKind::Mineru => input.mineru_token.trim(),
+        OcrProviderKind::Paddle => input.paddle_token.trim(),
+        OcrProviderKind::Unknown => "",
+    }
+}
+
+pub fn provider_model_version<'a>(kind: &OcrProviderKind, input: &'a OcrInput) -> &'a str {
+    match kind {
+        OcrProviderKind::Mineru => input.model_version.trim(),
+        OcrProviderKind::Paddle => input.paddle_model.trim(),
+        OcrProviderKind::Unknown => "",
+    }
 }
 
 pub fn supported_provider_keys() -> Vec<&'static str> {
@@ -90,6 +127,14 @@ mod tests {
             Some("paddle")
         );
         assert!(provider_definition(&OcrProviderKind::Unknown).is_none());
+    }
+
+    #[test]
+    fn provider_definition_exposes_provider_metadata() {
+        let mineru = provider_definition(&OcrProviderKind::Mineru).expect("mineru definition");
+        assert_eq!(mineru.display_name, "MinerU");
+        assert_eq!(mineru.token_field_name, "mineru_token");
+        assert_eq!(mineru.token_env_name, "RETAIN_MINERU_API_TOKEN");
     }
 
     #[test]

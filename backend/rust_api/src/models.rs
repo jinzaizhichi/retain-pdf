@@ -8,6 +8,8 @@ mod glossary;
 mod input;
 #[path = "models/job.rs"]
 mod job;
+#[path = "models/ocr.rs"]
+mod ocr;
 #[path = "models/public_contract.rs"]
 mod public_contract;
 #[path = "models/redaction.rs"]
@@ -31,6 +33,10 @@ pub use input::{
 pub use job::{
     JobAiDiagnostic, JobArtifactRecord, JobArtifacts, JobFailureInfo, JobRawDiagnostic, JobRecord,
     JobRuntimeInfo, JobRuntimeState, JobSnapshot, JobStageTiming, ProcessResult,
+};
+pub use ocr::{
+    OcrArtifactSet, OcrErrorCategory, OcrProviderCapabilities, OcrProviderDiagnostics,
+    OcrProviderErrorInfo, OcrProviderKind, OcrTaskHandle, OcrTaskState, OcrTaskStatus,
 };
 pub use public_contract::{
     public_request_payload, PublicOcrInput, PublicResolvedJobSpec, PublicTranslationInput,

@@ -5,7 +5,7 @@ from difflib import SequenceMatcher
 import re
 
 from services.translation.diagnostics import TranslationDiagnosticsCollector
-from services.translation.llm.deepseek_client import unwrap_translation_shell
+from services.translation.llm.shared.response_parsing import unwrap_translation_shell
 from services.translation.payload.formula_protection import protected_map_from_formula_map
 from services.translation.payload.formula_protection import protect_glossary_terms
 from services.translation.payload.formula_protection import PROTECTED_TOKEN_RE

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from services.translation.llm.control_context import RetrievalEvidence
-from services.translation.llm.control_context import TranslationControlContext
-from services.translation.llm.control_context import build_translation_control_context
-from services.translation.llm.control_context import resolve_engine_profile
+from services.translation.llm.shared.control_context import RetrievalEvidence
+from services.translation.llm.shared.control_context import TranslationControlContext
+from services.translation.llm.shared.control_context import build_translation_control_context
+from services.translation.llm.shared.control_context import resolve_engine_profile
 from services.translation.policy import TranslationPolicyConfig
 from services.translation.terms import AbbreviationEntry
 from services.translation.terms import GlossaryEntry

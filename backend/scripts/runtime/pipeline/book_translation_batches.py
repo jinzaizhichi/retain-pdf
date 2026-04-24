@@ -6,8 +6,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from services.translation.llm.control_context import TranslationControlContext
-from services.translation.llm.deepseek_client import is_transport_error
+from services.translation.llm.shared.provider_runtime import is_transport_error
+from services.translation.llm.shared.control_context import TranslationControlContext
 from services.translation.llm.placeholder_guard import has_formula_placeholders
 from services.translation.llm.placeholder_guard import result_entry
 from services.translation.llm.placeholder_guard import placeholder_sequence
@@ -17,7 +17,7 @@ from services.translation.policy.metadata_filter import looks_like_hard_nontrans
 from services.translation.payload import apply_translated_text_map
 from services.translation.payload import pending_translation_items
 from services.translation.payload.parts.common import GROUP_ITEM_PREFIX
-from services.translation.llm import translate_batch
+from services.translation.llm.shared.orchestration import translate_batch
 from services.translation.item_reader import item_block_kind
 from services.translation.item_reader import item_is_bodylike
 from services.translation.item_reader import item_is_caption_like

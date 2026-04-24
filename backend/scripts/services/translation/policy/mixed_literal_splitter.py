@@ -11,7 +11,7 @@ from foundation.config import paths
 from foundation.shared.prompt_loader import load_prompt
 from services.translation.item_reader import item_raw_block_type
 from services.translation.item_reader import item_structure_role
-from services.translation.llm.deepseek_client import request_chat_content
+from services.translation.llm.shared.provider_runtime import request_chat_content
 from services.translation.policy.soft_hints import build_soft_rule_hints
 from services.translation.policy.soft_hints import extract_command_prefix
 from services.translation.policy.soft_hints import extract_line_texts

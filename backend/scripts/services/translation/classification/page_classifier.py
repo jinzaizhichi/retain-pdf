@@ -9,7 +9,7 @@ from services.translation.item_reader import item_effective_role
 from services.translation.item_reader import item_layout_role
 from services.translation.item_reader import item_semantic_role
 from services.translation.ocr.models import TextItem
-from services.translation.llm import request_chat_content
+from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL, DEFAULT_MODEL, request_chat_content
 
 
 def _count_inline_formulas(segments: list[dict]) -> int:
@@ -93,8 +93,8 @@ def _candidate_text_item(item: TextItem, order: int) -> dict:
 def classify_payload_items(
     payload: list[dict],
     api_key: str = "",
-    model: str = "deepseek-chat",
-    base_url: str = "https://api.deepseek.com/v1",
+    model: str = DEFAULT_MODEL,
+    base_url: str = DEFAULT_BASE_URL,
     batch_size: int = 12,
     rule_guidance: str = "",
     request_label: str = "",
@@ -128,8 +128,8 @@ def classify_payload_items(
 def classify_text_items(
     items: list[TextItem],
     api_key: str = "",
-    model: str = "deepseek-chat",
-    base_url: str = "https://api.deepseek.com/v1",
+    model: str = DEFAULT_MODEL,
+    base_url: str = DEFAULT_BASE_URL,
     batch_size: int = 12,
     rule_guidance: str = "",
     request_label: str = "",

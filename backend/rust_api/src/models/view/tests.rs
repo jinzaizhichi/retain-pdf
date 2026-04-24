@@ -253,6 +253,11 @@ fn job_detail_view_exposes_runtime_and_failure_contract() {
         stage: "rendering".to_string(),
         category: "render_failure".to_string(),
         code: Some("typst_compile_error".to_string()),
+        failed_stage: Some("rendering".to_string()),
+        failure_code: Some("render_failure".to_string()),
+        failure_category: Some("render".to_string()),
+        provider_stage: Some("typst_compile".to_string()),
+        provider_code: Some("typst_compile_error".to_string()),
         summary: "渲染阶段失败".to_string(),
         root_cause: Some("Typst syntax error".to_string()),
         retryable: false,
@@ -260,6 +265,7 @@ fn job_detail_view_exposes_runtime_and_failure_contract() {
         provider: None,
         suggestion: Some("检查渲染输入".to_string()),
         last_log_line: Some("compile error".to_string()),
+        raw_excerpt: Some("compile error".to_string()),
         raw_error_excerpt: Some("compile error".to_string()),
         raw_diagnostic: None,
         ai_diagnostic: None,
@@ -280,6 +286,27 @@ fn job_detail_view_exposes_runtime_and_failure_contract() {
     assert_eq!(
         detail.failure.as_ref().map(|item| item.category.as_str()),
         Some("render_failure")
+    );
+    assert_eq!(
+        detail
+            .failure
+            .as_ref()
+            .and_then(|item| item.failed_stage.as_deref()),
+        Some("rendering")
+    );
+    assert_eq!(
+        detail
+            .failure
+            .as_ref()
+            .and_then(|item| item.failure_code.as_deref()),
+        Some("render_failure")
+    );
+    assert_eq!(
+        detail
+            .failure
+            .as_ref()
+            .and_then(|item| item.failure_category.as_deref()),
+        Some("render")
     );
     assert_eq!(
         detail

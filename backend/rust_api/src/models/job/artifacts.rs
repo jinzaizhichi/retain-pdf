@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::models::JobStatusKind;
-use crate::ocr_provider::OcrProviderDiagnostics;
+use crate::models::{JobStatusKind, OcrProviderDiagnostics};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct JobArtifacts {

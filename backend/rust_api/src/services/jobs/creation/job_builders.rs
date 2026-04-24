@@ -1,15 +1,15 @@
 use crate::error::AppError;
 use crate::models::{CreateJobInput, JobSnapshot, UploadRecord, WorkflowKind};
-use crate::services::job_factory::{build_job_snapshot, JobCommandKind, JobInit};
+use crate::services::job_snapshot_factory::{build_job_snapshot, JobCommandKind, JobInit};
 
-use super::context::CreationDeps;
+use super::context::SnapshotBuildDeps;
 use super::prepare::{
     prepare_full_pipeline_input, prepare_ocr_input, prepare_render_input,
     prepare_translate_only_input,
 };
 
 pub(super) fn build_translation_job_snapshot(
-    ctx: &CreationDeps<'_>,
+    ctx: &SnapshotBuildDeps<'_>,
     input: &CreateJobInput,
 ) -> Result<JobSnapshot, AppError> {
     match input.workflow {
@@ -26,7 +26,7 @@ pub(super) fn build_translation_job_snapshot(
 }
 
 fn build_full_pipeline_job_snapshot(
-    ctx: &CreationDeps<'_>,
+    ctx: &SnapshotBuildDeps<'_>,
     input: &CreateJobInput,
 ) -> Result<JobSnapshot, AppError> {
     let prepared = prepare_full_pipeline_input(ctx, input)?;
@@ -41,13 +41,13 @@ fn build_full_pipeline_job_snapshot(
 }
 
 fn build_translate_only_job_snapshot(
-    ctx: &CreationDeps<'_>,
+    ctx: &SnapshotBuildDeps<'_>,
     input: &CreateJobInput,
 ) -> Result<JobSnapshot, AppError> {
-    let spec = prepare_translate_only_input(ctx, input)?;
+    let prepared = prepare_translate_only_input(ctx, input)?;
     build_job_snapshot(
         ctx.config,
-        spec,
+        prepared.spec,
         JobCommandKind::Deferred {
             label: "translate-workflow-pending-ocr",
         },
@@ -56,13 +56,13 @@ fn build_translate_only_job_snapshot(
 }
 
 fn build_render_job_snapshot(
-    ctx: &CreationDeps<'_>,
+    ctx: &SnapshotBuildDeps<'_>,
     input: &CreateJobInput,
 ) -> Result<JobSnapshot, AppError> {
-    let spec = prepare_render_input(ctx, input)?;
+    let prepared = prepare_render_input(ctx, input)?;
     build_job_snapshot(
         ctx.config,
-        spec,
+        prepared.spec,
         JobCommandKind::Deferred {
             label: "render-workflow-pending-artifacts",
         },
@@ -71,15 +71,17 @@ fn build_render_job_snapshot(
 }
 
 pub(super) fn build_ocr_job_snapshot(
-    ctx: &CreationDeps<'_>,
+    ctx: &SnapshotBuildDeps<'_>,
     input: &CreateJobInput,
     upload: Option<&UploadRecord>,
 ) -> Result<JobSnapshot, AppError> {
-    let (resolved, upload_path) = prepare_ocr_input(input, upload)?;
+    let prepared = prepare_ocr_input(input, upload)?;
     build_job_snapshot(
         ctx.config,
-        resolved,
-        JobCommandKind::Ocr { upload_path },
+        prepared.spec,
+        JobCommandKind::Ocr {
+            upload_path: prepared.upload_path,
+        },
         JobInit::ocr_default(),
     )
 }

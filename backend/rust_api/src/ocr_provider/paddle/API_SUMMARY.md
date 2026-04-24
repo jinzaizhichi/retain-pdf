@@ -205,7 +205,7 @@ Rust 统一错误映射：
 - `workflow = book`
 - `ocr.provider = paddle`
 - `translation.base_url = https://api.deepseek.com/v1`
-- `translation.model = deepseek-chat`
+- `translation.model = deepseek-v4-flash`
 
 能跑通：
 

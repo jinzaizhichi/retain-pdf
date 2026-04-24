@@ -45,6 +45,15 @@ impl Default for WorkflowKind {
     }
 }
 
+impl WorkflowKind {
+    pub fn job_api_prefix(&self) -> &'static str {
+        match self {
+            Self::Ocr => "/api/v1/ocr/jobs",
+            Self::Book | Self::Translate | Self::Render => "/api/v1/jobs",
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UploadRecord {
     pub upload_id: String,

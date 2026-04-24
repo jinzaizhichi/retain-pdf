@@ -1,23 +1,21 @@
-use serde::Deserialize;
+#[path = "job_failure_structured.rs"]
+mod job_failure_structured;
+#[path = "job_failure_support.rs"]
+mod job_failure_support;
 
-use crate::models::{JobFailureInfo, JobRawDiagnostic, JobSnapshot, JobStatusKind};
-use crate::ocr_provider::{OcrErrorCategory, OcrProviderDiagnostics};
+use crate::models::{JobFailureInfo, JobSnapshot, JobStatusKind};
+
+use self::job_failure_structured::{
+    classify_provider_auth_failure, classify_structured_failure, extract_structured_failure,
+    PythonStructuredFailure,
+};
+use self::job_failure_support::{
+    build_failure, contains_render_failure_signal, extract_upstream_host, first_error_excerpt,
+    infer_failed_stage, provider_name, raw_diagnostic_from_structured, raw_diagnostic_from_text,
+    select_relevant_log_line, unknown_root_cause,
+};
 
 pub const STRUCTURED_FAILURE_LABEL: &str = "structured failure json";
-
-#[derive(Debug, Clone, Deserialize)]
-struct PythonStructuredFailure {
-    stage: Option<String>,
-    error_type: Option<String>,
-    summary: Option<String>,
-    detail: Option<String>,
-    retryable: Option<bool>,
-    upstream_host: Option<String>,
-    provider: Option<String>,
-    raw_exception_type: Option<String>,
-    raw_exception_message: Option<String>,
-    traceback: Option<String>,
-}
 
 pub fn classify_job_failure(job: &JobSnapshot) -> Option<JobFailureInfo> {
     if !matches!(job.status, JobStatusKind::Failed) {
@@ -35,7 +33,7 @@ pub fn classify_job_failure(job: &JobSnapshot) -> Option<JobFailureInfo> {
         .as_ref()
         .and_then(|artifacts| artifacts.ocr_provider_diagnostics.as_ref());
     let failed_stage = infer_failed_stage(job, &haystack);
-    let structured = extract_structured_failure(&haystack);
+    let structured = extract_structured_failure(STRUCTURED_FAILURE_LABEL, &haystack);
     let raw_diagnostic = structured
         .as_ref()
         .map(raw_diagnostic_from_structured)
@@ -304,348 +302,6 @@ pub fn classify_job_failure(job: &JobSnapshot) -> Option<JobFailureInfo> {
     ))
 }
 
-fn classify_structured_failure(
-    structured: Option<&PythonStructuredFailure>,
-    diagnostics: Option<&OcrProviderDiagnostics>,
-    failed_stage: &str,
-    job: &JobSnapshot,
-    error: &str,
-    haystack: &str,
-) -> Option<JobFailureInfo> {
-    let structured = structured?;
-    let stage = structured
-        .stage
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| failed_stage.to_string());
-    let category = structured
-        .error_type
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "python_unhandled_exception".to_string());
-    let summary = structured
-        .summary
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "任务失败，但暂未识别出明确根因".to_string());
-    let detail = structured
-        .detail
-        .clone()
-        .filter(|value| !value.trim().is_empty());
-    let raw_diagnostic = Some(raw_diagnostic_from_structured(structured));
-    Some(build_failure(
-        stage,
-        &category,
-        diagnostics
-            .and_then(|diag| diag.last_error.as_ref())
-            .and_then(|err| err.provider_code.clone()),
-        &summary,
-        detail.or_else(|| unknown_root_cause(error, haystack, raw_diagnostic.as_ref())),
-        structured.retryable.unwrap_or(true),
-        structured
-            .upstream_host
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .or_else(|| extract_upstream_host(haystack)),
-        structured
-            .provider
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .or_else(|| provider_name(diagnostics)),
-        Some("查看完整 traceback、原始异常与日志进一步排查".to_string()),
-        select_relevant_log_line(job, error, &[]),
-        first_error_excerpt(error, haystack)
-            .or_else(|| structured.raw_exception_message.clone())
-            .or_else(|| structured.raw_exception_type.clone()),
-        raw_diagnostic,
-    ))
-}
-
-fn classify_provider_auth_failure(
-    failed_stage: String,
-    diagnostics: Option<&OcrProviderDiagnostics>,
-    haystack: &str,
-    last_log_line: Option<String>,
-    error: &str,
-) -> Option<JobFailureInfo> {
-    let last_error = diagnostics.and_then(|diag| diag.last_error.as_ref())?;
-    let auth_related = matches!(
-        last_error.category,
-        OcrErrorCategory::Unauthorized | OcrErrorCategory::CredentialExpired
-    );
-    if !auth_related {
-        return None;
-    }
-    Some(build_failure(
-        failed_stage,
-        "auth_failed",
-        last_error.provider_code.clone(),
-        "鉴权失败",
-        Some("当前任务使用的 API Key / Token 无效、过期或权限不足".to_string()),
-        false,
-        extract_upstream_host(haystack),
-        provider_name(diagnostics),
-        Some("检查 MinerU Token、模型 API Key 或后端 X-API-Key 配置".to_string()),
-        last_log_line,
-        first_error_excerpt(error, haystack),
-        raw_diagnostic_from_text(error, haystack),
-    ))
-}
-
-fn build_failure(
-    stage: String,
-    category: &str,
-    code: Option<String>,
-    summary: &str,
-    root_cause: Option<String>,
-    retryable: bool,
-    upstream_host: Option<String>,
-    provider: Option<String>,
-    suggestion: Option<String>,
-    last_log_line: Option<String>,
-    raw_error_excerpt: Option<String>,
-    raw_diagnostic: Option<JobRawDiagnostic>,
-) -> JobFailureInfo {
-    JobFailureInfo {
-        stage,
-        category: category.to_string(),
-        code,
-        summary: summary.to_string(),
-        root_cause,
-        retryable,
-        upstream_host,
-        provider,
-        suggestion,
-        last_log_line,
-        raw_error_excerpt,
-        raw_diagnostic,
-        ai_diagnostic: None,
-    }
-}
-
-fn extract_structured_failure(haystack: &str) -> Option<PythonStructuredFailure> {
-    for line in haystack.lines().rev() {
-        let trimmed = line.trim();
-        let Some(raw_json) = trimmed
-            .strip_prefix(STRUCTURED_FAILURE_LABEL)
-            .and_then(|rest| rest.strip_prefix(':'))
-            .map(str::trim)
-        else {
-            continue;
-        };
-        if raw_json.is_empty() {
-            continue;
-        }
-        if let Ok(parsed) = serde_json::from_str::<PythonStructuredFailure>(raw_json) {
-            return Some(parsed);
-        }
-    }
-    None
-}
-
-fn raw_diagnostic_from_structured(structured: &PythonStructuredFailure) -> JobRawDiagnostic {
-    JobRawDiagnostic {
-        structured_error_type: structured.error_type.clone(),
-        raw_exception_type: structured.raw_exception_type.clone(),
-        raw_exception_message: structured.raw_exception_message.clone(),
-        traceback: structured.traceback.clone(),
-    }
-}
-
-fn raw_diagnostic_from_text(error: &str, haystack: &str) -> Option<JobRawDiagnostic> {
-    let source = if error.trim().is_empty() {
-        haystack
-    } else {
-        error
-    };
-    let traceback = extract_traceback(source);
-    let raw_exception_message = last_non_empty_line(source);
-    if traceback.is_none() && raw_exception_message.is_none() {
-        return None;
-    }
-    Some(JobRawDiagnostic {
-        structured_error_type: None,
-        raw_exception_type: raw_exception_message
-            .as_deref()
-            .and_then(extract_exception_type),
-        raw_exception_message,
-        traceback,
-    })
-}
-
-fn extract_traceback(text: &str) -> Option<String> {
-    let start = text.find("Traceback (most recent call last):")?;
-    Some(text[start..].trim().to_string())
-}
-
-fn last_non_empty_line(text: &str) -> Option<String> {
-    text.lines()
-        .map(str::trim)
-        .rev()
-        .find(|line| !line.is_empty() && !line.starts_with(STRUCTURED_FAILURE_LABEL))
-        .map(ToOwned::to_owned)
-}
-
-fn extract_exception_type(line: &str) -> Option<String> {
-    let candidate = line.split(':').next()?.trim();
-    if candidate.is_empty() || candidate.contains(' ') {
-        return None;
-    }
-    Some(candidate.to_string())
-}
-
-fn unknown_root_cause(
-    error: &str,
-    haystack: &str,
-    raw_diagnostic: Option<&JobRawDiagnostic>,
-) -> Option<String> {
-    raw_diagnostic
-        .and_then(|item| item.raw_exception_message.clone())
-        .or_else(|| last_non_empty_line(error))
-        .or_else(|| first_error_excerpt(error, haystack))
-}
-
-fn provider_name(diagnostics: Option<&OcrProviderDiagnostics>) -> Option<String> {
-    diagnostics.map(|diag| format!("{:?}", diag.provider).to_lowercase())
-}
-
-fn first_error_excerpt(error: &str, haystack: &str) -> Option<String> {
-    let source = if error.trim().is_empty() {
-        haystack
-    } else {
-        error
-    };
-    source
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty() && !line.starts_with(STRUCTURED_FAILURE_LABEL))
-        .map(|line| line.to_string())
-}
-
-fn select_relevant_log_line(job: &JobSnapshot, error: &str, keywords: &[&str]) -> Option<String> {
-    let lowered_keywords: Vec<String> = keywords.iter().map(|item| item.to_lowercase()).collect();
-    for line in error.lines().rev() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if lowered_keywords.is_empty() {
-            return Some(trimmed.to_string());
-        }
-        let lowered = trimmed.to_lowercase();
-        if lowered_keywords
-            .iter()
-            .any(|keyword| lowered.contains(keyword))
-        {
-            return Some(trimmed.to_string());
-        }
-    }
-    for line in job.log_tail.iter().rev() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || is_low_signal_log_line(trimmed) {
-            continue;
-        }
-        if lowered_keywords.is_empty() {
-            return Some(trimmed.to_string());
-        }
-        let lowered = trimmed.to_lowercase();
-        if lowered_keywords
-            .iter()
-            .any(|keyword| lowered.contains(keyword))
-        {
-            return Some(trimmed.to_string());
-        }
-    }
-    job.log_tail
-        .iter()
-        .rev()
-        .find(|line| {
-            let trimmed = line.trim();
-            !trimmed.is_empty() && !is_low_signal_log_line(trimmed)
-        })
-        .cloned()
-}
-
-fn is_low_signal_log_line(line: &str) -> bool {
-    let lowered = line.to_lowercase();
-    lowered.starts_with("image-only compress:")
-        || lowered.starts_with("cover page image")
-        || lowered.starts_with("saved ")
-        || lowered.starts_with("rendered page ")
-        || lowered.starts_with("auto render mode selected:")
-}
-
-fn infer_failed_stage(job: &JobSnapshot, haystack: &str) -> String {
-    let stage = job.stage.clone().unwrap_or_default();
-    let stage_detail = job.stage_detail.clone().unwrap_or_default();
-    let combined = format!("{stage}\n{stage_detail}\n{haystack}").to_lowercase();
-
-    if stage == "rendering"
-        || stage == "render"
-        || stage_detail.contains("排版")
-        || stage_detail.contains("渲染")
-        || contains_render_failure_signal(&combined)
-    {
-        return "render".to_string();
-    }
-    if stage == "translation" || combined.contains("translation") || stage_detail.contains("翻译")
-    {
-        return "translation".to_string();
-    }
-    if combined.contains("normaliz") || stage_detail.contains("标准化") {
-        return "normalization".to_string();
-    }
-    if combined.contains("ocr")
-        || combined.contains("mineru")
-        || combined.contains("paddle")
-        || stage_detail.contains("解析")
-    {
-        return "ocr".to_string();
-    }
-    "failed".to_string()
-}
-
-fn contains_render_failure_signal(text: &str) -> bool {
-    let lowered = text.to_lowercase();
-    if [
-        "typst compile",
-        "typst compilation",
-        "typst error",
-        "failed to compile",
-        "compile error",
-        "render failed",
-        "rendering failed",
-        "failed to render",
-        "missing bundled font",
-        "font not found",
-    ]
-    .iter()
-    .any(|pattern| lowered.contains(pattern))
-    {
-        return true;
-    }
-
-    (lowered.contains("no such file or directory")
-        || lowered.contains("the system cannot find the file specified"))
-        && (lowered.contains("typst") || lowered.contains("font"))
-}
-
-fn extract_upstream_host(haystack: &str) -> Option<String> {
-    for marker in ["host='", "host=\"", "https://", "http://"] {
-        if let Some(start) = haystack.find(marker) {
-            let rest = &haystack[start + marker.len()..];
-            let host: String = rest
-                .chars()
-                .take_while(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-'))
-                .collect();
-            if !host.is_empty() {
-                return Some(host);
-            }
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::classify_job_failure;
@@ -744,6 +400,12 @@ mod tests {
         let failure = classify_job_failure(&job).expect("failure");
         assert_eq!(failure.category, "document_schema_validation_failed");
         assert_eq!(failure.stage, "normalization");
+        assert_eq!(failure.failed_stage.as_deref(), Some("normalization"));
+        assert_eq!(
+            failure.failure_code.as_deref(),
+            Some("document_schema_validation_failed")
+        );
+        assert_eq!(failure.failure_category.as_deref(), Some("normalization"));
         assert_eq!(
             failure
                 .raw_diagnostic
@@ -751,6 +413,34 @@ mod tests {
                 .and_then(|item| item.structured_error_type.as_deref()),
             Some("document_schema_validation_failed")
         );
+    }
+
+    #[test]
+    fn classify_job_failure_accepts_new_structured_failure_protocol() {
+        let mut job = crate::models::JobSnapshot::new(
+            "job-failure-new-structured".to_string(),
+            CreateJobInput::default(),
+            vec!["python".to_string()],
+        );
+        job.status = crate::models::JobStatusKind::Failed;
+        job.stage = Some("failed".to_string());
+        job.error = Some(
+            "Traceback (most recent call last):\nRuntimeError: boom\nstructured failure json: {\"failed_stage\":\"ocr_processing\",\"failure_code\":\"auth_failed\",\"failure_category\":\"auth\",\"summary\":\"鉴权失败\",\"root_cause\":\"MinerU token expired\",\"retryable\":false,\"upstream_host\":\"mineru.net\",\"provider\":\"mineru\",\"provider_stage\":\"mineru_processing\",\"provider_code\":\"A0211\",\"suggestion\":\"更新 Token\",\"raw_excerpt\":\"token expired\",\"raw_exception_type\":\"RuntimeError\",\"raw_exception_message\":\"token expired\",\"traceback\":\"Traceback (most recent call last):\\nRuntimeError: boom\"}\n"
+                .to_string(),
+        );
+
+        let failure = classify_job_failure(&job).expect("failure");
+        assert_eq!(failure.stage, "ocr_processing");
+        assert_eq!(failure.category, "auth_failed");
+        assert_eq!(failure.code.as_deref(), Some("A0211"));
+        assert_eq!(failure.failed_stage.as_deref(), Some("ocr_processing"));
+        assert_eq!(failure.failure_code.as_deref(), Some("auth_failed"));
+        assert_eq!(failure.failure_category.as_deref(), Some("auth"));
+        assert_eq!(failure.provider_stage.as_deref(), Some("mineru_processing"));
+        assert_eq!(failure.provider_code.as_deref(), Some("A0211"));
+        assert_eq!(failure.raw_excerpt.as_deref(), Some("token expired"));
+        assert_eq!(failure.raw_error_excerpt.as_deref(), Some("token expired"));
+        assert_eq!(failure.suggestion.as_deref(), Some("更新 Token"));
     }
 
     #[test]

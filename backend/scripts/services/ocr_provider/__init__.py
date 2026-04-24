@@ -1,7 +1,10 @@
-"""OCR provider API abstraction layer documentation placeholder.
+"""OCR provider package public surface.
 
-This package is intentionally lightweight for now.
-Provider-specific implementations still live in their own modules, such as
-`services/mineru/`, while the normalized OCR contract remains in
-`services/document_schema/`.
+`provider_pipeline` is the stable provider-backed workflow entrypoint.
+Provider-specific transport helpers stay in sibling modules, while normalized
+schema adaptation remains under `services.document_schema`.
 """
+
+from . import provider_pipeline
+
+__all__ = ["provider_pipeline"]

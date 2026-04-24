@@ -33,7 +33,8 @@
 当前代码边界也有两个约定：
 
 - `routes/*` 只做 HTTP adapter，不负责聚合 view、不直接拼装 job command
-- `services/jobs/creation` 与 `services/job_factory` 现在已拆成“纯装配”和“启动执行”两层；纯装配逻辑默认只依赖 `Db`、`AppConfig` 和显式参数，不应继续透传整个 `AppState`
+- jobs 相关依赖装配已上移到 [`backend/rust_api/src/app/jobs.rs`](/home/wxyhgk/tmp/Code/backend/rust_api/src/app/jobs.rs)，route 不再直接知道 `job_runner` 如何启动
+- `services/jobs/creation`、`services/job_snapshot_factory` 与 `services/job_launcher` 现在已拆成“纯装配”和“启动执行”两层；纯装配逻辑默认只依赖 `Db`、`AppConfig` 和显式参数，不应继续透传整个 `AppState`
 - 多人协作时，新增代码默认遵守 [09-协同开发约定.md](/home/wxyhgk/tmp/Code/doc/rust_api/09-协同开发约定.md) 的落点与依赖规则
 
 `AppState` 目前允许存在的主要位置：

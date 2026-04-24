@@ -27,7 +27,7 @@ curl -X POST http://127.0.0.1:41000/api/v1/uploads \
   "workflow": "mineru",
   "upload_id": "20260402073151-a80618",
   "mode": "sci",
-  "model": "deepseek-chat",
+  "model": "deepseek-v4-flash",
   "base_url": "https://api.deepseek.com/v1",
   "api_key": "sk-xxxx",
   "mineru_token": "mineru-xxxx",

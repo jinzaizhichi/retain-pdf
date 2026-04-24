@@ -57,7 +57,8 @@ pub(super) async fn download_and_unpack_after_success(
             "MinerU bundle readiness probe degraded for {full_zip_url}, switching to direct download retries"
         ));
         job.stage = Some("translation_prepare".to_string());
-        job.stage_detail = Some("OCR provider bundle 可达性探测未稳定，通过真实下载继续兜底".to_string());
+        job.stage_detail =
+            Some("OCR provider bundle 可达性探测未稳定，通过真实下载继续兜底".to_string());
         job.updated_at = crate::models::now_iso();
         save_ocr_job(deps, job, parent_job_id).await?;
     }
@@ -98,12 +99,7 @@ async fn wait_for_mineru_bundle_ready(
                 if !should_retry_mineru_bundle_ready_error(&err) {
                     return Err(err);
                 }
-                if should_fallback_to_direct_download(
-                    &err,
-                    attempt,
-                    elapsed_secs,
-                    timeout_secs,
-                ) {
+                if should_fallback_to_direct_download(&err, attempt, elapsed_secs, timeout_secs) {
                     job.append_log(&format!(
                         "MinerU bundle readiness probe degraded after {attempt} attempts and {elapsed_secs}s: {full_zip_url}; fallback to direct download. error: {}",
                         err
@@ -137,11 +133,10 @@ async fn wait_for_mineru_bundle_ready(
                     save_ocr_job(deps, job, parent_job_id).await?;
                     return Ok(false);
                 }
-                let delay_secs =
-                    std::cmp::min(
-                        MINERU_BUNDLE_READY_BASE_DELAY_SECS * attempt as u64,
-                        MINERU_BUNDLE_RETRY_MAX_DELAY_SECS,
-                    );
+                let delay_secs = std::cmp::min(
+                    MINERU_BUNDLE_READY_BASE_DELAY_SECS * attempt as u64,
+                    MINERU_BUNDLE_RETRY_MAX_DELAY_SECS,
+                );
                 job.append_log(&format!(
                     "MinerU bundle readiness wait {attempt}/{MINERU_BUNDLE_READY_RETRY_LIMIT}: {full_zip_url} after error: {}",
                     err
@@ -198,11 +193,10 @@ async fn download_mineru_bundle_with_retry(
                 {
                     return Err(err);
                 }
-                let delay_secs =
-                    std::cmp::min(
-                        MINERU_BUNDLE_DOWNLOAD_BASE_DELAY_SECS * attempt as u64,
-                        MINERU_BUNDLE_RETRY_MAX_DELAY_SECS,
-                    );
+                let delay_secs = std::cmp::min(
+                    MINERU_BUNDLE_DOWNLOAD_BASE_DELAY_SECS * attempt as u64,
+                    MINERU_BUNDLE_RETRY_MAX_DELAY_SECS,
+                );
                 job.append_log(&format!(
                     "MinerU download bundle retry {attempt}/{MINERU_BUNDLE_DOWNLOAD_RETRY_LIMIT}: {full_zip_url} after error: {}",
                     err

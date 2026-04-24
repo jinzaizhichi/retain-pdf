@@ -9,27 +9,51 @@ use crate::models::{
     JobArtifactManifestView, JobDetailView, JobProgressView, JobSnapshot, JobTimestampsView,
 };
 use crate::services::artifacts::list_registry_for_job;
-use crate::services::jobs::readiness;
 use crate::storage_paths::{resolve_markdown_path, resolve_output_pdf};
 
+use super::super::readiness;
 use super::helpers::{build_ocr_job_summary, job_failure_to_legacy_view};
+use super::live_stage::load_live_stage_snapshot;
 use super::security::{redacted_error, redacted_log_tail};
 use super::summary_loaders::{
     load_glossary_summary, load_invocation_summary, load_normalization_summary,
 };
 
 pub fn build_job_detail_view(data_root: &Path, job: &JobSnapshot, base_url: &str) -> JobDetailView {
+    let live_stage = load_live_stage_snapshot(job, data_root);
     let (pdf_ready, markdown_ready, bundle_ready) =
         readiness(job, data_root, resolve_output_pdf, resolve_markdown_path);
     let duration_seconds = match (&job.started_at, &job.finished_at, &job.result) {
         (_, _, Some(result)) => Some(result.duration_seconds),
         _ => None,
     };
-    let percent = match (job.progress_current, job.progress_total) {
+    let stage = live_stage
+        .as_ref()
+        .and_then(|snapshot| snapshot.stage.clone())
+        .or_else(|| job.stage.clone());
+    let stage_detail = live_stage
+        .as_ref()
+        .and_then(|snapshot| snapshot.stage_detail.clone())
+        .or_else(|| job.stage_detail.clone());
+    let progress_current = live_stage
+        .as_ref()
+        .and_then(|snapshot| snapshot.progress_current)
+        .or(job.progress_current);
+    let progress_total = live_stage
+        .as_ref()
+        .and_then(|snapshot| snapshot.progress_total)
+        .or(job.progress_total);
+    let percent = match (progress_current, progress_total) {
         (Some(current), Some(total)) if total > 0 => Some((current as f64 / total as f64) * 100.0),
         _ => None,
     };
-    let failure = job.failure.clone().or_else(|| classify_job_failure(job));
+    let failure = job
+        .failure
+        .clone()
+        .map(crate::models::JobFailureInfo::with_formal_fields)
+        .or_else(|| {
+            classify_job_failure(job).map(crate::models::JobFailureInfo::with_formal_fields)
+        });
     JobDetailView {
         job_id: job.job_id.clone(),
         workflow: job.workflow.clone(),
@@ -43,11 +67,11 @@ pub fn build_job_detail_view(data_root: &Path, job: &JobSnapshot, base_url: &str
             .artifacts
             .as_ref()
             .and_then(|item| item.provider_trace_id.clone()),
-        stage: job.stage.clone(),
-        stage_detail: job.stage_detail.clone(),
+        stage,
+        stage_detail,
         progress: JobProgressView {
-            current: job.progress_current,
-            total: job.progress_total,
+            current: progress_current,
+            total: progress_total,
             percent,
         },
         timestamps: JobTimestampsView {

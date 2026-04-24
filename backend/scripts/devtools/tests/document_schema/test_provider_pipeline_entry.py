@@ -261,6 +261,7 @@ def test_provider_pipeline_dispatches_to_paddle_and_writes_standard_artifacts(
     normalized_report_path = job_dirs.ocr_dir / "normalized" / "document.v1.report.json"
     provider_result_path = job_dirs.ocr_dir / "result.json"
     summary_path = job_dirs.artifacts_dir / "pipeline_summary.json"
+    events_path = job_dirs.logs_dir / "pipeline_events.jsonl"
     output_pdf_path = job_dirs.rendered_dir / "book-translated.pdf"
     markdown_path = job_root / "md" / "full.md"
     markdown_image_path = job_root / "md" / "images" / "page-1" / "imgs" / "figure-1.png"
@@ -269,6 +270,7 @@ def test_provider_pipeline_dispatches_to_paddle_and_writes_standard_artifacts(
     assert normalized_json_path.exists()
     assert normalized_report_path.exists()
     assert summary_path.exists()
+    assert events_path.exists()
     assert output_pdf_path.exists()
     assert markdown_path.exists()
     assert markdown_image_path.exists()
@@ -277,9 +279,17 @@ def test_provider_pipeline_dispatches_to_paddle_and_writes_standard_artifacts(
     normalized_payload = json.loads(normalized_json_path.read_text(encoding="utf-8"))
     assert normalized_payload["source"]["provider"] == "paddle"
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    events_payload = [
+        json.loads(line)
+        for line in events_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
     assert summary_payload["layout_json"] == str(provider_result_path)
     assert summary_payload["normalized_document_json"] == str(normalized_json_path)
     assert summary_payload["output_pdf"] == str(output_pdf_path)
+    assert events_payload[0]["event_type"] == "stage_transition"
+    assert events_payload[0]["stage"] == "startup"
+    assert any(item["event_type"] == "artifact_published" for item in events_payload)
 
 
 def test_materialize_paddle_markdown_artifacts_publishes_markdown_under_md(tmp_path: Path) -> None:

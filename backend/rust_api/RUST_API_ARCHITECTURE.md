@@ -56,7 +56,7 @@ app -> routes -> application services -> internal services -> job_runner / ocr_p
   负责组装和持有全局资源
 - `axum` route 入口函数
   也就是 `State(AppState)` 解包的那一层
-- 少量 `from_state(...)` 装配口
+- 少量边界层装配口
   用来把 `AppState` 压缩成更窄的 deps 结构
 - 测试辅助代码
 
@@ -83,16 +83,23 @@ app -> routes -> application services -> internal services -> job_runner / ocr_p
   负责 jobs 文件下载类 route adapter
 - `routes/jobs/query_adapter.rs`
   负责 jobs JSON 查询 / 调试 / 控制类 route adapter
-- `services/jobs/*::from_state(...)`
-  负责 service application 层装配
-- `job_runner/mod.rs::ProcessRuntimeDeps::from_state(...)`
+- `app/jobs.rs::build_process_runtime_deps(...)`
   负责 runner 装配
 
-其中 runner 侧对外只应该优先使用：
+其中 runner 侧规则已经固定为：
 
-- `job_runner::build_process_runtime_deps(...)`
+- `job_runner` 只暴露 `ProcessRuntimeDeps::new(...)`
+- `AppState -> ProcessRuntimeDeps` 的装配责任留在 `app/*` 边界层
+- `ProcessRuntimeDeps`
+  只保留 orchestrator 级入口使用
+- `JobPersistDeps`
+  负责 `db + data_root + output_root` 这组持久化/事件资源；叶子 helper 优先拿它，不再顺手拿整包 runtime deps
+- `app/state.rs`
+  只负责 `AppState` 组装；启动期遗留 running 任务恢复已经下沉到 `app/state_recovery.rs`
+- `job_runner/lifecycle.rs`
+  只保留 runner 顶层编排；其中“queued 持久化/取消短路”和“按 workflow 分派执行”应继续保持为小 helper，而不是重新塞回一个大函数
 
-`ProcessRuntimeDeps::from_state(...)` 保留在 `job_runner` 内部使用，不应该再从 service/application 层直接调用。
+不要再把 `AppState` 直接引进 `job_runner`。
 
 禁止在每个 route 文件里重复手写一套局部 `route_deps(...)`。
 
@@ -185,16 +192,18 @@ provider raw -> normalized -> published artifact -> download API
 Rust 侧关键落点：
 
 - [src/storage_paths.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/storage_paths.rs)
-  负责 artifact key、路径规范、文件解析
-- [src/services/artifacts.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/artifacts.rs)
-  负责 artifact registry、bundle、资源路径
+  facade；现在已拆成 `constants / job_paths / path_ops / resolvers / registry`
+- [src/services/artifacts/mod.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/artifacts/mod.rs)
+  artifact facade；现在已拆成 `registry / bundle / response`
 - [src/routes/jobs/download.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/routes/jobs/download.rs)
   负责下载类 HTTP adapter
 
 边界规则：
 
-- `storage_paths.rs` 和 `services/artifacts.rs`
+- `storage_paths.rs` 和 `services/artifacts/*`
   只处理文件、artifact key、稳定资源，不解释 provider raw 内部 JSON 结构
+- `db.rs`
+  现在也只保留 `Db` facade；row decode 和 schema 检查分别下沉到 `src/db/rows.rs`、`src/db/schema.rs`
 - `routes/jobs/download.rs`
   只暴露稳定下载入口，不承诺 provider 私有字段语义
 - `normalized-document` / `normalization-report`
@@ -345,8 +354,12 @@ Rust 侧关键落点：
 
 当前关键分工：
 
-- [src/services/job_factory.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_factory.rs)
-  负责 job snapshot 组装和启动边界
+- [src/services/job_snapshot_factory.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_snapshot_factory.rs)
+  负责 job snapshot / command 组装
+- [src/services/job_launcher.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_launcher.rs)
+  负责 job 持久化与执行启动
+- [src/services/runtime_gateway.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/runtime_gateway.rs)
+  负责 services 侧 runtime 能力收口
 - [src/services/jobs](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/jobs)
   负责 jobs 相关业务
 
@@ -448,26 +461,50 @@ Rust 侧关键落点：
   取消请求注册表
 - `execution_queue`
   并发槽位等待
-- `commands`
-  stage spec + worker 入口命令
+- `services/job_command_factory`
+  stage command / stage spec / worker 入口命令统一工厂；`job_runner` 不再自己维护 command builder
 - `worker_process`
   进程启动、环境注入、进程树终止
 - `process_runner`
-  stdout/stderr 消费、超时、进程完成态归类
+  真实 worker 执行 orchestrator
+- `process_runner/completion.rs`
+  cancel / success / shutdown noise / failed 的完成态归类与回填
+- `process_runner/timeout_support.rs`
+  timeout 文案和 timeout failure 落态
+- `process_runner/failure_ai_diagnosis.rs`
+  失败 AI 诊断 request/response 与 event 记录
+- `process_runner/io_support.rs`
+  stdout/stderr 消费与 cancel 期间的流读取策略；这里只再拿 `JobPersistDeps + canceled_jobs`
 - `runtime_state`
   运行态 snapshot 变更
 - `translation_flow`
-  translate / book 相关链路
+  translate / book 相关 orchestrator；只负责串 OCR child -> translate -> optional render
+- `translation_flow_child.rs`
+  upload source 读取、父任务进入 `ocr_submitting`、OCR child 构造与 `ocr_child_created` 事件
+- `translation_flow_stage.rs`
+  translate stage command 准备、`ocr_child_finished` 事件、translate 后 render stage 准备
+- `translation_flow_support.rs`
+  OCR 终态判定、translate 输入提取这类纯规则辅助
 - `render_flow`
   render-only 链路
 - `ocr_flow`
   OCR provider 运行链路
+- `ocr_flow/support.rs`
+  OCR job 保存、parent OCR 状态镜像、transport/source-pdf 失败处理、`sync_parent_with_ocr_child(...)`
+- `ocr_flow/workspace.rs`
+  只负责 OCR workspace 路径与目录准备；现在只拿 `&AppConfig`
+- `ocr_flow/polling.rs`
+  只负责轮询等待与 cancel 检查；`should_stop_polling(...)` 现在只拿 cancel handle
+- `stdout_parser`
+  stdout 解析 facade
+- `stdout_parser/labels.rs` / `state.rs` / `stage_rules.rs` / `artifact_rules.rs` / `failure.rs`
+  stdout 行标签、共享解析状态、stage/artifact/failure 规则
 
-#### `job_runner/commands`
+#### `services/job_command_factory`
 
 目录：
 
-- [src/job_runner/commands](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/commands)
+- [src/services/job_command_factory](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_command_factory)
 
 职责：
 
@@ -477,7 +514,7 @@ Rust 侧关键落点：
   选 Python 脚本入口，拼入口参数
 - `command_builder.rs`
   只做命令行构建细节
-- [src/job_runner/commands.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/commands.rs)
+- [src/services/job_command_factory.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/job_command_factory.rs)
   只保留对外 `build_*` facade
 
 规则：
@@ -491,19 +528,111 @@ Rust 侧关键落点：
 文件：
 
 - [src/job_runner/process_runner.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner.rs)
+- [src/job_runner/process_runner/completion.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner/completion.rs)
+- [src/job_runner/process_runner/timeout_support.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner/timeout_support.rs)
+- [src/job_runner/process_runner/failure_ai_diagnosis.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner/failure_ai_diagnosis.rs)
+- [src/job_runner/process_runner/io_support.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/process_runner/io_support.rs)
 
 职责：
 
-- 执行已构建好的 worker 进程
-- 消费 stdout/stderr
-- 处理 timeout / cancel / shutdown noise
-- 附加失败 AI 诊断
+- `process_runner.rs`
+  只保留 worker 执行 orchestrator
+- `completion.rs`
+  处理 timeout 之外的完成态归类、shutdown noise 成功判定、failure 回填
+- `timeout_support.rs`
+  处理 timeout 失败落态
+- `failure_ai_diagnosis.rs`
+  处理 AI 辅助失败诊断
+- `io_support.rs`
+  处理 stdout/stderr 消费和 cancel 特判；叶子 helper 不再拿整包 `ProcessRuntimeDeps`
 
 规则：
 
 - 不在这里写新的命令构建逻辑
 - 不在这里维护取消注册表
 - 不在这里决定执行槽策略
+- `execute_process_job(...)`
+  可以保留整包 `ProcessRuntimeDeps`
+- `spawn_worker_process(...)` / `read_stdout(...)`
+  这类叶子 helper 应只拿自己真正需要的 config / persist / cancel 依赖
+
+#### `job_runner` Stop Line
+
+最后一轮去耦合做到这里就应该停止：
+
+- orchestrator 级入口继续拿 `ProcessRuntimeDeps`
+- 叶子 helper 改拿 `JobPersistDeps`、`&Db`、`&AppConfig` 或 cancel handle
+- 不再继续把 orchestrator 再拆成更多跨文件小函数
+- 不再为了少传 1-2 个字段继续引入 trait / wrapper / facade
+
+#### `job_runner/translation_flow_*`
+
+文件：
+
+- [src/job_runner/translation_flow.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/translation_flow.rs)
+- [src/job_runner/translation_flow_child.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/translation_flow_child.rs)
+- [src/job_runner/translation_flow_stage.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/translation_flow_stage.rs)
+- [src/job_runner/translation_flow_support.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/translation_flow_support.rs)
+
+职责：
+
+- `translation_flow.rs`
+  只保留 parent translation job 的 orchestrator。
+- `translation_flow_child.rs`
+  负责 upload source 读取、parent 进入 `ocr_submitting`、OCR child job 创建与 `ocr_child_created` 事件。
+- `translation_flow_stage.rs`
+  负责 OCR child 结束事件、translate stage command 准备、translate 后 render stage 准备。
+- `translation_flow_support.rs`
+  负责 `finalize_parent_after_ocr(...)`、`translation_inputs_from_artifacts(...)` 这类纯规则辅助。
+
+规则：
+
+- 不在 orchestrator 里重复堆 OCR child 构造细节
+- 不在 support helper 里做持久化入口选择
+- translate/render 的 command 改写统一收口在 stage helper
+
+#### `job_runner/ocr_flow/*`
+
+文件：
+
+- [src/job_runner/ocr_flow/mod.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/ocr_flow/mod.rs)
+- [src/job_runner/ocr_flow/support.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/ocr_flow/support.rs)
+- 以及 `transport / polling / mineru / paddle / artifacts / provider_result / workspace / markdown_bundle / bundle_download / status / page_subset / mineru_retry / mineru_polling / paddle_markdown`
+
+职责：
+
+- `ocr_flow/mod.rs`
+  只保留 OCR orchestrator，串 transport -> normalize -> process runner。
+- `ocr_flow/support.rs`
+  负责 OCR job 保存、parent OCR 状态镜像、transport/source-pdf 失败处理、`sync_parent_with_ocr_child(...)`。
+- 其他子文件
+  分别处理 provider transport、轮询、下载、raw 结果落位、markdown materialize、workspace 和状态回填。
+
+#### `job_runner/stdout_parser/*`
+
+文件：
+
+- [src/job_runner/stdout_parser/mod.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/stdout_parser/mod.rs)
+- [src/job_runner/stdout_parser/labels.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/stdout_parser/labels.rs)
+- [src/job_runner/stdout_parser/state.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/stdout_parser/state.rs)
+- [src/job_runner/stdout_parser/stage_rules.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/stdout_parser/stage_rules.rs)
+- [src/job_runner/stdout_parser/artifact_rules.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/stdout_parser/artifact_rules.rs)
+- [src/job_runner/stdout_parser/failure.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/job_runner/stdout_parser/failure.rs)
+
+职责：
+
+- `mod.rs`
+  facade；按行调用 artifact/stage 规则。
+- `labels.rs`
+  stdout contract 标签常量。
+- `state.rs`
+  artifact/provider diagnostics 共享解析状态。
+- `stage_rules.rs`
+  stage/progress 相关规则。
+- `artifact_rules.rs`
+  artifact/metric 相关规则。
+- `failure.rs`
+  provider failure 归因与 detail 提取。
 
 ### 2.5 `ocr_provider/`
 
@@ -529,11 +658,12 @@ Rust 侧关键落点：
 2. `routes/jobs/create.rs`
 3. `services/jobs/facade.rs`
 4. `services/jobs/creation.rs`
-5. `services/job_factory.rs`
-6. `job_runner/lifecycle.rs`
-7. `job_runner/commands.rs`
-8. `job_runner/process_runner.rs`
-9. Python worker
+5. `services/job_snapshot_factory.rs`
+6. `services/job_launcher.rs`
+7. `job_runner/lifecycle.rs`
+8. `services/job_command_factory.rs`
+9. `job_runner/process_runner.rs`
+10. Python worker
 
 也就是：
 
@@ -608,7 +738,7 @@ Rust 侧关键落点：
 
 改动顺序：
 
-1. `job_runner/commands/stage_specs.rs`
+1. `services/job_command_factory/stage_specs.rs`
 2. Python `stage_specs` loader
 3. 对应 worker 消费逻辑
 

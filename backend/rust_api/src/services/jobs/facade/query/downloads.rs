@@ -2,18 +2,33 @@ use axum::http::header;
 use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use axum::response::Response;
+use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
 use crate::models::MarkdownView;
 use crate::routes::common::ok_json;
 use crate::routes::job_helpers::stream_file;
 use crate::services::artifacts::{attach_job_id_header, build_bundle_for_job};
-use crate::services::jobs::load_supported_job;
 use crate::storage_paths::{resolve_markdown_images_dir, resolve_markdown_path};
 
+use super::super::super::presentation::load_supported_job;
 use super::super::JobsFacade;
 
 impl<'a> JobsFacade<'a> {
+    pub async fn download_job_document_response(
+        &self,
+        job_id: &str,
+        ocr_only: bool,
+        resolve_path: impl Fn(&crate::models::JobSnapshot, &Path) -> Option<PathBuf>,
+        not_ready_label: &str,
+        content_type: &str,
+    ) -> Result<Response, AppError> {
+        let job = self.load_supported_job_snapshot(job_id, ocr_only)?;
+        let path = resolve_path(&job, &self.query.config.data_root)
+            .ok_or_else(|| AppError::not_found(format!("{not_ready_label}: {job_id}")))?;
+        stream_file(path, content_type, None).await
+    }
+
     pub async fn markdown_response(
         &self,
         headers: &HeaderMap,

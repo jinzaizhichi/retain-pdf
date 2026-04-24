@@ -111,7 +111,7 @@ Content-Type: application/json
 
 说明：
 
-- 这里的 `workflow: "book"` 才是当前 provider-backed 完整流程的正式协议值
+- 这里的 `workflow: "book"` 才是当前完整主链路的正式协议值
 - OCR provider 选择看 `ocr.provider`，而不是看 `workflow`
 - 如果你只想跑 OCR-only，请走 `POST /api/v1/ocr/jobs`，不要向 `/api/v1/jobs` 传 `workflow="ocr"`
 - 本地人工调用时，优先使用中性入口名 `run_provider_case.py`
@@ -135,7 +135,7 @@ Content-Type: application/json
   "translation": {
     "base_url": "https://api.deepseek.com/v1",
     "api_key": "your-deepseek-api-key",
-    "model": "deepseek-chat",
+    "model": "deepseek-v4-flash",
     "mode": "sci",
     "math_mode": "direct_typst",
     "workers": 50,

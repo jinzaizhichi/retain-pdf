@@ -7,11 +7,12 @@ use crate::error::AppError;
 use crate::models::{CreateJobInput, JobStatusKind, JobSubmissionView, WorkflowKind};
 use crate::routes::job_helpers::stream_file;
 use crate::services::artifacts::attach_job_id_header;
-use crate::services::jobs::{
-    build_translation_bundle_artifact, create_ocr_job_from_upload, create_translation_job,
-    BundleBuildDeps, UploadedPdfInput,
-};
 
+use super::super::super::creation::context::BundleBuildDeps;
+use super::super::super::creation::{
+    build_translation_bundle_artifact, create_ocr_job_from_upload, create_translation_job,
+    UploadedPdfInput,
+};
 use super::super::JobsFacade;
 
 impl<'a> JobsFacade<'a> {
@@ -21,7 +22,7 @@ impl<'a> JobsFacade<'a> {
         request: &CreateJobInput,
     ) -> Result<JobSubmissionView, AppError> {
         let workflow = request.workflow.clone();
-        let job = create_translation_job(&self.command.creation, request)?;
+        let job = create_translation_job(&self.command.submit, request)?;
         Ok(self.build_submission_view(headers, &job, JobStatusKind::Queued, workflow))
     }
 
@@ -36,7 +37,7 @@ impl<'a> JobsFacade<'a> {
             bytes,
             developer_mode,
         });
-        let job = create_ocr_job_from_upload(&self.command.creation, request, upload).await?;
+        let job = create_ocr_job_from_upload(&self.command.submit, request, upload).await?;
         Ok(self.build_submission_view(headers, &job, JobStatusKind::Queued, WorkflowKind::Ocr))
     }
 
@@ -49,7 +50,7 @@ impl<'a> JobsFacade<'a> {
     ) -> Result<(String, PathBuf), AppError> {
         let artifact = build_translation_bundle_artifact(
             &BundleBuildDeps {
-                creation: self.command.creation.clone(),
+                submit: self.command.submit.clone(),
                 downloads_lock: self.command.downloads_lock,
             },
             request,

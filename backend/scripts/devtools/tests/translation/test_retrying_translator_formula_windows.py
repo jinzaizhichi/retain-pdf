@@ -16,6 +16,10 @@ def load_retrying_translator():
         "services": REPO_SCRIPTS_ROOT / "services",
         "services.translation": REPO_SCRIPTS_ROOT / "services" / "translation",
         "services.translation.llm": REPO_SCRIPTS_ROOT / "services" / "translation" / "llm",
+        "services.translation.llm.shared": REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared",
+        "services.translation.llm.shared.orchestration": REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration",
+        "services.translation.llm.providers": REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "providers",
+        "services.translation.llm.providers.deepseek": REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "providers" / "deepseek",
         "services.translation.policy": REPO_SCRIPTS_ROOT / "services" / "translation" / "policy",
         "services.document_schema": REPO_SCRIPTS_ROOT / "services" / "document_schema",
     }
@@ -27,16 +31,16 @@ def load_retrying_translator():
             sys.modules[name] = module
 
     for module_name in (
-        "services.translation.llm.retrying_translator",
-        "services.translation.llm.fallbacks",
-        "services.translation.llm.segment_routing",
-        "services.translation.llm.deepseek_client",
+        "services.translation.llm.shared.orchestration.retrying_translator",
+        "services.translation.llm.shared.orchestration.fallbacks",
+        "services.translation.llm.shared.orchestration.segment_routing",
+        "services.translation.llm.providers.deepseek.client",
     ):
         sys.modules.pop(module_name, None)
 
     spec = importlib.util.spec_from_file_location(
-        "services.translation.llm.retrying_translator",
-        REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "retrying_translator.py",
+        "services.translation.llm.shared.orchestration.retrying_translator",
+        REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "retrying_translator.py",
     )
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -130,7 +134,7 @@ def make_formula_dense_prose_item() -> dict:
 class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
     def test_formula_segment_messages_default_to_tagged_protocol(self):
         load_retrying_translator()
-        import services.translation.llm.segment_routing as segment_routing
+        import services.translation.llm.shared.orchestration.segment_routing as segment_routing
 
         item = make_formula_item(2)
         skeleton, segments = segment_routing.build_formula_segment_plan(item["translation_unit_protected_source_text"])
@@ -153,7 +157,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_small_formula_inline_uses_risk_score_not_single_phrase_only(self):
         load_retrying_translator()
-        import services.translation.llm.segment_routing as segment_routing
+        import services.translation.llm.shared.orchestration.segment_routing as segment_routing
 
         source = (
             "The parameter <f1-a7c/> is expressed as <f2-b2d/> "
@@ -165,7 +169,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_fragmented_formula_segments_can_use_segmented_route_when_risk_threshold_is_met(self):
         module = load_retrying_translator()
-        import services.translation.llm.segment_routing as segment_routing
+        import services.translation.llm.shared.orchestration.segment_routing as segment_routing
 
         item = make_fragmented_formula_item()
         skeleton, segments = segment_routing.build_formula_segment_plan(item["translation_unit_protected_source_text"])
@@ -189,8 +193,8 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_plain_text_retry_for_large_formula_block_uses_plain_route(self):
         module = load_retrying_translator()
-        import services.translation.llm.fallbacks as fallbacks
-        from services.translation.llm.control_context import build_translation_control_context
+        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
+        from services.translation.llm.shared.control_context import build_translation_control_context
 
         item = make_formula_item(20)
         item["_heavy_formula_split_applied"] = True
@@ -220,8 +224,8 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_small_formula_inline_uses_plain_text_directly(self):
         module = load_retrying_translator()
-        import services.translation.llm.fallbacks as fallbacks
-        from services.translation.llm.control_context import build_translation_control_context
+        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
+        from services.translation.llm.shared.control_context import build_translation_control_context
 
         item = make_small_formula_inline_item()
         calls: list[str] = []
@@ -269,8 +273,8 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_formula_dense_prose_uses_plain_text_before_segmented(self):
         module = load_retrying_translator()
-        import services.translation.llm.fallbacks as fallbacks
-        from services.translation.llm.control_context import build_translation_control_context
+        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
+        from services.translation.llm.shared.control_context import build_translation_control_context
 
         item = make_formula_dense_prose_item()
         calls: list[str] = []
@@ -314,8 +318,8 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_heavy_formula_split_skips_formula_dense_prose_blocks(self):
         load_retrying_translator()
-        import services.translation.llm.fallbacks as fallbacks
-        from services.translation.llm.control_context import build_translation_control_context
+        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
+        from services.translation.llm.shared.control_context import build_translation_control_context
 
         item = make_formula_dense_prose_item()
         expanded = item["translation_unit_protected_source_text"] + " " + item["translation_unit_protected_source_text"] + " " + item["translation_unit_protected_source_text"]
@@ -332,8 +336,8 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_heavy_formula_block_is_split_before_windowed_route(self):
         module = load_retrying_translator()
-        import services.translation.llm.fallbacks as fallbacks
-        from services.translation.llm.control_context import build_translation_control_context
+        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
+        from services.translation.llm.shared.control_context import build_translation_control_context
 
         item = {
             "item_id": "heavy-formula-1",
@@ -406,8 +410,8 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_heavy_formula_split_empty_chunk_degrades_only_current_chunk(self):
         module = load_retrying_translator()
-        import services.translation.llm.fallbacks as fallbacks
-        from services.translation.llm.control_context import build_translation_control_context
+        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
+        from services.translation.llm.shared.control_context import build_translation_control_context
 
         item = {
             "item_id": "heavy-formula-empty-1",
@@ -484,8 +488,8 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_single_segmented_failure_falls_back_to_plain_text(self):
         module = load_retrying_translator()
-        import services.translation.llm.fallbacks as fallbacks
-        from services.translation.llm.control_context import build_translation_control_context
+        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
+        from services.translation.llm.shared.control_context import build_translation_control_context
 
         item = make_fragmented_formula_item()
         calls: list[str] = []
@@ -521,8 +525,8 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_windowed_formula_translation_allows_local_english_keep_origin_window(self):
         module = load_retrying_translator()
-        import services.translation.llm.deepseek_client as deepseek_client
-        import services.translation.llm.segment_routing as segment_routing
+        import services.translation.llm.providers.deepseek.client as deepseek_client
+        import services.translation.llm.shared.orchestration.segment_routing as segment_routing
 
         item = make_formula_item(20)
         calls: list[list[str]] = []
@@ -557,7 +561,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_segment_parser_allows_empty_optional_connector_segment(self):
         load_retrying_translator()
-        import services.translation.llm.segment_routing as segment_routing
+        import services.translation.llm.shared.orchestration.segment_routing as segment_routing
 
         expected_segments = [
             {"segment_id": "1", "source_text": "Transfer of a proton and an electron would lead to isobutyronitrile"},
@@ -581,7 +585,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_segment_parser_rejects_empty_non_connector_segment(self):
         load_retrying_translator()
-        import services.translation.llm.segment_routing as segment_routing
+        import services.translation.llm.shared.orchestration.segment_routing as segment_routing
 
         expected_segments = [
             {"segment_id": "1", "source_text": "Experimentally Testing Concerted versus Stepwise PCET to a Model Alkyl Radical"},
@@ -593,7 +597,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_segment_translation_requests_tagged_then_json_fallback(self):
         load_retrying_translator()
-        import services.translation.llm.segment_routing as segment_routing
+        import services.translation.llm.shared.orchestration.segment_routing as segment_routing
 
         item = make_formula_item(2)
         skeleton, segments = segment_routing.build_formula_segment_plan(item["translation_unit_protected_source_text"])
@@ -636,7 +640,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_segment_translation_skips_json_fallback_on_semantic_tagged_failure(self):
         load_retrying_translator()
-        import services.translation.llm.segment_routing as segment_routing
+        import services.translation.llm.shared.orchestration.segment_routing as segment_routing
 
         item = make_formula_item(2)
         skeleton, segments = segment_routing.build_formula_segment_plan(item["translation_unit_protected_source_text"])
@@ -680,7 +684,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_plain_text_retry_uses_raw_single_item_fallback_after_repeated_empty_translation(self):
         module = load_retrying_translator()
-        import services.translation.llm.fallbacks as fallbacks
+        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
 
         item = {
             "item_id": "body-1",
@@ -714,8 +718,8 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_sentence_fallback_chunks_long_group_when_no_sentence_split_exists(self):
         module = load_retrying_translator()
-        import services.translation.llm.fallbacks as fallbacks
-        from services.translation.llm.control_context import build_translation_control_context
+        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
+        from services.translation.llm.shared.control_context import build_translation_control_context
         item = {
             "item_id": "group-1",
             "block_type": "text",
@@ -751,8 +755,8 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_sentence_fallback_rejects_merged_partial_output_with_long_english_residue(self):
         module = load_retrying_translator()
-        import services.translation.llm.fallbacks as fallbacks
-        from services.translation.llm.control_context import build_translation_control_context
+        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
+        from services.translation.llm.shared.control_context import build_translation_control_context
 
         item = {
             "item_id": "p009-b018",
@@ -807,7 +811,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_partial_translation_payload_is_not_cacheable(self):
         load_retrying_translator()
-        import services.translation.llm.fallbacks as fallbacks
+        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
 
         self.assertFalse(
             fallbacks._should_store_translation_result(

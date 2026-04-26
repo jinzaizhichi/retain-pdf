@@ -4,7 +4,7 @@ use crate::error::AppError;
 use crate::models::{redact_json_value, sensitive_values, JobSnapshot, TranslationReplayView};
 use crate::storage_paths::resolve_job_root;
 
-use crate::services::jobs::ReplayDeps;
+use super::super::creation::context::ReplayDeps;
 
 pub(crate) async fn replay_translation_item(
     deps: &ReplayDeps<'_>,

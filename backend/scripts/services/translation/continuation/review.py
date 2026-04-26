@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 
 from foundation.shared.prompt_loader import load_prompt
-from ..llm.deepseek_client import request_chat_content
-from ..llm.structured_models import CONTINUATION_REVIEW_RESPONSE_SCHEMA
-from ..llm.structured_parsers import parse_continuation_review_response
+from services.translation.llm.shared.provider_runtime import request_chat_content
+from services.translation.llm.shared.structured_models import CONTINUATION_REVIEW_RESPONSE_SCHEMA
+from services.translation.llm.shared.structured_parsers import parse_continuation_review_response
 
 
 def _build_messages(pairs: list[dict]) -> list[dict[str, str]]:

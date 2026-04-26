@@ -9,7 +9,7 @@
 相关文档：
 
 - [前端请求示例](/home/wxyhgk/tmp/Code/backend/rust_api/frontend_request_example.md)
-- [OCR-only 服务文档](/home/wxyhgk/tmp/Code/backend/rust_api/MinerU_OCR_Service_API.md)
+- [OCR-only 服务文档](/home/wxyhgk/tmp/Code/backend/rust_api/OCR_Service_API.md)
 - [API 总入口](/home/wxyhgk/tmp/Code/doc/API.md)
 
 ## 1. 服务概览
@@ -171,7 +171,7 @@ X-API-Key: your-rust-api-key
 
 - 普通模式：默认仅支持 `10MB` 以内、`30` 页以内
 - `developer_mode=true`：跳过普通模式限制
-- MinerU provider 的硬限制仍然是：小于 `200MB` 且不超过 `600` 页
+- 当前只有 `provider=mineru` 会额外受到上游 MinerU 的硬限制：小于 `200MB` 且不超过 `600` 页
 
 ### 5.2 创建主任务
 
@@ -181,7 +181,7 @@ X-API-Key: your-rust-api-key
 
 ```json
 {
-  "workflow": "mineru",
+  "workflow": "book",
   "source": {
     "upload_id": "20260402073151-a80618"
   },
@@ -192,7 +192,7 @@ X-API-Key: your-rust-api-key
   },
   "translation": {
     "mode": "sci",
-    "model": "deepseek-chat",
+    "model": "deepseek-v4-flash",
     "base_url": "https://api.deepseek.com/v1",
     "api_key": "sk-xxxx",
     "skip_title_translation": false,
@@ -216,23 +216,24 @@ X-API-Key: your-rust-api-key
 
 当前支持的 `workflow`：
 
-- `mineru`：完整链路，OCR -> Normalize -> Translate -> Render
+- `book`：完整链路，OCR -> Normalize -> Translate -> Render
 - `translate`：OCR -> Normalize -> Translate，不进入渲染
 - `render`：基于已有 job artifacts 重跑渲染
 
 接口边界：
 
-- `POST /api/v1/jobs` 面向 `mineru` / `translate` / `render`
+- `POST /api/v1/jobs` 面向 `book` / `translate` / `render`
 - `workflow=ocr` 使用独立入口 `POST /api/v1/ocr/jobs`
 
 不同 workflow 的 `source` 约定：
 
-- `mineru` / `translate`：通常使用 `source.upload_id`
+- `book` / `translate`：通常使用 `source.upload_id`
 - `render`：使用 `source.artifact_job_id`
 
-当前强制字段按 workflow 和 provider 决定，常见要求：
+当前强制字段按 provider 和阶段决定，常见要求：
 
-- `mineru` / `translate` 走 MinerU 时，需要 `ocr.mineru_token`
+- 当 `ocr.provider=mineru` 时，需要 `ocr.mineru_token`
+- 当 `ocr.provider=paddle` 时，需要 `ocr.paddle_token`
 - 需要大模型翻译时，需要 `translation.base_url`、`translation.api_key`、`translation.model`
 - `render` workflow 不要求 OCR 或翻译凭据
 
@@ -245,7 +246,7 @@ X-API-Key: your-rust-api-key
 
 - `translation.base_url` 必须以 `http://` 或 `https://` 开头
 - `translation.api_key` 不能看起来像 URL
-- 当 workflow / provider 走 MinerU 时，会额外校验 `200MB / 600 页` 限制
+- 当 `ocr.provider=mineru` 时，会额外校验 `200MB / 600 页` 限制
 
 术语表 v1 约定：
 
@@ -492,6 +493,13 @@ CSV 解析辅助接口请求体：
 - 需要实时进度展示的前端页面
 - 需要精细排错的场景
 
+补充说明：
+
+- 这个入口接受 `multipart/form-data`
+- OCR provider 通过表单字段 `provider` 指定，当前支持 `mineru` 和 `paddle`
+- 例如传 `provider=paddle` 时，应同时传 `paddle_token`
+- 如果不需要同步等待 ZIP，更推荐正式三段式：`uploads -> jobs -> poll`
+
 ## 8. 状态与阶段
 
 `status` 当前可能值：
@@ -573,12 +581,12 @@ CSV 解析辅助接口请求体：
 
 不要只因为状态是 `running` 就猜测文件已经存在。
 
-### 10.3 MinerU 相关失败
+### 10.3 OCR Provider 相关失败
 
 常见原因：
 
-- `mineru_token` 缺失或过期
-- 上传 PDF 超过 MinerU 限制
+- provider 凭据缺失、无效或过期
+- 上传 PDF 超过上游 provider 限制
 - DNS 或代理环境异常
 - 远端接口短时断连或 CDN 拉取失败
 

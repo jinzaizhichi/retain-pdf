@@ -10,6 +10,8 @@
   统一中间文档结构版本定义、adapter registry、defaults 收口、schema 校验与 normalization report。
 - `mineru/`
   MinerU 这个 provider 的具体实现：提交、轮询、下载、解包、任务产物整理。
+- `pipeline_shared/`
+  provider / translate / render 主线共用的阶段协议、summary、统一 `pipeline_events.jsonl` 事件流和 JSON IO，不绑定任何单一 provider。
 - `translation/`
   OCR 解析、翻译编排元数据、策略过滤、LLM 调用、结果回填。
 - `rendering/`
@@ -24,6 +26,7 @@
 - 需要排查 raw -> normalized 转化时，优先看 `document.v1.report.json` 或 `validate_document_schema.py --adapt`
 - 如果只是消费 provider / defaults / validation 摘要，优先走 `document_schema/reporting.py`
 - `mineru/` 是一个 provider 实现，不是 OCR 总工作流本身
+- `pipeline_shared/` 是中性共享层，不应该再放 provider 私有逻辑
 - `translation/ocr` 主线优先读取 normalized document，而不是直接依赖某个 OCR provider 的原始 JSON
 - `runtime/pipeline` 只负责把这些能力串起来
 - 上层入口优先依赖 `runtime/pipeline`，不要直接跨服务拼流程

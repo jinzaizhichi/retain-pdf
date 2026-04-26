@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from services.mineru.artifacts import save_json
+from services.pipeline_shared.io import save_json
 
 from .aggregator import TranslationRunDiagnostics
 from .models import FinalStatus

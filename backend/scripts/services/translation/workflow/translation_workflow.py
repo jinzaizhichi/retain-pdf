@@ -13,7 +13,8 @@ from services.translation.policy import build_translation_policy_config
 from services.translation.continuation import annotate_continuation_context
 from services.translation.continuation import summarize_continuation_decisions
 from services.translation.policy import apply_translation_policies
-from services.translation.llm import translate_batch
+from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL, DEFAULT_MODEL
+from services.translation.llm.shared.orchestration import translate_batch
 from services.translation.payload import ensure_translation_template, load_translations, save_translations
 
 
@@ -32,8 +33,8 @@ def translate_items_to_path(
     api_key: str = "",
     batch_size: int = 8,
     workers: int = 1,
-    model: str = "deepseek-chat",
-    base_url: str = "https://api.deepseek.com/v1",
+    model: str = DEFAULT_MODEL,
+    base_url: str = DEFAULT_BASE_URL,
     progress_label: str = "",
     mode: str = "fast",
     classify_batch_size: int = 12,

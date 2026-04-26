@@ -95,14 +95,6 @@ pub async fn parse_ocr_job_request(multipart: &mut Multipart) -> Result<ParsedOc
             .text()
             .await
             .map_err(|e| AppError::bad_request(e.to_string()))?;
-        if name == "source_url" {
-            request.source.source_url = value.trim().to_string();
-            continue;
-        }
-        if name == "provider" {
-            request.ocr.provider = value.trim().to_string();
-            continue;
-        }
         apply_multipart_request_field(&mut request, &mut developer_mode, &name, value.trim())?;
     }
 
@@ -124,6 +116,7 @@ fn apply_multipart_request_field(
         "developer_mode" => *developer_mode = parse_bool_like(value),
         "workflow" => {}
         "upload_id" => request.source.upload_id = value.to_string(),
+        "source_url" => request.source.source_url = value.to_string(),
         "artifact_job_id" => request.source.artifact_job_id = value.to_string(),
         "job_id" => request.runtime.job_id = value.to_string(),
         "mode" => request.translation.mode = value.to_string(),
@@ -152,6 +145,7 @@ fn apply_multipart_request_field(
         "batch_size" => request.translation.batch_size = parse_i64_like(name, value)?,
         "workers" => request.translation.workers = parse_i64_like(name, value)?,
         "translated_pdf_name" => request.render.translated_pdf_name = value.to_string(),
+        "provider" => request.ocr.provider = value.to_string(),
         "mineru_token" => request.ocr.mineru_token = value.to_string(),
         "model_version" => request.ocr.model_version = value.to_string(),
         "paddle_token" => request.ocr.paddle_token = value.to_string(),
@@ -225,8 +219,24 @@ mod tests {
 
         apply_multipart_request_field(&mut request, &mut developer_mode, "upload_id", "upload-1")
             .expect("upload_id");
+        apply_multipart_request_field(
+            &mut request,
+            &mut developer_mode,
+            "source_url",
+            "https://example.com/paper.pdf",
+        )
+        .expect("source_url");
+        apply_multipart_request_field(&mut request, &mut developer_mode, "provider", "paddle")
+            .expect("provider");
         apply_multipart_request_field(&mut request, &mut developer_mode, "mineru_token", "mineru")
             .expect("mineru_token");
+        apply_multipart_request_field(
+            &mut request,
+            &mut developer_mode,
+            "paddle_token",
+            "paddle-secret",
+        )
+        .expect("paddle_token");
         apply_multipart_request_field(
             &mut request,
             &mut developer_mode,
@@ -243,7 +253,10 @@ mod tests {
 
         assert!(!developer_mode);
         assert_eq!(request.source.upload_id, "upload-1");
+        assert_eq!(request.source.source_url, "https://example.com/paper.pdf");
+        assert_eq!(request.ocr.provider, "paddle");
         assert_eq!(request.ocr.mineru_token, "mineru");
+        assert_eq!(request.ocr.paddle_token, "paddle-secret");
         assert_eq!(request.translation.base_url, "https://api.deepseek.com/v1");
         assert_eq!(request.translation.api_key, "sk-test");
         assert_eq!(request.render.render_mode, "auto");

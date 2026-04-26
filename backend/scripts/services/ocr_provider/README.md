@@ -136,6 +136,14 @@ provider 层产物一旦落盘，下一步只做一件事：
 
 当前代码里可以按下面理解：
 
+- `services/ocr_provider/provider_pipeline.py`
+  这是 provider-backed 全流程稳定入口；脚本、测试、兼容 patch 点都以它为边界
+- `services/ocr_provider/paddle_api.py`
+  这是 Paddle transport / polling / result download
+- `services/ocr_provider/paddle_markdown.py`
+  这是 Paddle Markdown 和图片产物落盘
+- `services/ocr_provider/paddle_normalize.py`
+  这是 Paddle normalized document 几何修正等纯实现
 - `services/mineru/`
   这是 MinerU provider 的具体实现，不是“OCR 总入口”
 - `services/document_schema/`
@@ -204,3 +212,21 @@ provider 层产物一旦落盘，下一步只做一件事：
 - 后续有新 OCR API 时，先对齐这份约定，再决定目录和 adapter
 
 这样后续切 OCR provider，不需要再拆翻译/渲染主线。
+
+## 当前实现约束
+
+为了避免继续反复重构，当前 `ocr_provider/` 目录按下面规则维护：
+
+- `provider_pipeline.py` 负责 stage/provider 分发和稳定兼容面
+- 新增的纯实现优先下沉到独立模块，不直接堆回 `provider_pipeline.py`
+- 如果测试需要 monkeypatch，patch 点应保留在 `provider_pipeline.py`
+- `services/ocr_provider/__init__.py` 必须显式导出 `provider_pipeline`
+- `paddle_api.py` 不处理 normalized schema
+- `paddle_markdown.py` 只处理 Markdown/图片产物，不碰翻译和渲染
+- `paddle_normalize.py` 只处理 normalized document 和几何修正，不碰 provider transport
+
+这些约束已经进入：
+
+- `backend/scripts/devtools/check_pipeline_architecture.py`
+
+也就是说，后面如果有人把 `ocr_provider` 重新连回翻译/渲染层，或者把稳定入口改成隐式导出/深层直连，本地架构检查会直接失败。

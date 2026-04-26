@@ -3,12 +3,11 @@ use std::time::{Duration, Instant};
 use crate::db::Db;
 use crate::error::AppError;
 use crate::job_events::persist_job_with_resources;
-use crate::job_runner::request_cancel_with_registry;
-use crate::job_runner::terminate_job_process_tree;
 use crate::models::{now_iso, JobSnapshot, JobStatusKind};
+use crate::services::runtime_gateway::terminate_runtime_process;
 
+use super::creation::context::ControlDeps;
 use super::query::load_job_or_404;
-use crate::services::jobs::ControlDeps;
 
 const SYNC_BUNDLE_WAIT_INTERVAL_MS: u64 = 1500;
 
@@ -69,12 +68,10 @@ pub(crate) async fn cancel_job(
             job.status
         )));
     }
-    request_cancel_with_registry(deps.canceled_jobs, job_id).await;
+    deps.runtime.request_cancel(job_id).await;
     if !ocr_only || !matches!(job.stage.as_deref(), Some("normalizing")) {
         if let Some(pid) = job.pid {
-            terminate_job_process_tree(pid).await.map_err(|e| {
-                AppError::internal(format!("failed to terminate job process tree: {e}"))
-            })?;
+            terminate_runtime_process(pid).await?;
         }
     }
     if ocr_only {

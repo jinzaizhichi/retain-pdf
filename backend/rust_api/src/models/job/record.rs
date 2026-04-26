@@ -6,7 +6,6 @@ use crate::models::{
     now_iso, JobArtifacts, JobFailureInfo, JobRuntimeInfo, JobStatusKind, ProcessResult,
     ResolvedJobSpec, WorkflowKind,
 };
-use crate::ocr_provider::{parse_provider_kind, OcrProviderDiagnostics};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct JobRecord {
@@ -78,7 +77,6 @@ impl JobSnapshot {
     ) -> Self {
         let request_payload: ResolvedJobSpec = request_payload.into();
         let now = now_iso();
-        let provider_kind = parse_provider_kind(&request_payload.ocr.provider);
         Self {
             record: JobRecord {
                 job_id,
@@ -102,10 +100,7 @@ impl JobSnapshot {
                 runtime: None,
                 failure: None,
             },
-            artifacts: Some(JobArtifacts {
-                ocr_provider_diagnostics: Some(OcrProviderDiagnostics::new(provider_kind)),
-                ..JobArtifacts::default()
-            }),
+            artifacts: Some(JobArtifacts::default()),
         }
         .with_synced_runtime()
     }

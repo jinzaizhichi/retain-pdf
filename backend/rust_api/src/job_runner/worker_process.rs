@@ -12,22 +12,19 @@ use anyhow::{Context, Result};
 use tokio::process::{Child, Command};
 use tokio::time::{sleep, Duration};
 
+use crate::config::AppConfig;
 use crate::models::JobRuntimeState;
+use crate::ocr_provider::{provider_token, provider_token_env_name, require_supported_provider};
 
-use super::ProcessRuntimeDeps;
-
-pub(super) fn spawn_worker_process(
-    deps: &ProcessRuntimeDeps,
-    job: &JobRuntimeState,
-) -> Result<Child> {
+pub(super) fn spawn_worker_process(config: &AppConfig, job: &JobRuntimeState) -> Result<Child> {
     let mut command = Command::new(&job.command[0]);
     command
         .args(&job.command[1..])
-        .env("RUST_API_DATA_ROOT", &deps.config.data_root)
-        .env("RUST_API_OUTPUT_ROOT", &deps.config.output_root)
-        .env("OUTPUT_ROOT", &deps.config.output_root)
+        .env("RUST_API_DATA_ROOT", &config.data_root)
+        .env("RUST_API_OUTPUT_ROOT", &config.output_root)
+        .env("OUTPUT_ROOT", &config.output_root)
         .env("PYTHONUNBUFFERED", "1")
-        .current_dir(&deps.config.project_root)
+        .current_dir(&config.project_root)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     apply_job_credentials(&mut command, job);
@@ -46,17 +43,13 @@ fn apply_job_credentials(command: &mut Command, job: &JobRuntimeState) {
             job.request_payload.translation.api_key.trim(),
         );
     }
-    if !job.request_payload.ocr.mineru_token.trim().is_empty() {
-        command.env(
-            "RETAIN_MINERU_API_TOKEN",
-            job.request_payload.ocr.mineru_token.trim(),
-        );
-    }
-    if !job.request_payload.ocr.paddle_token.trim().is_empty() {
-        command.env(
-            "RETAIN_PADDLE_API_TOKEN",
-            job.request_payload.ocr.paddle_token.trim(),
-        );
+    if let Ok(provider_kind) = require_supported_provider(&job.request_payload.ocr.provider) {
+        let token = provider_token(&provider_kind, &job.request_payload.ocr);
+        if !token.is_empty() {
+            if let Some(env_name) = provider_token_env_name(&provider_kind) {
+                command.env(env_name, token);
+            }
+        }
     }
 }
 

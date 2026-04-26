@@ -8,8 +8,24 @@ pub struct JobEventRecord {
     pub ts: String,
     pub level: String,
     pub stage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage_detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_stage: Option<String>,
     pub event: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_type: Option<String>,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_current: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_total: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<i64>,
     pub payload: Option<Value>,
 }
 

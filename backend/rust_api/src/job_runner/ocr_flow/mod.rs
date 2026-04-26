@@ -1,13 +1,13 @@
-use anyhow::Result;
-
-use crate::job_events::persist_runtime_job_with_resources;
 use crate::models::{now_iso, JobRuntimeState, JobStatusKind};
+use crate::ocr_provider::mineru::MineruClient;
+use crate::ocr_provider::paddle::PaddleClient;
 use crate::ocr_provider::parse_provider_kind;
+use crate::ocr_provider::OcrProviderKind;
+use anyhow::{anyhow, Result};
 
 use super::{
-    append_error_chain_log, attach_job_provider_failure, build_normalize_ocr_command,
-    clear_canceled_runtime_artifacts, clear_job_failure, execute_process_job, format_error_chain,
-    job_artifacts_mut, refresh_job_failure, sync_runtime_state, ProcessRuntimeDeps,
+    build_normalize_ocr_command, clear_canceled_runtime_artifacts, clear_job_failure,
+    execute_process_job, job_artifacts_mut, sync_runtime_state, ProcessRuntimeDeps,
 };
 
 mod artifacts;
@@ -22,91 +22,15 @@ mod page_subset;
 mod polling;
 mod provider_result;
 mod status;
+mod support;
 mod transport;
 mod workspace;
 
 use super::cancel_registry::is_cancel_requested_with_registry;
-use transport::execute_transport;
+pub use support::sync_parent_with_ocr_child;
+use support::{fail_missing_source_pdf, fail_ocr_transport, save_ocr_job};
+use transport::{prepare_local_upload_source, recover_remote_source_pdf};
 use workspace::OcrWorkspace;
-
-async fn save_ocr_job(
-    deps: &ProcessRuntimeDeps,
-    job: &JobRuntimeState,
-    parent_job_id: Option<&str>,
-) -> Result<()> {
-    persist_runtime_job_with_resources(
-        deps.db.as_ref(),
-        &deps.config.data_root,
-        &deps.config.output_root,
-        job,
-    )?;
-    if let Some(parent_job_id) = parent_job_id {
-        mirror_parent_ocr_status(deps, parent_job_id, job).await?;
-    }
-    Ok(())
-}
-
-async fn mirror_parent_ocr_status(
-    deps: &ProcessRuntimeDeps,
-    parent_job_id: &str,
-    ocr_job: &JobRuntimeState,
-) -> Result<()> {
-    let mut parent_job = deps.db.get_job(parent_job_id)?.into_runtime();
-    if matches!(
-        parent_job.status,
-        JobStatusKind::Succeeded | JobStatusKind::Failed | JobStatusKind::Canceled
-    ) {
-        return Ok(());
-    }
-    let parent_artifacts = job_artifacts_mut(&mut parent_job);
-    parent_artifacts.ocr_job_id = Some(ocr_job.job_id.clone());
-    parent_artifacts.ocr_status = Some(ocr_job.status.clone());
-    parent_artifacts.ocr_trace_id = ocr_job
-        .artifacts
-        .as_ref()
-        .and_then(|item| item.trace_id.clone());
-    parent_artifacts.ocr_provider_trace_id = ocr_job
-        .artifacts
-        .as_ref()
-        .and_then(|item| item.provider_trace_id.clone());
-    parent_artifacts.ocr_provider_diagnostics = ocr_job
-        .artifacts
-        .as_ref()
-        .and_then(|item| item.ocr_provider_diagnostics.clone());
-
-    parent_job.status = JobStatusKind::Running;
-    parent_job.stage = ocr_job.stage.clone().or(Some("ocr_submitting".to_string()));
-    parent_job.stage_detail = ocr_job
-        .stage_detail
-        .as_ref()
-        .map(|detail| format!("OCR 子任务：{detail}"))
-        .or_else(|| Some("OCR 子任务运行中".to_string()));
-    parent_job.progress_current = ocr_job.progress_current;
-    parent_job.progress_total = ocr_job.progress_total;
-    parent_job.updated_at = now_iso();
-    parent_job.replace_failure_info(None);
-    parent_job.sync_runtime_state();
-    persist_runtime_job_with_resources(
-        deps.db.as_ref(),
-        &deps.config.data_root,
-        &deps.config.output_root,
-        &parent_job,
-    )?;
-    Ok(())
-}
-
-fn fail_missing_source_pdf(job: &mut JobRuntimeState, source_pdf_path: &std::path::Path) {
-    let message = format!("source pdf not found: {}", source_pdf_path.display());
-    job.status = JobStatusKind::Failed;
-    job.stage = Some("failed".to_string());
-    job.stage_detail = Some("OCR 已完成，但任务源 PDF 缺失".to_string());
-    job.error = Some(message.clone());
-    job.updated_at = now_iso();
-    job.finished_at = Some(now_iso());
-    job.append_log(&message);
-    refresh_job_failure(job);
-    sync_runtime_state(job);
-}
 
 pub async fn execute_ocr_job(
     deps: ProcessRuntimeDeps,
@@ -126,10 +50,15 @@ pub async fn execute_ocr_job(
     sync_runtime_state(&mut job);
     save_ocr_job(&deps, &job, parent_job_id.as_deref()).await?;
 
-    let workspace = OcrWorkspace::prepare(&deps, &mut job, &provider_kind, output_job_id_override)?;
+    let workspace = OcrWorkspace::prepare(
+        deps.config.as_ref(),
+        &mut job,
+        &provider_kind,
+        output_job_id_override,
+    )?;
     save_ocr_job(&deps, &job, parent_job_id.as_deref()).await?;
 
-    let source_pdf_path = match execute_transport(
+    let source_pdf_path = match execute_provider_transport(
         &deps,
         &mut job,
         &provider_kind,
@@ -186,66 +115,91 @@ pub async fn execute_ocr_job(
     execute_process_job(deps, job, &[]).await
 }
 
-fn fail_ocr_transport(job: &mut JobRuntimeState, err: &anyhow::Error) {
-    let message = format_error_chain(err);
-    append_error_chain_log(job, err);
-    attach_job_provider_failure(job, &message);
-    job.status = JobStatusKind::Failed;
-    job.stage = Some("failed".to_string());
-    if job
-        .stage_detail
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .is_none()
+async fn execute_provider_transport(
+    deps: &ProcessRuntimeDeps,
+    job: &mut JobRuntimeState,
+    provider_kind: &OcrProviderKind,
+    workspace: &OcrWorkspace,
+    parent_job_id: Option<&str>,
+) -> Result<std::path::PathBuf> {
+    if let Some(upload_path) =
+        prepare_local_upload_source(deps.db.as_ref(), job, &workspace.source_dir)?
     {
-        job.stage_detail = Some("OCR provider transport 失败".to_string());
-    }
-    job.error = Some(message);
-    job.updated_at = now_iso();
-    job.finished_at = Some(now_iso());
-    refresh_job_failure(job);
-    sync_runtime_state(job);
-}
-
-pub fn sync_parent_with_ocr_child(
-    parent_job: &mut JobRuntimeState,
-    ocr_finished: &JobRuntimeState,
-) {
-    let parent_artifacts = job_artifacts_mut(parent_job);
-    parent_artifacts.ocr_job_id = Some(ocr_finished.job_id.clone());
-    parent_artifacts.ocr_status = Some(ocr_finished.status.clone());
-    parent_artifacts.ocr_trace_id = ocr_finished
-        .artifacts
-        .as_ref()
-        .and_then(|item| item.trace_id.clone());
-    parent_artifacts.ocr_provider_trace_id = ocr_finished
-        .artifacts
-        .as_ref()
-        .and_then(|item| item.provider_trace_id.clone());
-
-    if let Some(child_artifacts) = ocr_finished.artifacts.as_ref() {
-        if parent_artifacts.job_root.is_none() {
-            parent_artifacts.job_root = child_artifacts.job_root.clone();
+        match provider_kind {
+            OcrProviderKind::Mineru => {
+                let client = MineruClient::new("", job.request_payload.ocr.mineru_token.clone());
+                mineru::run_local_ocr_transport_mineru(
+                    deps,
+                    job,
+                    &client,
+                    &upload_path,
+                    &workspace.provider_result_json_path,
+                    parent_job_id,
+                )
+                .await?;
+            }
+            OcrProviderKind::Paddle => {
+                let client = PaddleClient::new(
+                    job.request_payload.ocr.paddle_api_url.clone(),
+                    job.request_payload.ocr.paddle_token.clone(),
+                );
+                paddle::run_local_ocr_transport_paddle(
+                    deps,
+                    job,
+                    &client,
+                    &upload_path,
+                    &workspace.provider_result_json_path,
+                    &workspace.job_paths.root,
+                    parent_job_id,
+                )
+                .await?;
+            }
+            OcrProviderKind::Unknown => return Err(anyhow!("unsupported OCR provider")),
         }
-        parent_artifacts.source_pdf = child_artifacts.source_pdf.clone();
-        parent_artifacts.layout_json = child_artifacts.layout_json.clone();
-        parent_artifacts.normalized_document_json =
-            child_artifacts.normalized_document_json.clone();
-        parent_artifacts.normalization_report_json =
-            child_artifacts.normalization_report_json.clone();
-        parent_artifacts.provider_raw_dir = child_artifacts.provider_raw_dir.clone();
-        parent_artifacts.provider_zip = child_artifacts.provider_zip.clone();
-        parent_artifacts.provider_summary_json = child_artifacts.provider_summary_json.clone();
-        parent_artifacts.schema_version = child_artifacts.schema_version.clone();
-        parent_artifacts.trace_id = parent_artifacts
-            .trace_id
-            .clone()
-            .or(child_artifacts.trace_id.clone());
-        parent_artifacts.provider_trace_id = child_artifacts.provider_trace_id.clone();
-        parent_artifacts.ocr_provider_diagnostics =
-            child_artifacts.ocr_provider_diagnostics.clone();
+        return Ok(upload_path);
     }
+
+    match provider_kind {
+        OcrProviderKind::Mineru => {
+            let client = MineruClient::new("", job.request_payload.ocr.mineru_token.clone());
+            mineru::run_remote_ocr_transport_mineru(
+                deps,
+                job,
+                &client,
+                &workspace.provider_result_json_path,
+                parent_job_id,
+            )
+            .await?;
+        }
+        OcrProviderKind::Paddle => {
+            let client = PaddleClient::new(
+                job.request_payload.ocr.paddle_api_url.clone(),
+                job.request_payload.ocr.paddle_token.clone(),
+            );
+            paddle::run_remote_ocr_transport_paddle(
+                deps,
+                job,
+                &client,
+                &workspace.provider_result_json_path,
+                &workspace.job_paths.root,
+                parent_job_id,
+            )
+            .await?;
+        }
+        OcrProviderKind::Unknown => return Err(anyhow!("unsupported OCR provider")),
+    }
+
+    if is_cancel_requested_with_registry(deps.canceled_jobs.as_ref(), &job.job_id).await {
+        return Ok(std::path::PathBuf::new());
+    }
+
+    recover_remote_source_pdf(
+        provider_kind,
+        job,
+        &workspace.source_dir,
+        &workspace.provider_raw_dir,
+    )
+    .await
 }
 
 #[cfg(test)]

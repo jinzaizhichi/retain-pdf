@@ -5,9 +5,10 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Callable
 
-from services.translation.llm.control_context import TranslationControlContext
-from services.translation.llm.deepseek_client import is_transport_error
+from services.translation.llm.shared.provider_runtime import is_transport_error
+from services.translation.llm.shared.control_context import TranslationControlContext
 from services.translation.llm.placeholder_guard import has_formula_placeholders
 from services.translation.llm.placeholder_guard import result_entry
 from services.translation.llm.placeholder_guard import placeholder_sequence
@@ -17,7 +18,7 @@ from services.translation.policy.metadata_filter import looks_like_hard_nontrans
 from services.translation.payload import apply_translated_text_map
 from services.translation.payload import pending_translation_items
 from services.translation.payload.parts.common import GROUP_ITEM_PREFIX
-from services.translation.llm import translate_batch
+from services.translation.llm.shared.orchestration import translate_batch
 from services.translation.item_reader import item_block_kind
 from services.translation.item_reader import item_is_bodylike
 from services.translation.item_reader import item_is_caption_like
@@ -461,6 +462,7 @@ def translate_pending_units(
     domain_guidance: str = "",
     mode: str = "fast",
     translation_context: TranslationControlContext | None = None,
+    progress_callback: Callable[[int, int, set[int]], None] | None = None,
 ) -> dict[str, int]:
     flat_payload: list[dict] = []
     item_to_page: dict[str, int] = {}
@@ -541,7 +543,10 @@ def translate_pending_units(
             )
             translated = _expand_duplicate_results(translated, duplicate_items_by_rep_id=duplicate_items_by_rep_id)
             apply_translated_text_map(flat_payload, translated)
-            dirty_pages.update(touched_pages_for_batch(translated, flat_payload, item_to_page))
+            touched_pages = touched_pages_for_batch(translated, flat_payload, item_to_page)
+            dirty_pages.update(touched_pages)
+            if progress_callback is not None:
+                progress_callback(index, total_batches, touched_pages)
             if index % flush_interval == 0 and dirty_pages:
                 save_started = time.perf_counter()
                 save_pages(page_payloads, translation_paths, dirty_pages)
@@ -622,7 +627,10 @@ def translate_pending_units(
             translated = _expand_duplicate_results(translated, duplicate_items_by_rep_id=duplicate_items_by_rep_id)
             apply_translated_text_map(flat_payload, translated)
             completed += 1
-            dirty_pages.update(touched_pages_for_batch(translated, flat_payload, item_to_page))
+            touched_pages = touched_pages_for_batch(translated, flat_payload, item_to_page)
+            dirty_pages.update(touched_pages)
+            if progress_callback is not None:
+                progress_callback(completed, total_batches, touched_pages)
             if completed % flush_interval == 0 and dirty_pages:
                 save_started = time.perf_counter()
                 save_pages(page_payloads, translation_paths, dirty_pages)

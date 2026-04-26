@@ -1,6 +1,7 @@
 mod detail;
 mod helpers;
 mod listing;
+mod live_stage;
 mod security;
 mod summary_loaders;
 mod views;
@@ -10,7 +11,8 @@ use std::path::Path;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::models::JobSnapshot;
-use crate::services::jobs::{ensure_supported_job_layout, load_job_or_404};
+
+use super::query::{ensure_supported_job_layout, load_job_or_404};
 
 pub use views::{
     build_job_artifact_links_view, build_job_artifact_manifest_view, build_job_detail_view,

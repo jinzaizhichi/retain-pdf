@@ -5,33 +5,11 @@ use axum::response::Response;
 
 use crate::error::AppError;
 use crate::models::{JobSnapshot, MarkdownQuery};
-use crate::routes::job_helpers::stream_file;
 
 use super::common::JobsRouteDeps;
 
 fn jobs_facade_ref<'a>(deps: &'a JobsRouteDeps<'a>) -> crate::services::jobs::JobsFacade<'a> {
     deps.jobs.clone()
-}
-
-async fn download_job_file(
-    data_root: &Path,
-    job: &JobSnapshot,
-    job_id: &str,
-    resolve_path: impl Fn(&JobSnapshot, &Path) -> Option<PathBuf>,
-    not_ready_label: &str,
-    content_type: &str,
-) -> Result<Response, AppError> {
-    let path = resolve_path(job, data_root)
-        .ok_or_else(|| AppError::not_found(format!("{not_ready_label}: {job_id}")))?;
-    stream_file(path, content_type, None).await
-}
-
-fn load_job_for_download(
-    deps: &JobsRouteDeps<'_>,
-    job_id: &str,
-    ocr_only: bool,
-) -> Result<JobSnapshot, AppError> {
-    jobs_facade_ref(deps).load_supported_job_snapshot(job_id, ocr_only)
 }
 
 pub async fn download_document_response(
@@ -42,16 +20,15 @@ pub async fn download_document_response(
     not_ready_label: &str,
     content_type: &str,
 ) -> Result<Response, AppError> {
-    let job = load_job_for_download(deps, job_id, ocr_only)?;
-    download_job_file(
-        deps.data_root,
-        &job,
-        job_id,
-        resolve_path,
-        not_ready_label,
-        content_type,
-    )
-    .await
+    jobs_facade_ref(deps)
+        .download_job_document_response(
+            job_id,
+            ocr_only,
+            resolve_path,
+            not_ready_label,
+            content_type,
+        )
+        .await
 }
 
 pub async fn markdown_response(

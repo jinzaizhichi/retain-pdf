@@ -15,14 +15,19 @@ from foundation.shared.stage_specs import RenderStageSpec
 from foundation.shared.stage_specs import resolve_credential_ref
 from foundation.shared.tee_output import enable_job_log_capture
 from runtime.pipeline.render_stage import run_render_stage
-from services.mineru.artifacts import save_json
-from services.mineru.contracts import format_stdout_kv
-from services.mineru.contracts import PIPELINE_SUMMARY_FILE_NAME
-from services.mineru.contracts import STDOUT_LABEL_JOB_ROOT
-from services.mineru.contracts import STDOUT_LABEL_OUTPUT_PDF
-from services.mineru.contracts import STDOUT_LABEL_SOURCE_PDF
-from services.mineru.contracts import STDOUT_LABEL_SUMMARY
-from services.mineru.contracts import STDOUT_LABEL_TRANSLATIONS_DIR
+from services.pipeline_shared.contracts import format_stdout_kv
+from services.pipeline_shared.contracts import PIPELINE_SUMMARY_FILE_NAME
+from services.pipeline_shared.contracts import STDOUT_LABEL_EVENTS_JSONL
+from services.pipeline_shared.contracts import STDOUT_LABEL_JOB_ROOT
+from services.pipeline_shared.contracts import STDOUT_LABEL_OUTPUT_PDF
+from services.pipeline_shared.contracts import STDOUT_LABEL_SOURCE_PDF
+from services.pipeline_shared.contracts import STDOUT_LABEL_SUMMARY
+from services.pipeline_shared.contracts import STDOUT_LABEL_TRANSLATIONS_DIR
+from services.pipeline_shared.events import emit_artifact_published
+from services.pipeline_shared.events import emit_stage_transition
+from services.pipeline_shared.events import PipelineEventWriter
+from services.pipeline_shared.events import pipeline_event_writer_scope
+from services.pipeline_shared.io import save_json
 
 
 def parse_args() -> argparse.Namespace:
@@ -81,6 +86,12 @@ def main() -> None:
 
     job_dirs = job_dirs_from_explicit_args(args)
     enable_job_log_capture(job_dirs.logs_dir, prefix="render-only")
+    event_writer = PipelineEventWriter(
+        job_id=spec.job.job_id,
+        job_root=job_dirs.root,
+        logs_dir=job_dirs.logs_dir,
+        workflow=spec.job.workflow,
+    )
     source_pdf_path = Path(args.source_pdf).resolve()
     translations_dir = Path(args.translations_dir).resolve()
     translation_manifest_path = (
@@ -92,56 +103,83 @@ def main() -> None:
     output_pdf_path = job_dirs.rendered_dir / translated_pdf_name
     summary_path = job_dirs.artifacts_dir / PIPELINE_SUMMARY_FILE_NAME
 
-    started = time.perf_counter()
-    result = run_render_stage(
-        source_pdf_path=source_pdf_path,
-        translations_dir=translations_dir,
-        translation_manifest_path=translation_manifest_path,
-        output_pdf_path=output_pdf_path,
-        start_page=args.start_page,
-        end_page=args.end_page,
-        render_mode=args.render_mode,
-        compile_workers=args.compile_workers or None,
-        extract_selected_pages=False,
-        api_key=args.api_key,
-        model=args.model,
-        base_url=args.base_url,
-        typst_font_family=args.typst_font_family,
-        pdf_compress_dpi=args.pdf_compress_dpi,
-    )
-    elapsed = time.perf_counter() - started
-    save_json(
-        summary_path,
-        {
-            "job_root": str(job_dirs.root),
-            "source_pdf": str(source_pdf_path),
-            "translations_dir": str(translations_dir),
-            "translation_manifest": str(translation_manifest_path or ""),
-            "output_pdf": str(result["output_pdf_path"]),
-            "pages_processed": result["pages_rendered"],
-            "render_elapsed": elapsed,
-            "total_elapsed": elapsed,
-            "render_mode": args.render_mode,
-            "effective_render_mode": result.get("effective_render_mode", args.render_mode),
-            "pdf_compress_dpi": args.pdf_compress_dpi,
-            "render_diagnostics": result.get("render_diagnostics", {}),
-            "invocation": build_stage_invocation_metadata(
-                stage="render",
-                stage_spec_schema_version=stage_spec_schema_version,
-            ),
-        },
-    )
+    with pipeline_event_writer_scope(event_writer):
+        emit_stage_transition(
+            stage="startup",
+            message="render-only worker 已启动",
+        )
+        print(format_stdout_kv(STDOUT_LABEL_EVENTS_JSONL, event_writer.path))
+        emit_stage_transition(
+            stage="render_prepare",
+            message="开始准备纯渲染阶段",
+        )
+        started = time.perf_counter()
+        result = run_render_stage(
+            source_pdf_path=source_pdf_path,
+            translations_dir=translations_dir,
+            translation_manifest_path=translation_manifest_path,
+            output_pdf_path=output_pdf_path,
+            start_page=args.start_page,
+            end_page=args.end_page,
+            render_mode=args.render_mode,
+            compile_workers=args.compile_workers or None,
+            extract_selected_pages=False,
+            api_key=args.api_key,
+            model=args.model,
+            base_url=args.base_url,
+            typst_font_family=args.typst_font_family,
+            pdf_compress_dpi=args.pdf_compress_dpi,
+        )
+        elapsed = time.perf_counter() - started
+        save_json(
+            summary_path,
+            {
+                "job_root": str(job_dirs.root),
+                "source_pdf": str(source_pdf_path),
+                "translations_dir": str(translations_dir),
+                "translation_manifest": str(translation_manifest_path or ""),
+                "output_pdf": str(result["output_pdf_path"]),
+                "pages_processed": result["pages_rendered"],
+                "render_elapsed": elapsed,
+                "total_elapsed": elapsed,
+                "render_mode": args.render_mode,
+                "effective_render_mode": result.get("effective_render_mode", args.render_mode),
+                "pdf_compress_dpi": args.pdf_compress_dpi,
+                "render_diagnostics": result.get("render_diagnostics", {}),
+                "events_jsonl": str(event_writer.path),
+                "invocation": build_stage_invocation_metadata(
+                    stage="render",
+                    stage_spec_schema_version=stage_spec_schema_version,
+                ),
+            },
+        )
+        emit_artifact_published(
+            artifact_key="pipeline_events_jsonl",
+            path=event_writer.path,
+            stage="saving",
+            message="统一事件流已写出",
+        )
+        emit_artifact_published(
+            artifact_key="output_pdf",
+            path=Path(result["output_pdf_path"]),
+            stage="saving",
+            message="render-only 输出 PDF 已发布",
+        )
+        emit_stage_transition(
+            stage="finished",
+            message="render-only 阶段完成",
+        )
 
-    print(format_stdout_kv(STDOUT_LABEL_JOB_ROOT, job_dirs.root))
-    print(format_stdout_kv(STDOUT_LABEL_SOURCE_PDF, source_pdf_path))
-    print(format_stdout_kv(STDOUT_LABEL_TRANSLATIONS_DIR, translations_dir))
-    print(format_stdout_kv(STDOUT_LABEL_OUTPUT_PDF, result["output_pdf_path"]))
-    print(format_stdout_kv(STDOUT_LABEL_SUMMARY, summary_path))
-    print(f"pages processed: {result['pages_rendered']}")
-    print(f"save time: {elapsed:.2f}s")
-    print(f"total time: {elapsed:.2f}s")
-    if result.get("effective_render_mode"):
-        print(f"effective render mode: {result['effective_render_mode']}")
+        print(format_stdout_kv(STDOUT_LABEL_JOB_ROOT, job_dirs.root))
+        print(format_stdout_kv(STDOUT_LABEL_SOURCE_PDF, source_pdf_path))
+        print(format_stdout_kv(STDOUT_LABEL_TRANSLATIONS_DIR, translations_dir))
+        print(format_stdout_kv(STDOUT_LABEL_OUTPUT_PDF, result["output_pdf_path"]))
+        print(format_stdout_kv(STDOUT_LABEL_SUMMARY, summary_path))
+        print(f"pages processed: {result['pages_rendered']}")
+        print(f"save time: {elapsed:.2f}s")
+        print(f"total time: {elapsed:.2f}s")
+        if result.get("effective_render_mode"):
+            print(f"effective render mode: {result['effective_render_mode']}")
 
 
 if __name__ == "__main__":

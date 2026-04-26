@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import shutil
 import sys
@@ -19,29 +18,39 @@ from foundation.shared.stage_specs import build_stage_invocation_metadata
 from foundation.shared.stage_specs import resolve_credential_ref
 from foundation.shared.tee_output import enable_job_log_capture
 from runtime.pipeline.book_pipeline import run_book_pipeline
-from services.document_schema import DOCUMENT_SCHEMA_REPORT_FILE_NAME
 from services.document_schema import adapt_path_to_document_v1_with_report
+from services.document_schema import DOCUMENT_SCHEMA_REPORT_FILE_NAME
 from services.document_schema import validate_saved_document_path
 from services.document_schema.provider_adapters.paddle.content_extract import build_lines as build_paddle_lines
 from services.document_schema.provider_adapters.paddle.content_extract import tighten_text_bbox as tighten_paddle_text_bbox
 from services.document_schema.reporting import build_normalization_summary
 from services.document_schema.providers import PROVIDER_PADDLE
-from services.mineru.artifacts import save_json
-from services.mineru.contracts import PIPELINE_SUMMARY_FILE_NAME
 from services.mineru.job_flow import run_mineru_to_job_dir
-from services.mineru.summary import print_pipeline_summary
-from services.mineru.summary import write_pipeline_summary
 from services.ocr_provider.paddle_api import PADDLE_BASE_URL
 from services.ocr_provider.paddle_api import build_optional_payload as build_paddle_optional_payload
 from services.ocr_provider.paddle_api import download_jsonl_result
 from services.ocr_provider.paddle_api import get_paddle_token
 from services.ocr_provider.paddle_api import normalize_model_name as normalize_paddle_model_name
+from services.ocr_provider.paddle_markdown import materialize_paddle_markdown_artifacts
+from services.ocr_provider.paddle_normalize import save_normalized_document_for_paddle as _save_normalized_document_for_paddle
+from services.ocr_provider.paddle_normalize import rescale_document_geometry_to_pdf
+from services.ocr_provider.paddle_runner import run_paddle_to_job_dir as _run_paddle_to_job_dir
 from services.ocr_provider.paddle_api import poll_until_done as poll_paddle_until_done
 from services.ocr_provider.paddle_api import submit_local_file as submit_local_paddle_file
 from services.ocr_provider.paddle_api import submit_remote_url as submit_remote_paddle_url
-from services.translation.llm import DEFAULT_BASE_URL
-from services.translation.llm import get_api_key
-from services.translation.llm import normalize_base_url
+from services.pipeline_shared.contracts import PIPELINE_SUMMARY_FILE_NAME
+from services.pipeline_shared.contracts import STDOUT_LABEL_EVENTS_JSONL
+from services.pipeline_shared.events import emit_artifact_published
+from services.pipeline_shared.events import emit_stage_progress
+from services.pipeline_shared.events import emit_stage_transition
+from services.pipeline_shared.events import PipelineEventWriter
+from services.pipeline_shared.events import pipeline_event_writer_scope
+from services.pipeline_shared.io import save_json
+from services.pipeline_shared.summary import print_pipeline_summary
+from services.pipeline_shared.summary import write_pipeline_summary
+from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL
+from services.translation.llm.shared.provider_runtime import get_api_key
+from services.translation.llm.shared.provider_runtime import normalize_base_url
 from services.translation.terms import parse_glossary_json
 
 
@@ -149,80 +158,7 @@ def _download_source_pdf(source_url: str, source_dir: Path) -> Path:
     return target_path
 
 
-def _job_markdown_dir(job_root: Path) -> Path:
-    return job_root / "md"
-
-
-def _job_markdown_images_dir(job_root: Path) -> Path:
-    return _job_markdown_dir(job_root) / "images"
-
-
-def _decode_paddle_markdown_image(payload: str) -> bytes:
-    value = str(payload or "").strip()
-    if not value:
-        raise RuntimeError("empty markdown image payload")
-    if value.startswith(("http://", "https://")):
-        response = requests.get(value, timeout=300)
-        response.raise_for_status()
-        return response.content
-    if value.startswith("data:") and "," in value:
-        _, encoded = value.split(",", 1)
-        return base64.b64decode(encoded)
-    return base64.b64decode(value)
-
-
-def materialize_paddle_markdown_artifacts(*, payload: dict, job_root: Path) -> Path | None:
-    layout_results = payload.get("layoutParsingResults") or []
-    if not isinstance(layout_results, list) or not layout_results:
-        return None
-
-    markdown_dir = _job_markdown_dir(job_root)
-    images_root = _job_markdown_images_dir(job_root)
-    page_texts: list[str] = []
-    wrote_anything = False
-
-    for page_index, page_payload in enumerate(layout_results, start=1):
-        if not isinstance(page_payload, dict):
-            continue
-        markdown = page_payload.get("markdown") or {}
-        if not isinstance(markdown, dict):
-            continue
-        text = str(markdown.get("text") or "")
-        images = markdown.get("images") or {}
-        if not text.strip() and not images:
-            continue
-
-        remapped_text = text
-        if isinstance(images, dict) and images:
-            for raw_rel_path, raw_image_payload in images.items():
-                rel_path = str(raw_rel_path or "").strip().lstrip("/")
-                if not rel_path:
-                    continue
-                # Keep the provider-returned relative path shape intact. The only rewrite we do
-                # is adding a `page-N/` prefix so identical per-page image names do not collide.
-                target_rel_path = Path(f"page-{page_index}") / rel_path
-                target_path = images_root / target_rel_path
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                target_path.write_bytes(_decode_paddle_markdown_image(str(raw_image_payload or "")))
-                normalized_source = rel_path.replace("\\", "/")
-                normalized_target = target_rel_path.as_posix()
-                remapped_text = remapped_text.replace(normalized_source, normalized_target)
-                wrote_anything = True
-
-        if remapped_text.strip():
-            page_texts.append(remapped_text.strip())
-            wrote_anything = True
-
-    if not wrote_anything:
-        return None
-
-    markdown_dir.mkdir(parents=True, exist_ok=True)
-    full_md_path = markdown_dir / "full.md"
-    full_md_path.write_text("\n\n".join(page_texts).strip() + "\n", encoding="utf-8")
-    return full_md_path
-
-
-def _save_normalized_document_for_paddle(
+def save_normalized_document_for_paddle(
     *,
     provider_result_json_path: Path,
     source_pdf_path: Path,
@@ -231,208 +167,36 @@ def _save_normalized_document_for_paddle(
     document_id: str,
     provider_version: str,
 ) -> None:
-    normalized_document, normalization_report = adapt_path_to_document_v1_with_report(
-        source_json_path=provider_result_json_path,
-        document_id=document_id,
-        provider=PROVIDER_PADDLE,
-        provider_version=provider_version,
-    )
-    normalized_document = _rescale_document_geometry_to_pdf(normalized_document, source_pdf_path)
-    normalized_document = _post_rescale_rebuild_paddle_text_geometry(normalized_document)
-    save_json(normalized_json_path, normalized_document)
-    save_json(normalized_report_json_path, normalization_report)
-    report = validate_saved_document_path(normalized_json_path)
-    normalization_summary = build_normalization_summary(normalization_report)
-    print(
-        "normalized document validated: "
-        f"schema={report['schema']} "
-        f"version={report['schema_version']} "
-        f"pages={report['page_count']} "
-        f"blocks={report['block_count']} "
-        f"path={normalized_json_path}",
-        flush=True,
-    )
-    print(
-        "normalized document report: "
-        f"provider={normalization_summary['provider']} "
-        f"detected={normalization_summary['detected_provider']} "
-        f"pages_observed={normalization_summary['pages_observed']} "
-        f"blocks_observed={normalization_summary['blocks_observed']} "
-        f"defaulted_document_fields={normalization_summary['defaulted_document_fields']} "
-        f"defaulted_page_fields={normalization_summary['defaulted_page_fields']} "
-        f"defaulted_block_fields={normalization_summary['defaulted_block_fields']} "
-        f"path={normalized_report_json_path}",
-        flush=True,
-    )
-
-
-def _rescale_document_geometry_to_pdf(document: dict, source_pdf_path: Path) -> dict:
-    import fitz
-
-    pdf = fitz.open(source_pdf_path)
-    try:
-        pages = document.get("pages", []) or []
-        for page_index, page in enumerate(pages):
-            if page_index >= len(pdf):
-                break
-            pdf_page = pdf[page_index]
-            pdf_w = float(pdf_page.rect.width)
-            pdf_h = float(pdf_page.rect.height)
-            raw_w = float(page.get("width", 0) or 0)
-            raw_h = float(page.get("height", 0) or 0)
-            if raw_w <= 0 or raw_h <= 0:
-                page["width"] = pdf_w
-                page["height"] = pdf_h
-                continue
-            scale_x = pdf_w / raw_w
-            scale_y = pdf_h / raw_h
-            page["width"] = pdf_w
-            page["height"] = pdf_h
-            for block in page.get("blocks", []) or []:
-                block["bbox"] = _scale_bbox(block.get("bbox", []), scale_x, scale_y)
-                for line in block.get("lines", []) or []:
-                    line["bbox"] = _scale_bbox(line.get("bbox", []), scale_x, scale_y)
-                    for span in line.get("spans", []) or []:
-                        span["bbox"] = _scale_bbox(span.get("bbox", []), scale_x, scale_y)
-                for segment in block.get("segments", []) or []:
-                    if isinstance(segment, dict):
-                        segment["bbox"] = _scale_bbox(segment.get("bbox", []), scale_x, scale_y)
-                source = block.get("source") or {}
-                if source:
-                    source["raw_bbox"] = _scale_bbox(source.get("raw_bbox", []), scale_x, scale_y)
-                metadata = block.get("metadata") or {}
-                if metadata:
-                    metadata["raw_polygon"] = _scale_point_list(metadata.get("raw_polygon", []), scale_x, scale_y)
-                    metadata["layout_det_polygon"] = _scale_point_list(metadata.get("layout_det_polygon", []), scale_x, scale_y)
-    finally:
-        pdf.close()
-    return document
-
-
-def _scale_bbox(value: list[float], scale_x: float, scale_y: float) -> list[float]:
-    if not isinstance(value, list) or len(value) != 4:
-        return value
-    return [
-        round(float(value[0]) * scale_x, 3),
-        round(float(value[1]) * scale_y, 3),
-        round(float(value[2]) * scale_x, 3),
-        round(float(value[3]) * scale_y, 3),
-    ]
-
-
-def _scale_point_list(value: list, scale_x: float, scale_y: float) -> list:
-    if not isinstance(value, list):
-        return value
-    scaled = []
-    for item in value:
-        if isinstance(item, (list, tuple)) and len(item) == 2:
-            scaled.append([round(float(item[0]) * scale_x, 3), round(float(item[1]) * scale_y, 3)])
-        else:
-            scaled.append(item)
-    return scaled
-
-
-def _post_rescale_rebuild_paddle_text_geometry(document: dict) -> dict:
-    for page in document.get("pages", []) or []:
-        for block in page.get("blocks", []) or []:
-            block_type = str(block.get("type", "") or "")
-            sub_type = str(block.get("sub_type", "") or "")
-            text = str(block.get("text", "") or "")
-            raw_label = str((block.get("source") or {}).get("raw_type", "") or "")
-            original_bbox = list(block.get("bbox", []) or [])
-            tightened_bbox = tighten_paddle_text_bbox(
-                bbox=original_bbox,
-                text=text,
-                block_type=block_type,
-                sub_type=sub_type,
-            )
-            if tightened_bbox != original_bbox:
-                block["bbox"] = tightened_bbox
-                source_payload = block.get("source") or {}
-                if source_payload:
-                    source_payload["raw_bbox"] = tightened_bbox
-                metadata = block.get("metadata") or {}
-                metadata["provider_bbox_tightened"] = True
-                metadata["provider_bbox_original"] = original_bbox
-                block["metadata"] = metadata
-            rebuilt_lines = build_paddle_lines(
-                bbox=block.get("bbox", []),
-                segments=block.get("segments", []) or [],
-                text=text,
-                raw_label=raw_label,
-                block_type=block_type,
-                sub_type=sub_type,
-            )
-            if rebuilt_lines:
-                block["lines"] = rebuilt_lines
-    return document
-
-
-def run_paddle_to_job_dir(args: SimpleNamespace) -> tuple[Path, Path, Path, Path]:
-    paddle_token = get_paddle_token(explicit_value=args.paddle_token)
-    if not paddle_token:
-        raise RuntimeError("Missing Paddle token. Set RETAIN_PADDLE_API_TOKEN or backend/scripts/.env/paddle.env.")
-    job_dirs = job_dirs_from_explicit_args(args)
-    provider_result_json_path = job_dirs.ocr_dir / "result.json"
-    normalized_json_path = job_dirs.ocr_dir / "normalized" / "document.v1.json"
-    normalized_report_json_path = job_dirs.ocr_dir / "normalized" / DOCUMENT_SCHEMA_REPORT_FILE_NAME
-    source_dir = job_dirs.source_dir
-    if str(args.file_url or "").strip():
-        source_pdf_path = _download_source_pdf(str(args.file_url).strip(), source_dir)
-        task_id, trace_id = submit_remote_paddle_url(
-            token=paddle_token,
-            source_url=str(args.file_url).strip(),
-            model=normalize_paddle_model_name(args.paddle_model),
-            optional_payload=build_paddle_optional_payload(args.paddle_model),
-            base_url=args.paddle_api_url or PADDLE_BASE_URL,
-        )
-    else:
-        source_pdf_path = Path(args.file_path).resolve()
-        task_id, trace_id = submit_local_paddle_file(
-            token=paddle_token,
-            file_path=source_pdf_path,
-            model=normalize_paddle_model_name(args.paddle_model),
-            optional_payload=build_paddle_optional_payload(args.paddle_model),
-            base_url=args.paddle_api_url or PADDLE_BASE_URL,
-        )
-    print(f"job dir: {job_dirs.root}", flush=True)
-    print(f"task_id: {task_id}", flush=True)
-    if trace_id:
-        print(f"trace_id: {trace_id}", flush=True)
-    _, jsonl_url = poll_paddle_until_done(
-        token=paddle_token,
-        job_id=task_id,
-        poll_interval=args.poll_interval,
-        poll_timeout=args.poll_timeout,
-        base_url=args.paddle_api_url or PADDLE_BASE_URL,
-    )
-    payload = download_jsonl_result(jsonl_url=jsonl_url)
-    meta = dict(payload.get("_meta") or {})
-    meta["provider"] = "paddle"
-    meta["taskId"] = task_id
-    meta["jsonlUrl"] = jsonl_url
-    if trace_id:
-        meta["traceId"] = trace_id
-    payload["_meta"] = meta
-    save_json(provider_result_json_path, payload)
-    markdown_path = materialize_paddle_markdown_artifacts(payload=payload, job_root=job_dirs.root)
-    if markdown_path is not None:
-        print(f"published markdown: {markdown_path}", flush=True)
     _save_normalized_document_for_paddle(
         provider_result_json_path=provider_result_json_path,
         source_pdf_path=source_pdf_path,
         normalized_json_path=normalized_json_path,
         normalized_report_json_path=normalized_report_json_path,
-        document_id=job_dirs.root.name,
-        provider_version=normalize_paddle_model_name(args.paddle_model),
+        document_id=document_id,
+        provider_version=provider_version,
+        adapt_document=adapt_path_to_document_v1_with_report,
+        validate_document=validate_saved_document_path,
+        build_lines=build_paddle_lines,
+        tighten_text_bbox=tighten_paddle_text_bbox,
+        save_json_file=save_json,
     )
-    print(f"source: {job_dirs.source_dir}", flush=True)
-    print(f"ocr: {job_dirs.ocr_dir}", flush=True)
-    print(f"translated: {job_dirs.translated_dir}", flush=True)
-    print(f"rendered: {job_dirs.rendered_dir}", flush=True)
-    print(f"artifacts: {job_dirs.artifacts_dir}", flush=True)
-    print(f"logs: {job_dirs.logs_dir}", flush=True)
-    return job_dirs.root, source_pdf_path, provider_result_json_path, normalized_json_path
+
+
+def run_paddle_to_job_dir(args: SimpleNamespace) -> tuple[Path, Path, Path, Path]:
+    return _run_paddle_to_job_dir(
+        args,
+        download_source_pdf=_download_source_pdf,
+        get_token=get_paddle_token,
+        submit_remote=submit_remote_paddle_url,
+        submit_local=submit_local_paddle_file,
+        poll_until_complete=poll_paddle_until_done,
+        download_jsonl=download_jsonl_result,
+        materialize_markdown=materialize_paddle_markdown_artifacts,
+        save_normalized_document=save_normalized_document_for_paddle,
+        save_json_file=save_json,
+        normalize_model=normalize_paddle_model_name,
+        build_optional_request_payload=build_paddle_optional_payload,
+    )
 
 
 def main() -> None:
@@ -443,6 +207,14 @@ def main() -> None:
     _materialize_local_source(args)
     job_dirs = job_dirs_from_explicit_args(args)
     enable_job_log_capture(job_dirs.logs_dir, prefix="provider-pipeline")
+    provider = str(args.provider or "mineru").strip().lower()
+    event_writer = PipelineEventWriter(
+        job_id=spec.job.job_id,
+        job_root=job_dirs.root,
+        logs_dir=job_dirs.logs_dir,
+        workflow=spec.job.workflow,
+        provider=provider or str(args.provider or "").strip().lower(),
+    )
     layout.apply_layout_tuning(
         body_font_size_factor=args.body_font_size_factor,
         body_leading_factor=args.body_leading_factor,
@@ -451,87 +223,124 @@ def main() -> None:
         inner_bbox_dense_shrink_x=args.inner_bbox_dense_shrink_x,
         inner_bbox_dense_shrink_y=args.inner_bbox_dense_shrink_y,
     )
-    provider = str(args.provider or "mineru").strip().lower()
-    if provider == "mineru":
-        job_dirs, source_pdf_path, layout_json_path, normalized_json_path = run_mineru_to_job_dir(args)
-    elif provider == "paddle":
-        _, source_pdf_path, layout_json_path, normalized_json_path = run_paddle_to_job_dir(args)
-        job_dirs = job_dirs_from_explicit_args(args)
-    else:
-        raise RuntimeError(f"unsupported provider-backed workflow provider: {provider}")
+    with pipeline_event_writer_scope(event_writer):
+        emit_stage_transition(
+            stage="startup",
+            message="provider worker 已启动",
+            provider=provider,
+        )
+        print(f"{STDOUT_LABEL_EVENTS_JSONL}: {event_writer.path}", flush=True)
+        if provider == "mineru":
+            emit_stage_transition(
+                stage="ocr_processing",
+                message="开始执行 MinerU OCR provider 流程",
+                provider=provider,
+            )
+            job_dirs, source_pdf_path, layout_json_path, normalized_json_path = run_mineru_to_job_dir(args)
+        elif provider == "paddle":
+            emit_stage_transition(
+                stage="ocr_processing",
+                message="开始执行 Paddle OCR provider 流程",
+                provider=provider,
+            )
+            _, source_pdf_path, layout_json_path, normalized_json_path = run_paddle_to_job_dir(args)
+            job_dirs = job_dirs_from_explicit_args(args)
+        else:
+            raise RuntimeError(f"unsupported provider-backed workflow provider: {provider}")
 
-    normalization_report_path = normalized_json_path.with_name(DOCUMENT_SCHEMA_REPORT_FILE_NAME)
-    translation_source_json_path = normalized_json_path
-    translations_dir = job_dirs.translated_dir
-    translated_pdf_name = args.translated_pdf_name.strip() or f"{source_pdf_path.stem}-translated.pdf"
-    output_pdf_path = job_dirs.rendered_dir / translated_pdf_name
-    api_key = get_api_key(
-        args.api_key,
-        required=normalize_base_url(args.base_url) == normalize_base_url(DEFAULT_BASE_URL),
-    )
-    result = run_book_pipeline(
-        source_json_path=translation_source_json_path,
-        source_pdf_path=source_pdf_path,
-        output_dir=translations_dir,
-        output_pdf_path=output_pdf_path,
-        api_key=api_key,
-        start_page=args.start_page,
-        end_page=args.end_page,
-        batch_size=args.batch_size,
-        workers=args.workers,
-        model=args.model,
-        base_url=args.base_url,
-        mode=args.mode,
-        math_mode=args.math_mode,
-        classify_batch_size=args.classify_batch_size,
-        skip_title_translation=args.skip_title_translation,
-        render_mode=args.render_mode,
-        rule_profile_name=args.rule_profile_name,
-        custom_rules_text=args.custom_rules_text,
-        glossary_id=args.glossary_id,
-        glossary_name=args.glossary_name,
-        glossary_resource_entry_count=args.glossary_resource_entry_count,
-        glossary_inline_entry_count=args.glossary_inline_entry_count,
-        glossary_overridden_entry_count=args.glossary_overridden_entry_count,
-        glossary_entries=parse_glossary_json(args.glossary_json),
-        compile_workers=args.compile_workers or None,
-        typst_font_family=args.typst_font_family,
-        pdf_compress_dpi=args.pdf_compress_dpi,
-        invocation=build_stage_invocation_metadata(
-            stage="provider",
-            stage_spec_schema_version=stage_spec_schema_version,
-        ),
-    )
-    summary_path = job_dirs.artifacts_dir / PIPELINE_SUMMARY_FILE_NAME
-    write_pipeline_summary(
-        summary_path=summary_path,
-        job_root=job_dirs.root,
-        source_pdf_path=source_pdf_path,
-        layout_json_path=layout_json_path,
-        normalized_json_path=normalized_json_path,
-        normalization_report_path=normalization_report_path,
-        source_json_path=translation_source_json_path,
-        result=result,
-        mode=args.mode,
-        model=args.model,
-        base_url=args.base_url,
-        render_mode=args.render_mode,
-        pdf_compress_dpi=args.pdf_compress_dpi,
-        invocation=build_stage_invocation_metadata(
-            stage="provider",
-            stage_spec_schema_version=stage_spec_schema_version,
-        ),
-    )
-    print_pipeline_summary(
-        job_root=job_dirs.root,
-        source_pdf_path=source_pdf_path,
-        layout_json_path=layout_json_path,
-        normalized_json_path=normalized_json_path,
-        normalization_report_path=normalization_report_path,
-        source_json_path=translation_source_json_path,
-        summary_path=summary_path,
-        result=result,
-    )
+        normalization_report_path = normalized_json_path.with_name(DOCUMENT_SCHEMA_REPORT_FILE_NAME)
+        translation_source_json_path = normalized_json_path
+        translations_dir = job_dirs.translated_dir
+        translated_pdf_name = args.translated_pdf_name.strip() or f"{source_pdf_path.stem}-translated.pdf"
+        output_pdf_path = job_dirs.rendered_dir / translated_pdf_name
+        emit_stage_progress(
+            stage="normalization",
+            message="OCR provider 已完成，标准化文档已就绪",
+            provider=provider,
+        )
+        api_key = get_api_key(
+            args.api_key,
+            required=normalize_base_url(args.base_url) == normalize_base_url(DEFAULT_BASE_URL),
+        )
+        emit_stage_transition(
+            stage="translation_prepare",
+            message="开始准备翻译和渲染阶段",
+            provider=provider,
+        )
+        result = run_book_pipeline(
+            source_json_path=translation_source_json_path,
+            source_pdf_path=source_pdf_path,
+            output_dir=translations_dir,
+            output_pdf_path=output_pdf_path,
+            api_key=api_key,
+            start_page=args.start_page,
+            end_page=args.end_page,
+            batch_size=args.batch_size,
+            workers=args.workers,
+            model=args.model,
+            base_url=args.base_url,
+            mode=args.mode,
+            math_mode=args.math_mode,
+            classify_batch_size=args.classify_batch_size,
+            skip_title_translation=args.skip_title_translation,
+            render_mode=args.render_mode,
+            rule_profile_name=args.rule_profile_name,
+            custom_rules_text=args.custom_rules_text,
+            glossary_id=args.glossary_id,
+            glossary_name=args.glossary_name,
+            glossary_resource_entry_count=args.glossary_resource_entry_count,
+            glossary_inline_entry_count=args.glossary_inline_entry_count,
+            glossary_overridden_entry_count=args.glossary_overridden_entry_count,
+            glossary_entries=parse_glossary_json(args.glossary_json),
+            compile_workers=args.compile_workers or None,
+            typst_font_family=args.typst_font_family,
+            pdf_compress_dpi=args.pdf_compress_dpi,
+            invocation=build_stage_invocation_metadata(
+                stage="provider",
+                stage_spec_schema_version=stage_spec_schema_version,
+            ),
+        )
+        summary_path = job_dirs.artifacts_dir / PIPELINE_SUMMARY_FILE_NAME
+        write_pipeline_summary(
+            summary_path=summary_path,
+            job_root=job_dirs.root,
+            source_pdf_path=source_pdf_path,
+            layout_json_path=layout_json_path,
+            normalized_json_path=normalized_json_path,
+            normalization_report_path=normalization_report_path,
+            source_json_path=translation_source_json_path,
+            result=result,
+            mode=args.mode,
+            model=args.model,
+            base_url=args.base_url,
+            render_mode=args.render_mode,
+            pdf_compress_dpi=args.pdf_compress_dpi,
+            invocation=build_stage_invocation_metadata(
+                stage="provider",
+                stage_spec_schema_version=stage_spec_schema_version,
+            ),
+        )
+        emit_artifact_published(
+            artifact_key="pipeline_events_jsonl",
+            path=event_writer.path,
+            stage="saving",
+            message="统一事件流已写出",
+        )
+        emit_stage_transition(
+            stage="finished",
+            message="provider-backed 全流程完成",
+            provider=provider,
+        )
+        print_pipeline_summary(
+            job_root=job_dirs.root,
+            source_pdf_path=source_pdf_path,
+            layout_json_path=layout_json_path,
+            normalized_json_path=normalized_json_path,
+            normalization_report_path=normalization_report_path,
+            source_json_path=translation_source_json_path,
+            summary_path=summary_path,
+            result=result,
+        )
 
 
 if __name__ == "__main__":

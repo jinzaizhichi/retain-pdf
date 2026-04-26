@@ -5,11 +5,9 @@ use anyhow::Result;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::warn;
 
+use super::state_recovery::reconcile_stale_running_jobs;
 use crate::config::AppConfig;
 use crate::db::Db;
-use crate::job_events::persist_job_with_resources;
-use crate::job_runner::worker_process_exists;
-use crate::models::{now_iso, JobFailureInfo, JobStatusKind};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -20,72 +18,18 @@ pub struct AppState {
     pub job_slots: Arc<Semaphore>,
 }
 
-fn reconcile_stale_running_jobs(config: &AppConfig, db: &Db) -> Result<usize> {
-    let running_jobs = db.list_job_process_records_with_status(&JobStatusKind::Running)?;
-    let mut reconciled = 0usize;
-    for job_record in running_jobs {
-        let detail = match job_record.pid {
-            Some(pid) if worker_process_exists(pid) => continue,
-            Some(pid) => format!("后端启动时发现遗留 running 任务，但 worker 进程 {pid} 已不存在"),
-            None => "后端启动时发现遗留 running 任务，但未记录 worker pid".to_string(),
-        };
-        let timestamp = now_iso();
-        match db.get_job(&job_record.job_id) {
-            Ok(mut job) => {
-                job.append_log(&format!("ERROR: {detail}"));
-                job.status = JobStatusKind::Failed;
-                job.stage = Some("failed".to_string());
-                job.stage_detail = Some("startup stale running job recovered".to_string());
-                job.error = Some(detail.clone());
-                job.updated_at = timestamp.clone();
-                job.finished_at = Some(timestamp.clone());
-                job.pid = None;
-                job.sync_runtime_state();
-                job.replace_failure_info(Some(JobFailureInfo {
-                    stage: "startup_recovery".to_string(),
-                    category: "worker_process_missing".to_string(),
-                    code: None,
-                    summary: "后端启动时回收了遗留 running 任务".to_string(),
-                    root_cause: Some(detail.clone()),
-                    retryable: true,
-                    upstream_host: None,
-                    provider: None,
-                    suggestion: Some(
-                        "该任务对应的 worker 已不在运行；请重新提交或手动重试".to_string(),
-                    ),
-                    last_log_line: Some(detail.clone()),
-                    raw_error_excerpt: Some(detail.clone()),
-                    raw_diagnostic: None,
-                    ai_diagnostic: None,
-                }));
-                persist_job_with_resources(db, &config.data_root, &config.output_root, &job)?;
-            }
-            Err(error) => {
-                warn!(
-                    "startup reconciliation fell back to raw DB recovery for {}: {}",
-                    job_record.job_id, error
-                );
-                db.recover_stale_running_job(&job_record.job_id, &detail, &timestamp)?;
-            }
-        }
-        reconciled += 1;
-        warn!(
-            "recovered stale running job during startup: {}",
-            job_record.job_id
-        );
-    }
-    if reconciled > 0 {
-        warn!("startup reconciliation recovered {reconciled} stale running job(s)");
-    }
-    Ok(reconciled)
-}
-
 pub fn build_state(config: Arc<AppConfig>) -> Result<AppState> {
     let db = Arc::new(Db::new(
         config.jobs_db_path.clone(),
         config.data_root.clone(),
     ));
     db.init()?;
+    let cleaned_legacy_workflows = db.cleanup_legacy_workflows()?;
+    if cleaned_legacy_workflows > 0 {
+        warn!(
+            "startup cleanup migrated {cleaned_legacy_workflows} legacy workflow row(s) from mineru to book"
+        );
+    }
     reconcile_stale_running_jobs(config.as_ref(), db.as_ref())?;
 
     Ok(AppState {
@@ -107,7 +51,7 @@ mod tests {
     use rusqlite::{params, Connection};
 
     use super::*;
-    use crate::models::CreateJobInput;
+    use crate::models::{now_iso, CreateJobInput, JobStatusKind};
 
     struct TestStateFs {
         root: PathBuf,
@@ -347,5 +291,93 @@ mod tests {
             .4
             .as_deref()
             .is_some_and(|failure| failure.contains("worker_process_missing")));
+    }
+
+    #[test]
+    fn build_state_cleans_legacy_workflow_rows() {
+        let fs = TestStateFs::new("cleanup-legacy-workflow");
+        let db = fs.db();
+        db.init().expect("init db");
+
+        let conn = Connection::open(&fs.jobs_db_path).expect("open sqlite");
+        conn.execute(
+            r#"
+            INSERT INTO jobs (
+                job_id, workflow, status_json, created_at, updated_at, started_at, finished_at,
+                upload_id, pid, command_json, request_json, error, stage, stage_detail,
+                progress_current, progress_total, log_tail_json, result_json, runtime_json, failure_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+            "#,
+            params![
+                "job-legacy-workflow",
+                "\"mineru\"",
+                serde_json::to_string(&JobStatusKind::Succeeded).expect("status json"),
+                "2026-04-02T00:00:00Z",
+                "2026-04-02T00:10:00Z",
+                Option::<String>::None,
+                Some("2026-04-02T00:10:00Z".to_string()),
+                Option::<String>::None,
+                Option::<i64>::None,
+                "[\"python\",\"run_mineru_case.py\"]",
+                "{\"workflow\":\"mineru\",\"ocr_provider\":\"mineru\"}",
+                Option::<String>::None,
+                "finished",
+                "历史任务",
+                Option::<i64>::None,
+                Option::<i64>::None,
+                "[]",
+                Option::<String>::None,
+                Option::<String>::None,
+                Option::<String>::None,
+            ],
+        )
+        .expect("insert legacy workflow row");
+        conn.execute(
+            r#"
+            INSERT INTO events (
+                job_id, seq, ts, level, stage, event, payload_json, message
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "#,
+            params![
+                "job-legacy-workflow",
+                1,
+                "2026-04-02T00:00:00Z",
+                "info",
+                "finished",
+                "job_created",
+                "{\"workflow\":\"mineru\"}",
+                "created",
+            ],
+        )
+        .expect("insert legacy event");
+
+        let _state = build_state(fs.config()).expect("build state");
+
+        let workflow: String = conn
+            .query_row(
+                "SELECT workflow FROM jobs WHERE job_id = ?1",
+                params!["job-legacy-workflow"],
+                |row| row.get(0),
+            )
+            .expect("workflow");
+        assert_eq!(workflow, "\"book\"");
+
+        let request_json: String = conn
+            .query_row(
+                "SELECT request_json FROM jobs WHERE job_id = ?1",
+                params!["job-legacy-workflow"],
+                |row| row.get(0),
+            )
+            .expect("request json");
+        assert!(request_json.contains("\"workflow\":\"book\""));
+
+        let payload_json: String = conn
+            .query_row(
+                "SELECT payload_json FROM events WHERE job_id = ?1 AND seq = 1",
+                params!["job-legacy-workflow"],
+                |row| row.get(0),
+            )
+            .expect("payload json");
+        assert!(payload_json.contains("\"workflow\":\"book\""));
     }
 }

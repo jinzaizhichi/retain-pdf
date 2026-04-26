@@ -1,35 +1,17 @@
 use crate::error::AppError;
-use crate::models::{CreateJobInput, UploadRecord};
-use crate::ocr_provider::require_supported_provider;
+use crate::models::{CreateJobInput, OcrProviderKind, UploadRecord};
+use crate::ocr_provider::{
+    parse_provider_kind, provider_display_name, provider_token, provider_token_field_name,
+    require_supported_provider,
+};
 
 const MINERU_MAX_BYTES: u64 = 200 * 1024 * 1024;
 const MINERU_MAX_PAGES: u32 = 600;
 
 pub fn validate_provider_credentials(input: &CreateJobInput) -> Result<(), AppError> {
-    match input.ocr.provider.trim().to_ascii_lowercase().as_str() {
-        "paddle" => {
-            let paddle_token = input.ocr.paddle_token.trim();
-            if paddle_token.is_empty() {
-                return Err(AppError::bad_request("paddle_token is required"));
-            }
-            if looks_like_url(paddle_token) {
-                return Err(AppError::bad_request(
-                    "paddle_token looks like a URL, not a Paddle API key; check whether frontend fields were mixed up",
-                ));
-            }
-        }
-        _ => {
-            let mineru_token = input.ocr.mineru_token.trim();
-            if mineru_token.is_empty() {
-                return Err(AppError::bad_request("mineru_token is required"));
-            }
-            if looks_like_url(mineru_token) {
-                return Err(AppError::bad_request(
-                    "mineru_token looks like a URL, not a MinerU API key; check whether frontend fields were mixed up",
-                ));
-            }
-        }
-    }
+    let provider_kind = require_supported_provider(input.ocr.provider.trim())
+        .map_err(|err| AppError::bad_request(err.to_string()))?;
+    validate_provider_token(input, &provider_kind)?;
 
     let base_url = input.translation.base_url.trim();
     if base_url.is_empty() {
@@ -61,34 +43,9 @@ pub fn validate_ocr_provider_request(input: &CreateJobInput) -> Result<(), AppEr
     if provider.is_empty() {
         return Err(AppError::bad_request("provider is required"));
     }
-    if let Err(err) = require_supported_provider(provider) {
-        return Err(AppError::bad_request(err.to_string()));
-    }
-    match provider.to_ascii_lowercase().as_str() {
-        "mineru" => {
-            let mineru_token = input.ocr.mineru_token.trim();
-            if mineru_token.is_empty() {
-                return Err(AppError::bad_request("mineru_token is required"));
-            }
-            if looks_like_url(mineru_token) {
-                return Err(AppError::bad_request(
-                    "mineru_token looks like a URL, not a MinerU API key; check whether frontend fields were mixed up",
-                ));
-            }
-        }
-        "paddle" => {
-            let paddle_token = input.ocr.paddle_token.trim();
-            if paddle_token.is_empty() {
-                return Err(AppError::bad_request("paddle_token is required"));
-            }
-            if looks_like_url(paddle_token) {
-                return Err(AppError::bad_request(
-                    "paddle_token looks like a URL, not a Paddle API key; check whether frontend fields were mixed up",
-                ));
-            }
-        }
-        _ => {}
-    }
+    let provider_kind = require_supported_provider(provider)
+        .map_err(|err| AppError::bad_request(err.to_string()))?;
+    validate_provider_token(input, &provider_kind)?;
     if !input.source.source_url.trim().is_empty()
         && !(input.source.source_url.starts_with("http://")
             || input.source.source_url.starts_with("https://"))
@@ -128,11 +85,28 @@ pub fn validate_mineru_upload_limits(
 }
 
 fn request_uses_mineru(input: &CreateJobInput) -> bool {
-    matches!(input.workflow, crate::models::WorkflowKind::Book)
-        || input.ocr.provider.trim().eq_ignore_ascii_case("mineru")
+    parse_provider_kind(&input.ocr.provider) == OcrProviderKind::Mineru
 }
 
 fn looks_like_url(value: &str) -> bool {
     let value = value.trim().to_ascii_lowercase();
     value.starts_with("http://") || value.starts_with("https://")
+}
+
+fn validate_provider_token(
+    input: &CreateJobInput,
+    provider_kind: &OcrProviderKind,
+) -> Result<(), AppError> {
+    let token = provider_token(provider_kind, &input.ocr);
+    let field_name = provider_token_field_name(provider_kind).unwrap_or("provider_token");
+    let display_name = provider_display_name(provider_kind).unwrap_or("Provider");
+    if token.is_empty() {
+        return Err(AppError::bad_request(format!("{field_name} is required")));
+    }
+    if looks_like_url(token) {
+        return Err(AppError::bad_request(format!(
+            "{field_name} looks like a URL, not a {display_name} API key; check whether frontend fields were mixed up",
+        )));
+    }
+    Ok(())
 }

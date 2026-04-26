@@ -7,7 +7,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from foundation.config import paths
 from foundation.shared.schema_cli import SOURCE_JSON_MAINLINE_HELP
 from services.translation.ocr.json_extractor import extract_text_items, load_ocr_json
-from services.translation.llm import DEFAULT_BASE_URL, get_api_key, normalize_base_url
+from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL, DEFAULT_MODEL, get_api_key, normalize_base_url
 from services.translation.workflow import translate_items_to_path
 
 
@@ -32,11 +32,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rule-profile-name", type=str, default="general_sci", help="Built-in rule profile name.")
     parser.add_argument("--custom-rules-text", type=str, default="", help="Extra rule text injected into model context.")
     parser.add_argument("--api-key", type=str, default="", help="Optional API key. Prefer env DEEPSEEK_API_KEY.")
-    parser.add_argument("--model", type=str, default="deepseek-chat", help="Model name.")
+    parser.add_argument("--model", type=str, default=DEFAULT_MODEL, help="Model name.")
     parser.add_argument(
         "--base-url",
         type=str,
-        default="https://api.deepseek.com/v1",
+        default=DEFAULT_BASE_URL,
         help="OpenAI-compatible API base URL ending with /v1.",
     )
     parser.add_argument(

@@ -8,7 +8,8 @@ use anyhow::{bail, Result};
 #[allow(unused_imports)]
 pub use catalog::{
     ensure_provider_diagnostics, is_supported_provider, provider_capabilities, provider_definition,
-    supported_provider_keys,
+    provider_display_name, provider_model_version, provider_token, provider_token_env_name,
+    provider_token_field_name, supported_provider_keys,
 };
 pub use types::{
     OcrArtifactSet, OcrErrorCategory, OcrProviderCapabilities, OcrProviderDiagnostics,

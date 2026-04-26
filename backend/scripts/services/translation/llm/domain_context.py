@@ -6,9 +6,9 @@ import fitz
 
 from foundation.shared.prompt_loader import load_prompt
 
-from .deepseek_client import request_chat_content
-from .structured_models import DOMAIN_CONTEXT_RESPONSE_SCHEMA
-from .structured_parsers import parse_domain_context_response
+from services.translation.llm.shared.provider_runtime import request_chat_content
+from services.translation.llm.shared.structured_models import DOMAIN_CONTEXT_RESPONSE_SCHEMA
+from services.translation.llm.shared.structured_parsers import parse_domain_context_response
 
 
 DOMAIN_CONTEXT_FILE_NAME = "domain-context.json"

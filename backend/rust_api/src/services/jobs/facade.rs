@@ -4,10 +4,9 @@ mod query;
 use axum::http::HeaderMap;
 
 use crate::models::{JobSnapshot, JobStatusKind, JobSubmissionView, WorkflowKind};
-use crate::services::jobs::{
-    build_submission_view, request_base_url, CommandJobsDeps, QueryJobsDeps,
-};
-use crate::AppState;
+
+use super::creation::context::{CommandJobsDeps, QueryJobsDeps};
+use super::support::{build_submission_view, request_base_url};
 
 #[derive(Clone)]
 pub struct JobsFacade<'a> {
@@ -35,9 +34,9 @@ impl<'a> JobsFacade<'a> {
     }
 }
 
-pub(crate) fn build_jobs_facade(state: &AppState) -> JobsFacade<'_> {
-    JobsFacade::new(
-        CommandJobsDeps::from_state(state),
-        QueryJobsDeps::from_state(state),
-    )
+pub(crate) fn build_jobs_facade<'a>(
+    command: CommandJobsDeps<'a>,
+    query: QueryJobsDeps<'a>,
+) -> JobsFacade<'a> {
+    JobsFacade::new(command, query)
 }

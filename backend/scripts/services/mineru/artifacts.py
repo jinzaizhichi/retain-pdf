@@ -6,7 +6,6 @@ This module owns where raw MinerU files and normalized OCR files live on disk.
 It does not parse or normalize `layout.json` itself.
 """
 
-import json
 import shutil
 import zipfile
 from dataclasses import dataclass
@@ -21,6 +20,9 @@ from services.mineru.contracts import MINERU_LAYOUT_JSON_FILE_NAME
 from services.mineru.contracts import MINERU_NORMALIZED_DIR_NAME
 from services.mineru.contracts import MINERU_RESULT_FILE_NAME
 from services.mineru.contracts import MINERU_UNPACK_DIR_NAME
+from services.pipeline_shared.io import save_json
+from services.pipeline_shared.source_json import resolve_preferred_source_json_path
+from services.pipeline_shared.source_json import resolve_translation_source_json_path
 
 
 @dataclass(frozen=True)
@@ -51,12 +53,6 @@ def build_mineru_artifact_paths(ocr_dir: Path) -> MinerUArtifactPaths:
         normalized_json_path=ocr_dir / MINERU_NORMALIZED_DIR_NAME / DOCUMENT_SCHEMA_FILE_NAME,
         normalized_report_json_path=ocr_dir / MINERU_NORMALIZED_DIR_NAME / DOCUMENT_SCHEMA_REPORT_FILE_NAME,
     )
-
-
-def save_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
 
 def download_file(url: str, path: Path, headers: dict[str, str] | None = None) -> None:
     with requests.get(url, headers=headers, stream=True, timeout=300) as response:
@@ -120,48 +116,6 @@ def resolve_translation_source_from_artifacts(
     return resolve_translation_source_json_path(
         layout_json_path=artifact_paths.layout_json_path,
         normalized_json_path=artifact_paths.normalized_json_path,
-        allow_layout_fallback=allow_layout_fallback,
-    )
-
-
-def resolve_translation_source_json_path(
-    *,
-    layout_json_path: Path,
-    normalized_json_path: Path,
-    allow_layout_fallback: bool = False,
-) -> Path:
-    if normalized_json_path.exists():
-        return normalized_json_path
-    if allow_layout_fallback:
-        if not layout_json_path.exists():
-            raise RuntimeError(
-                "Neither normalized OCR JSON nor raw MinerU layout.json exists. "
-                f"normalized={normalized_json_path} layout={layout_json_path}"
-            )
-        print(
-            "warning: normalized OCR JSON is missing; falling back to raw MinerU layout.json "
-            f"because allow_layout_fallback=True. normalized={normalized_json_path} layout={layout_json_path}",
-            flush=True,
-        )
-        return layout_json_path
-
-    raw_state = "exists" if layout_json_path.exists() else "missing"
-    raise RuntimeError(
-        "Normalized OCR JSON is required for the translation/rendering mainline, but it is missing. "
-        f"normalized={normalized_json_path} raw_layout={layout_json_path} raw_layout_state={raw_state}. "
-        "The raw layout.json is kept only for adapter/debug use; it is no longer used as an implicit fallback."
-    )
-
-
-def resolve_preferred_source_json_path(
-    *,
-    layout_json_path: Path,
-    normalized_json_path: Path,
-    allow_layout_fallback: bool = False,
-) -> Path:
-    return resolve_translation_source_json_path(
-        layout_json_path=layout_json_path,
-        normalized_json_path=normalized_json_path,
         allow_layout_fallback=allow_layout_fallback,
     )
 

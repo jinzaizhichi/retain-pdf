@@ -161,6 +161,25 @@ ocr_provider -> translation/render logic
 - 不在 `services/jobs/facade` 里加 provider 特判
 - 不在 `process_runner` 里加 provider 初始化逻辑
 
+## 6.1 和 `job_runner/ocr_flow` 的边界
+
+`ocr_provider` 和 `job_runner/ocr_flow` 现在按下面分工：
+
+- `ocr_provider`
+  负责 provider client、状态映射、错误分类、能力声明
+- `job_runner/ocr_flow`
+  负责 OCR 子任务运行态编排、workspace、provider raw/result 落盘、normalize 衔接
+
+进一步说：
+
+- `ocr_flow/mod.rs`
+  是 OCR 子流程唯一 orchestrator
+- provider client 的构造、本地/远程 transport 分支选择
+  也必须收口在 `ocr_flow/mod.rs`
+- `ocr_flow/*` 其他子模块不能重新长成第二个 orchestrator
+- provider raw token 的理解应尽量收敛在专门 helper
+  例如 Paddle Markdown artifact helper
+
 ## 7. 边界红线
 
 ### 红线 1

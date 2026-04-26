@@ -38,12 +38,7 @@ pub(super) fn source_url_file_name(source_url: &str) -> Option<String> {
 }
 
 pub(super) fn job_path_prefix(job: &JobSnapshot) -> &'static str {
-    match job.workflow {
-        crate::models::WorkflowKind::Ocr => "/api/v1/ocr/jobs",
-        crate::models::WorkflowKind::Book
-        | crate::models::WorkflowKind::Translate
-        | crate::models::WorkflowKind::Render => "/api/v1/jobs",
-    }
+    job.workflow.job_api_prefix()
 }
 
 pub(super) fn build_ocr_job_summary(
@@ -66,9 +61,10 @@ pub(super) fn build_ocr_job_summary(
 pub(super) fn job_failure_to_legacy_view(
     failure: &crate::models::JobFailureInfo,
 ) -> JobFailureDiagnosticView {
+    let failure = failure.clone().with_formal_fields();
     JobFailureDiagnosticView {
-        failed_stage: failure.stage.clone(),
-        error_kind: failure.category.clone(),
+        failed_stage: failure.failed_stage_value().to_string(),
+        error_kind: failure.failure_code_value().to_string(),
         summary: failure.summary.clone(),
         root_cause: failure.root_cause.clone(),
         retryable: failure.retryable,

@@ -7,29 +7,69 @@ use tokio::sync::RwLock;
 
 use crate::config::AppConfig;
 use crate::db::Db;
-use crate::services::job_factory::{build_job_launch_deps, JobLaunchDeps};
-use crate::AppState;
+use crate::services::job_launcher::JobLaunchDeps;
+use crate::services::runtime_gateway::RuntimeControl;
 
 #[derive(Clone)]
-pub(crate) struct CreationDeps<'a> {
+pub(crate) struct SnapshotBuildDeps<'a> {
     pub(crate) db: &'a Db,
     pub(crate) config: &'a AppConfig,
+}
+
+impl<'a> SnapshotBuildDeps<'a> {
+    pub(crate) fn new(db: &'a Db, config: &'a AppConfig) -> Self {
+        Self { db, config }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct UploadStoreDeps<'a> {
+    pub(crate) db: &'a Db,
+    pub(crate) uploads_dir: &'a Path,
+    pub(crate) upload_max_bytes: u64,
+    pub(crate) upload_max_pages: u32,
+}
+
+impl<'a> UploadStoreDeps<'a> {
+    pub(crate) fn new(
+        db: &'a Db,
+        uploads_dir: &'a Path,
+        upload_max_bytes: u64,
+        upload_max_pages: u32,
+    ) -> Self {
+        Self {
+            db,
+            uploads_dir,
+            upload_max_bytes,
+            upload_max_pages,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct JobSubmitDeps<'a> {
+    pub(crate) snapshot: SnapshotBuildDeps<'a>,
+    pub(crate) uploads: UploadStoreDeps<'a>,
     pub(crate) launcher: JobLaunchDeps<'a>,
 }
 
-impl<'a> CreationDeps<'a> {
-    pub(crate) fn from_state(state: &'a AppState) -> Self {
+impl<'a> JobSubmitDeps<'a> {
+    pub(crate) fn new(
+        snapshot: SnapshotBuildDeps<'a>,
+        uploads: UploadStoreDeps<'a>,
+        launcher: JobLaunchDeps<'a>,
+    ) -> Self {
         Self {
-            db: state.db.as_ref(),
-            config: state.config.as_ref(),
-            launcher: build_job_launch_deps(state),
+            snapshot,
+            uploads,
+            launcher,
         }
     }
 }
 
 #[derive(Clone)]
 pub(crate) struct BundleBuildDeps<'a> {
-    pub(crate) creation: CreationDeps<'a>,
+    pub(crate) submit: JobSubmitDeps<'a>,
     pub(crate) downloads_lock: &'a Arc<Mutex<()>>,
 }
 
@@ -40,16 +80,21 @@ pub(crate) struct ControlDeps<'a> {
     pub(crate) db: &'a Db,
     pub(crate) data_root: &'a Path,
     pub(crate) output_root: &'a Path,
-    pub(crate) canceled_jobs: &'a RwLock<HashSet<String>>,
+    pub(crate) runtime: RuntimeControl<'a>,
 }
 
 impl<'a> ControlDeps<'a> {
-    pub(crate) fn from_state(state: &'a AppState) -> Self {
+    pub(crate) fn new(
+        db: &'a Db,
+        data_root: &'a Path,
+        output_root: &'a Path,
+        canceled_jobs: &'a RwLock<HashSet<String>>,
+    ) -> Self {
         Self {
-            db: state.db.as_ref(),
-            data_root: &state.config.data_root,
-            output_root: &state.config.output_root,
-            canceled_jobs: &state.canceled_jobs,
+            db,
+            data_root,
+            output_root,
+            runtime: RuntimeControl::new(canceled_jobs),
         }
     }
 }
@@ -61,11 +106,8 @@ pub(crate) struct ReplayDeps<'a> {
 }
 
 impl<'a> ReplayDeps<'a> {
-    pub(crate) fn from_state(state: &'a AppState) -> Self {
-        Self {
-            config: state.config.as_ref(),
-            data_root: &state.config.data_root,
-        }
+    pub(crate) fn new(config: &'a AppConfig, data_root: &'a Path) -> Self {
+        Self { config, data_root }
     }
 }
 
@@ -78,12 +120,17 @@ pub(crate) struct QueryJobsDeps<'a> {
 }
 
 impl<'a> QueryJobsDeps<'a> {
-    pub(crate) fn from_state(state: &'a AppState) -> Self {
+    pub(crate) fn new(
+        db: &'a Db,
+        config: &'a AppConfig,
+        downloads_lock: &'a Arc<Mutex<()>>,
+        replay: ReplayDeps<'a>,
+    ) -> Self {
         Self {
-            db: state.db.as_ref(),
-            config: state.config.as_ref(),
-            downloads_lock: &state.downloads_lock,
-            replay: ReplayDeps::from_state(state),
+            db,
+            config,
+            downloads_lock,
+            replay,
         }
     }
 }
@@ -91,18 +138,23 @@ impl<'a> QueryJobsDeps<'a> {
 #[derive(Clone)]
 pub(crate) struct CommandJobsDeps<'a> {
     pub(crate) db: &'a Db,
-    pub(crate) creation: CreationDeps<'a>,
+    pub(crate) submit: JobSubmitDeps<'a>,
     pub(crate) downloads_lock: &'a Arc<Mutex<()>>,
     pub(crate) control: ControlDeps<'a>,
 }
 
 impl<'a> CommandJobsDeps<'a> {
-    pub(crate) fn from_state(state: &'a AppState) -> Self {
+    pub(crate) fn new(
+        db: &'a Db,
+        submit: JobSubmitDeps<'a>,
+        downloads_lock: &'a Arc<Mutex<()>>,
+        control: ControlDeps<'a>,
+    ) -> Self {
         Self {
-            db: state.db.as_ref(),
-            creation: CreationDeps::from_state(state),
-            downloads_lock: &state.downloads_lock,
-            control: ControlDeps::from_state(state),
+            db,
+            submit,
+            downloads_lock,
+            control,
         }
     }
 }

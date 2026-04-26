@@ -5,12 +5,13 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from services.translation.item_reader import item_block_kind
-from services.translation.llm.deepseek_client import DEFAULT_BASE_URL
-from services.translation.llm.deepseek_client import get_api_key
-from services.translation.llm.deepseek_client import normalize_base_url
-from services.translation.llm.deepseek_client import request_chat_content
-from services.translation.llm.structured_models import GARBLED_RECONSTRUCTION_RESPONSE_SCHEMA
-from services.translation.llm.structured_parsers import parse_garbled_reconstruction_response
+from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL
+from services.translation.llm.shared.provider_runtime import DEFAULT_MODEL
+from services.translation.llm.shared.provider_runtime import get_api_key
+from services.translation.llm.shared.provider_runtime import normalize_base_url
+from services.translation.llm.shared.provider_runtime import request_chat_content
+from services.translation.llm.shared.structured_models import GARBLED_RECONSTRUCTION_RESPONSE_SCHEMA
+from services.translation.llm.shared.structured_parsers import parse_garbled_reconstruction_response
 
 
 GARBLED_LEGACY_STYLE_RE = re.compile(r"\\(?:bf|rm|it|sf|tt|pmb)\b")
@@ -38,7 +39,7 @@ def _resolve_reconstruction_provider(
 
     deepseek_key = get_api_key(required=False)
     if deepseek_key:
-        return deepseek_key, "deepseek-chat", DEFAULT_BASE_URL, "prefer_deepseek_api"
+        return deepseek_key, DEFAULT_MODEL, DEFAULT_BASE_URL, "prefer_deepseek_api"
 
     return api_key, model, base_url, "job_provider_fallback"
 

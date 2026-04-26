@@ -13,9 +13,10 @@ from foundation.config import layout
 from foundation.config import paths
 from foundation.config import runtime
 from runtime.pipeline.book_pipeline import run_book_pipeline
-from services.translation.llm import DEFAULT_BASE_URL
-from services.translation.llm import get_api_key
-from services.translation.llm import normalize_base_url
+from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL
+from services.translation.llm.shared.provider_runtime import DEFAULT_MODEL
+from services.translation.llm.shared.provider_runtime import get_api_key
+from services.translation.llm.shared.provider_runtime import normalize_base_url
 
 
 def parse_args() -> argparse.Namespace:
@@ -63,11 +64,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rule-profile-name", type=str, default="general_sci", help="Built-in rule profile name.")
     parser.add_argument("--custom-rules-text", type=str, default="", help="Extra rule text injected into model context.")
     parser.add_argument("--api-key", type=str, default="", help="Optional API key. Prefer env DEEPSEEK_API_KEY.")
-    parser.add_argument("--model", type=str, default="deepseek-chat", help="Model name.")
+    parser.add_argument("--model", type=str, default=DEFAULT_MODEL, help="Model name.")
     parser.add_argument(
         "--base-url",
         type=str,
-        default="https://api.deepseek.com/v1",
+        default=DEFAULT_BASE_URL,
         help="OpenAI-compatible API base URL ending with /v1.",
     )
     parser.add_argument(

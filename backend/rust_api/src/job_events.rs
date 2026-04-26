@@ -7,7 +7,9 @@ use serde_json::{json, Value};
 use tracing::warn;
 
 use crate::db::Db;
-use crate::models::{JobEventRecord, JobRuntimeState, JobSnapshot, JobStatusKind, WorkflowKind};
+use crate::models::{
+    JobEventRecord, JobRuntimeState, JobSnapshot, JobStatusKind, OcrProviderKind, WorkflowKind,
+};
 use crate::storage_paths::resolve_data_path;
 
 const EVENTS_FILE_NAME: &str = "events.jsonl";
@@ -16,8 +18,15 @@ const EVENTS_FILE_NAME: &str = "events.jsonl";
 struct PendingJobEvent {
     level: String,
     stage: Option<String>,
+    stage_detail: Option<String>,
+    provider: Option<String>,
+    provider_stage: Option<String>,
     event: String,
     message: String,
+    progress_current: Option<i64>,
+    progress_total: Option<i64>,
+    retry_count: Option<u32>,
+    elapsed_ms: Option<i64>,
     payload: Option<Value>,
 }
 
@@ -58,8 +67,15 @@ pub fn record_custom_job_event_with_resources(
     let pending = PendingJobEvent {
         level: level.to_string(),
         stage: job.stage.clone(),
+        stage_detail: job.stage_detail.clone(),
+        provider: event_provider(job),
+        provider_stage: event_provider_stage(job),
         event: event.to_string(),
         message: message.into(),
+        progress_current: job.progress_current,
+        progress_total: job.progress_total,
+        retry_count: event_retry_count(job),
+        elapsed_ms: event_elapsed_ms(job),
         payload,
     };
     if let Err(err) = append_pending_event(db, data_root, output_root, job, pending) {
@@ -114,9 +130,17 @@ fn append_pending_event(
         &job.job_id,
         &pending.level,
         pending.stage.clone(),
+        pending.stage_detail.clone(),
+        pending.provider.clone(),
+        pending.provider_stage.clone(),
         &pending.event,
+        Some(pending.event.clone()),
         &pending.message,
+        pending.progress_current,
+        pending.progress_total,
         pending.payload.clone(),
+        pending.retry_count,
+        pending.elapsed_ms,
     )?;
     append_event_jsonl(data_root, output_root, job, &event)?;
     Ok(event)
@@ -149,8 +173,15 @@ fn derive_events(previous: Option<&JobSnapshot>, current: &JobSnapshot) -> Vec<P
         events.push(PendingJobEvent {
             level: "info".to_string(),
             stage: current.stage.clone(),
+            stage_detail: current.stage_detail.clone(),
+            provider: event_provider(current),
+            provider_stage: event_provider_stage(current),
             event: "job_created".to_string(),
             message: "任务已创建".to_string(),
+            progress_current: current.progress_current,
+            progress_total: current.progress_total,
+            retry_count: event_retry_count(current),
+            elapsed_ms: event_elapsed_ms(current),
             payload: Some(json!({
                 "workflow": workflow_name(&current.workflow),
                 "status": status_name(&current.status),
@@ -170,8 +201,15 @@ fn derive_events(previous: Option<&JobSnapshot>, current: &JobSnapshot) -> Vec<P
         events.push(PendingJobEvent {
             level: level.to_string(),
             stage: current.stage.clone(),
+            stage_detail: current.stage_detail.clone(),
+            provider: event_provider(current),
+            provider_stage: event_provider_stage(current),
             event: "status_changed".to_string(),
             message: format!("任务状态变更为 {}", status_name(&current.status)),
+            progress_current: current.progress_current,
+            progress_total: current.progress_total,
+            retry_count: event_retry_count(current),
+            elapsed_ms: event_elapsed_ms(current),
             payload: Some(json!({
                 "from": status_name(&previous.status),
                 "to": status_name(&current.status),
@@ -184,8 +222,15 @@ fn derive_events(previous: Option<&JobSnapshot>, current: &JobSnapshot) -> Vec<P
             events.push(PendingJobEvent {
                 level: level.to_string(),
                 stage: current.stage.clone(),
+                stage_detail: current.stage_detail.clone(),
+                provider: event_provider(current),
+                provider_stage: event_provider_stage(current),
                 event: "job_terminal".to_string(),
                 message: format!("任务进入终态 {}", status_name(&current.status)),
+                progress_current: current.progress_current,
+                progress_total: current.progress_total,
+                retry_count: event_retry_count(current),
+                elapsed_ms: event_elapsed_ms(current),
                 payload: Some(json!({
                     "status": status_name(&current.status),
                     "terminal_reason": current.runtime.as_ref().and_then(|runtime| runtime.terminal_reason.clone()),
@@ -208,12 +253,19 @@ fn derive_events(previous: Option<&JobSnapshot>, current: &JobSnapshot) -> Vec<P
         events.push(PendingJobEvent {
             level: "info".to_string(),
             stage: current.stage.clone(),
+            stage_detail: current.stage_detail.clone(),
+            provider: event_provider(current),
+            provider_stage: event_provider_stage(current),
             event: "stage_updated".to_string(),
             message: current
                 .stage_detail
                 .clone()
                 .or_else(|| current.stage.clone())
                 .unwrap_or_else(|| "任务进度更新".to_string()),
+            progress_current: current.progress_current,
+            progress_total: current.progress_total,
+            retry_count: event_retry_count(current),
+            elapsed_ms: event_elapsed_ms(current),
             payload: Some(json!({
                 "from_stage": previous.stage.clone(),
                 "to_stage": current.stage.clone(),
@@ -224,6 +276,9 @@ fn derive_events(previous: Option<&JobSnapshot>, current: &JobSnapshot) -> Vec<P
         events.push(PendingJobEvent {
             level: "info".to_string(),
             stage: current.stage.clone(),
+            stage_detail: current.stage_detail.clone(),
+            provider: event_provider(current),
+            provider_stage: event_provider_stage(current),
             event: if stage_changed {
                 "stage_transition".to_string()
             } else {
@@ -234,6 +289,10 @@ fn derive_events(previous: Option<&JobSnapshot>, current: &JobSnapshot) -> Vec<P
                 .clone()
                 .or_else(|| current.stage.clone())
                 .unwrap_or_else(|| "任务进度更新".to_string()),
+            progress_current: current.progress_current,
+            progress_total: current.progress_total,
+            retry_count: event_retry_count(current),
+            elapsed_ms: event_elapsed_ms(current),
             payload: Some(json!({
                 "from_stage": previous.stage.clone(),
                 "to_stage": current.stage.clone(),
@@ -257,8 +316,15 @@ fn derive_events(previous: Option<&JobSnapshot>, current: &JobSnapshot) -> Vec<P
             events.push(PendingJobEvent {
                 level: "error".to_string(),
                 stage: current.stage.clone(),
+                stage_detail: current.stage_detail.clone(),
+                provider: event_provider(current),
+                provider_stage: event_provider_stage(current),
                 event: "job_error".to_string(),
                 message: error.clone(),
+                progress_current: current.progress_current,
+                progress_total: current.progress_total,
+                retry_count: event_retry_count(current),
+                elapsed_ms: event_elapsed_ms(current),
                 payload: Some(json!({
                     "error": error,
                 })),
@@ -271,8 +337,18 @@ fn derive_events(previous: Option<&JobSnapshot>, current: &JobSnapshot) -> Vec<P
             events.push(PendingJobEvent {
                 level: "error".to_string(),
                 stage: current.stage.clone(),
+                stage_detail: current.stage_detail.clone(),
+                provider: failure.provider.clone().or_else(|| event_provider(current)),
+                provider_stage: failure
+                    .provider_stage
+                    .clone()
+                    .or_else(|| event_provider_stage(current)),
                 event: "failure_classified".to_string(),
                 message: failure.summary.clone(),
+                progress_current: current.progress_current,
+                progress_total: current.progress_total,
+                retry_count: event_retry_count(current),
+                elapsed_ms: event_elapsed_ms(current),
                 payload: serde_json::to_value(failure).ok(),
             });
         }
@@ -298,6 +374,54 @@ fn workflow_name(workflow: &WorkflowKind) -> &'static str {
         WorkflowKind::Translate => "translate",
         WorkflowKind::Render => "render",
     }
+}
+
+fn event_provider(job: &JobSnapshot) -> Option<String> {
+    job.failure
+        .as_ref()
+        .and_then(|failure| failure.provider.clone())
+        .or_else(|| {
+            job.artifacts
+                .as_ref()
+                .and_then(|artifacts| artifacts.ocr_provider_diagnostics.as_ref())
+                .map(|diagnostics| match diagnostics.provider {
+                    OcrProviderKind::Mineru => Some("mineru".to_string()),
+                    OcrProviderKind::Paddle => Some("paddle".to_string()),
+                    OcrProviderKind::Unknown => None,
+                })
+                .flatten()
+        })
+        .or_else(|| {
+            let provider = job.request_payload.ocr.provider.trim();
+            if provider.is_empty() {
+                None
+            } else {
+                Some(provider.to_string())
+            }
+        })
+}
+
+fn event_provider_stage(job: &JobSnapshot) -> Option<String> {
+    job.failure
+        .as_ref()
+        .and_then(|failure| failure.provider_stage.clone())
+        .or_else(|| {
+            job.artifacts
+                .as_ref()
+                .and_then(|artifacts| artifacts.ocr_provider_diagnostics.as_ref())
+                .and_then(|diagnostics| diagnostics.last_status.as_ref())
+                .and_then(|status| status.raw_state.clone().or_else(|| status.stage.clone()))
+        })
+}
+
+fn event_retry_count(job: &JobSnapshot) -> Option<u32> {
+    job.runtime.as_ref().map(|runtime| runtime.retry_count)
+}
+
+fn event_elapsed_ms(job: &JobSnapshot) -> Option<i64> {
+    job.runtime
+        .as_ref()
+        .and_then(|runtime| runtime.total_elapsed_ms.or(runtime.active_stage_elapsed_ms))
 }
 
 #[cfg(test)]
@@ -328,6 +452,7 @@ mod tests {
         current.status = JobStatusKind::Running;
         current.stage = Some("translating".to_string());
         current.stage_detail = Some("正在翻译".to_string());
+        current.request_payload.ocr.provider = "paddle".to_string();
         current.started_at = Some("2026-04-11T00:00:00Z".to_string());
         current.updated_at = "2026-04-11T00:00:05Z".to_string();
         current.sync_runtime_state();
@@ -354,6 +479,9 @@ mod tests {
         );
         assert!(payload.get("runtime").is_some());
         assert!(payload.get("stage_history").is_some());
+        assert_eq!(transition.stage_detail.as_deref(), Some("正在翻译"));
+        assert_eq!(transition.provider.as_deref(), Some("paddle"));
+        assert_eq!(transition.event, "stage_transition");
     }
 
     #[test]
@@ -368,6 +496,11 @@ mod tests {
             stage: "translation".to_string(),
             category: "upstream_timeout".to_string(),
             code: None,
+            failed_stage: Some("translation".to_string()),
+            failure_code: Some("upstream_timeout".to_string()),
+            failure_category: Some("timeout".to_string()),
+            provider_stage: None,
+            provider_code: None,
             summary: "外部服务请求超时".to_string(),
             root_cause: Some("测试".to_string()),
             retryable: true,
@@ -375,6 +508,7 @@ mod tests {
             provider: Some("deepseek".to_string()),
             suggestion: Some("重试".to_string()),
             last_log_line: Some("ReadTimeout".to_string()),
+            raw_excerpt: Some("ReadTimeout".to_string()),
             raw_error_excerpt: Some("ReadTimeout".to_string()),
             raw_diagnostic: None,
             ai_diagnostic: None,
@@ -402,5 +536,11 @@ mod tests {
             payload.get("failure_summary").and_then(Value::as_str),
             Some("外部服务请求超时")
         );
+        let failure = events
+            .iter()
+            .find(|item| item.event == "failure_classified")
+            .expect("failure event");
+        assert_eq!(failure.provider.as_deref(), Some("deepseek"));
+        assert_eq!(failure.event, "failure_classified");
     }
 }

@@ -1,169 +1,27 @@
-use std::io::{Error as IoError, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use rusqlite::types::Type;
-use rusqlite::{params, Connection, Row};
+use rusqlite::{params, Connection};
 use serde_json::Value;
+
+#[path = "db/rows.rs"]
+mod rows;
+#[path = "db/schema.rs"]
+mod schema;
 
 use crate::models::{
     now_iso, GlossaryRecord, JobArtifactRecord, JobEventRecord, JobFailureInfo, JobRuntimeInfo,
-    JobSnapshot, JobStatusKind, ResolvedJobSpec, UploadRecord, WorkflowKind,
+    JobSnapshot, JobStatusKind, UploadRecord, WorkflowKind,
 };
 use crate::storage_paths::{
     collect_job_artifact_entries, normalize_job_paths_for_storage, resolve_data_path,
     to_relative_data_path,
 };
-
-const JOB_SELECT_SQL: &str = r#"
-    SELECT
-        jobs.job_id, jobs.workflow, jobs.status_json, jobs.created_at, jobs.updated_at,
-        jobs.started_at, jobs.finished_at, jobs.upload_id, jobs.pid, jobs.command_json,
-        jobs.request_json, jobs.error, jobs.stage, jobs.stage_detail,
-        jobs.progress_current, jobs.progress_total, jobs.log_tail_json, jobs.result_json,
-        jobs.runtime_json, jobs.failure_json,
-        artifacts.artifacts_json
-    FROM jobs
-    LEFT JOIN artifacts ON artifacts.job_id = jobs.job_id
-"#;
-
-fn row_to_job_snapshot(row: &Row<'_>) -> rusqlite::Result<JobSnapshot> {
-    let result_json: Option<String> = row.get(17)?;
-    let runtime_json: Option<String> = row.get(18)?;
-    let failure_json: Option<String> = row.get(19)?;
-    let artifacts_json: Option<String> = row.get(20)?;
-    let workflow_json: String = row.get(1)?;
-    let status_json: String = row.get(2)?;
-    let request_json: String = row.get(10)?;
-    Ok(JobSnapshot {
-        record: crate::models::JobRecord {
-            job_id: row.get(0)?,
-            workflow: parse_json_column(1, "workflow", &workflow_json)?,
-            status: parse_json_column(2, "status_json", &status_json)?,
-            created_at: row.get(3)?,
-            updated_at: row.get(4)?,
-            started_at: row.get(5)?,
-            finished_at: row.get(6)?,
-            upload_id: row.get(7)?,
-            pid: row.get::<_, Option<i64>>(8)?.map(|v| v as u32),
-            command: serde_json::from_str(&row.get::<_, String>(9)?).unwrap_or_default(),
-            request_payload: deserialize_request_spec_column(10, &request_json)?,
-            error: row.get(11)?,
-            stage: row.get(12)?,
-            stage_detail: row.get(13)?,
-            progress_current: row.get(14)?,
-            progress_total: row.get(15)?,
-            log_tail: serde_json::from_str(&row.get::<_, String>(16)?).unwrap_or_default(),
-            result: result_json
-                .and_then(|text| serde_json::from_str(&text).ok())
-                .unwrap_or(None),
-            runtime: runtime_json
-                .and_then(|text| serde_json::from_str::<JobRuntimeInfo>(&text).ok()),
-            failure: failure_json
-                .and_then(|text| serde_json::from_str::<JobFailureInfo>(&text).ok()),
-        },
-        artifacts: artifacts_json
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or(None),
-    })
-}
-
-fn json_column_decode_error(
-    column_idx: usize,
-    column_name: &str,
-    error: impl std::fmt::Display,
-) -> rusqlite::Error {
-    rusqlite::Error::FromSqlConversionFailure(
-        column_idx,
-        Type::Text,
-        Box::new(IoError::new(
-            ErrorKind::InvalidData,
-            format!("failed to decode {column_name}: {error}"),
-        )),
-    )
-}
-
-fn parse_json_column<T>(column_idx: usize, column_name: &str, raw: &str) -> rusqlite::Result<T>
-where
-    T: serde::de::DeserializeOwned,
-{
-    serde_json::from_str::<T>(raw)
-        .map_err(|error| json_column_decode_error(column_idx, column_name, error))
-}
-
-fn deserialize_request_spec_column(
-    column_idx: usize,
-    raw: &str,
-) -> rusqlite::Result<ResolvedJobSpec> {
-    deserialize_request_spec(raw)
-        .map_err(|error| json_column_decode_error(column_idx, "request_json", error))
-}
-
-fn deserialize_request_spec(raw: &str) -> Result<ResolvedJobSpec> {
-    serde_json::from_str::<ResolvedJobSpec>(raw).context("failed to deserialize job request/spec")
-}
-
-fn ensure_jobs_column(conn: &Connection, column: &str, column_def: &str) -> Result<()> {
-    let mut stmt = conn.prepare("PRAGMA table_info(jobs)")?;
-    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
-    let mut has_column = false;
-    for row in rows {
-        if row? == column {
-            has_column = true;
-            break;
-        }
-    }
-    if !has_column {
-        conn.execute(
-            &format!("ALTER TABLE jobs ADD COLUMN {column} {column_def}"),
-            [],
-        )?;
-    }
-    Ok(())
-}
-
-fn row_to_job_event(row: &Row<'_>) -> rusqlite::Result<JobEventRecord> {
-    let payload_json: Option<String> = row.get(6)?;
-    Ok(JobEventRecord {
-        job_id: row.get(0)?,
-        seq: row.get(1)?,
-        ts: row.get(2)?,
-        level: row.get(3)?,
-        stage: row.get(4)?,
-        event: row.get(5)?,
-        payload: payload_json.and_then(|text| serde_json::from_str(&text).ok()),
-        message: row.get(7)?,
-    })
-}
-
-fn row_to_job_artifact_record(row: &Row<'_>) -> rusqlite::Result<JobArtifactRecord> {
-    Ok(JobArtifactRecord {
-        job_id: row.get(0)?,
-        artifact_key: row.get(1)?,
-        artifact_group: row.get(2)?,
-        artifact_kind: row.get(3)?,
-        relative_path: row.get(4)?,
-        file_name: row.get(5)?,
-        content_type: row.get(6)?,
-        ready: row.get::<_, i64>(7)? != 0,
-        size_bytes: row.get::<_, Option<i64>>(8)?.map(|value| value as u64),
-        checksum: row.get(9)?,
-        source_stage: row.get(10)?,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
-    })
-}
-
-fn row_to_glossary_record(row: &Row<'_>) -> rusqlite::Result<GlossaryRecord> {
-    let entries_json: String = row.get(2)?;
-    Ok(GlossaryRecord {
-        glossary_id: row.get(0)?,
-        name: row.get(1)?,
-        entries: serde_json::from_str(&entries_json).unwrap_or_default(),
-        created_at: row.get(3)?,
-        updated_at: row.get(4)?,
-    })
-}
+use rows::{
+    row_to_glossary_record, row_to_job_artifact_record, row_to_job_event, row_to_job_snapshot,
+    JOB_SELECT_SQL,
+};
+use schema::{ensure_events_column, ensure_jobs_column, ensure_no_legacy_artifacts_json};
 
 #[derive(Clone)]
 pub struct Db {
@@ -257,8 +115,16 @@ impl Db {
                 ts TEXT NOT NULL,
                 level TEXT NOT NULL,
                 stage TEXT,
+                stage_detail TEXT,
+                provider TEXT,
+                provider_stage TEXT,
                 event TEXT NOT NULL,
+                event_type TEXT,
+                progress_current INTEGER,
+                progress_total INTEGER,
                 payload_json TEXT,
+                retry_count INTEGER,
+                elapsed_ms INTEGER,
                 message TEXT NOT NULL,
                 PRIMARY KEY(job_id, seq)
             );
@@ -280,8 +146,45 @@ impl Db {
         let conn = self.connect()?;
         ensure_jobs_column(&conn, "runtime_json", "TEXT")?;
         ensure_jobs_column(&conn, "failure_json", "TEXT")?;
+        ensure_events_column(&conn, "stage_detail", "TEXT")?;
+        ensure_events_column(&conn, "provider", "TEXT")?;
+        ensure_events_column(&conn, "provider_stage", "TEXT")?;
+        ensure_events_column(&conn, "event_type", "TEXT")?;
+        ensure_events_column(&conn, "progress_current", "INTEGER")?;
+        ensure_events_column(&conn, "progress_total", "INTEGER")?;
+        ensure_events_column(&conn, "retry_count", "INTEGER")?;
+        ensure_events_column(&conn, "elapsed_ms", "INTEGER")?;
         ensure_no_legacy_artifacts_json(&conn)?;
         Ok(())
+    }
+
+    pub fn cleanup_legacy_workflows(&self) -> Result<usize> {
+        let conn = self.connect()?;
+        let changed_jobs = conn.execute(
+            r#"
+            UPDATE jobs
+            SET workflow = '"book"'
+            WHERE workflow = '"mineru"'
+            "#,
+            [],
+        )?;
+        conn.execute(
+            r#"
+            UPDATE jobs
+            SET request_json = replace(request_json, '"workflow":"mineru"', '"workflow":"book"')
+            WHERE request_json LIKE '%"workflow":"mineru"%'
+            "#,
+            [],
+        )?;
+        conn.execute(
+            r#"
+            UPDATE events
+            SET payload_json = replace(payload_json, '"workflow":"mineru"', '"workflow":"book"')
+            WHERE payload_json LIKE '%"workflow":"mineru"%'
+            "#,
+            [],
+        )?;
+        Ok(changed_jobs)
     }
 
     pub fn save_upload(&self, upload: &UploadRecord) -> Result<()> {
@@ -641,6 +544,11 @@ impl Db {
             stage: "startup_recovery".to_string(),
             category: "worker_process_missing".to_string(),
             code: None,
+            failed_stage: Some("startup_recovery".to_string()),
+            failure_code: Some("worker_process_missing".to_string()),
+            failure_category: Some("internal".to_string()),
+            provider_stage: None,
+            provider_code: None,
             summary: "后端启动时回收了遗留 running 任务".to_string(),
             root_cause: Some(detail.to_string()),
             retryable: true,
@@ -648,6 +556,7 @@ impl Db {
             provider: None,
             suggestion: Some("该任务对应的 worker 已不在运行；请重新提交或手动重试".to_string()),
             last_log_line: Some(detail.to_string()),
+            raw_excerpt: Some(detail.to_string()),
             raw_error_excerpt: Some(detail.to_string()),
             raw_diagnostic: None,
             ai_diagnostic: None,
@@ -694,9 +603,17 @@ impl Db {
         job_id: &str,
         level: &str,
         stage: Option<String>,
+        stage_detail: Option<String>,
+        provider: Option<String>,
+        provider_stage: Option<String>,
         event: &str,
+        event_type: Option<String>,
         message: &str,
+        progress_current: Option<i64>,
+        progress_total: Option<i64>,
         payload: Option<Value>,
+        retry_count: Option<u32>,
+        elapsed_ms: Option<i64>,
     ) -> Result<JobEventRecord> {
         let mut conn = self.connect()?;
         let tx = conn.transaction()?;
@@ -709,8 +626,12 @@ impl Db {
         let payload_json = payload.as_ref().map(serde_json::to_string).transpose()?;
         tx.execute(
             r#"
-            INSERT INTO events (job_id, seq, ts, level, stage, event, payload_json, message)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            INSERT INTO events (
+                job_id, seq, ts, level, stage, stage_detail, provider, provider_stage,
+                event, event_type, progress_current, progress_total, payload_json, retry_count,
+                elapsed_ms, message
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
             "#,
             params![
                 job_id,
@@ -718,8 +639,16 @@ impl Db {
                 ts,
                 level,
                 stage,
+                stage_detail,
+                provider,
+                provider_stage,
                 event,
+                event_type,
+                progress_current,
+                progress_total,
                 payload_json,
+                retry_count.map(|value| value as i64),
+                elapsed_ms,
                 message
             ],
         )?;
@@ -730,8 +659,16 @@ impl Db {
             ts,
             level: level.to_string(),
             stage,
+            stage_detail,
+            provider,
+            provider_stage,
             event: event.to_string(),
+            event_type: event_type.or_else(|| Some(event.to_string())),
             message: message.to_string(),
+            progress_current,
+            progress_total,
+            retry_count,
+            elapsed_ms,
             payload,
         })
     }
@@ -745,7 +682,10 @@ impl Db {
         let conn = self.connect()?;
         let mut stmt = conn.prepare(
             r#"
-            SELECT job_id, seq, ts, level, stage, event, payload_json, message
+            SELECT
+                job_id, seq, ts, level, stage, stage_detail, provider, provider_stage,
+                event, event_type, progress_current, progress_total, payload_json,
+                retry_count, elapsed_ms, message
             FROM events
             WHERE job_id = ?1
             ORDER BY seq ASC
@@ -800,36 +740,6 @@ impl Db {
         conn.query_row("SELECT 1", [], |_| Ok(()))?;
         Ok(())
     }
-}
-
-fn ensure_no_legacy_artifacts_json(conn: &Connection) -> Result<()> {
-    let mut stmt = conn.prepare("PRAGMA table_info(jobs)")?;
-    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
-    let mut has_legacy_column = false;
-    for row in rows {
-        if row? == "artifacts_json" {
-            has_legacy_column = true;
-            break;
-        }
-    }
-    if !has_legacy_column {
-        return Ok(());
-    }
-    let legacy_count: i64 = conn.query_row(
-        r#"
-        SELECT COUNT(*)
-        FROM jobs
-        WHERE artifacts_json IS NOT NULL AND TRIM(artifacts_json) <> ''
-        "#,
-        [],
-        |row| row.get(0),
-    )?;
-    if legacy_count > 0 {
-        anyhow::bail!(
-            "legacy jobs.artifacts_json storage is no longer supported; found {legacy_count} legacy rows, clear the DB or rerun those jobs"
-        );
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -980,6 +890,11 @@ mod tests {
             stage: "translation".to_string(),
             category: "upstream_timeout".to_string(),
             code: None,
+            failed_stage: Some("translation".to_string()),
+            failure_code: Some("upstream_timeout".to_string()),
+            failure_category: Some("timeout".to_string()),
+            provider_stage: None,
+            provider_code: None,
             summary: "外部服务请求超时".to_string(),
             root_cause: Some("测试失败归因".to_string()),
             retryable: true,
@@ -987,6 +902,7 @@ mod tests {
             provider: Some("mineru".to_string()),
             suggestion: Some("重试".to_string()),
             last_log_line: Some("ReadTimeout".to_string()),
+            raw_excerpt: Some("ReadTimeout".to_string()),
             raw_error_excerpt: Some("ReadTimeout".to_string()),
             raw_diagnostic: None,
             ai_diagnostic: None,

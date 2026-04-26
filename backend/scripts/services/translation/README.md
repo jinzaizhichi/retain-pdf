@@ -109,6 +109,7 @@ Rust API 对应暴露了：
   翻译策略配置和显式契约消费。默认主链不再靠本地规则二次猜 OCR 语义。
 - `llm/`
   模型请求、缓存、重试、placeholder 守护、分段路由和控制上下文。
+  新人先读 `llm/README.md`，里面单独说明了 provider 层、shared 层、编排层、兼容 shim 和关键调用链。
 - `payload/`
   payload 协议、公式占位、翻译 JSON 读写。
 - `terms/`

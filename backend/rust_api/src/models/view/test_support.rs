@@ -171,9 +171,10 @@ fn load_glossary_summary_from_json_path(path: &Path) -> Option<GlossaryUsageSumm
 }
 
 pub(super) fn job_failure_to_legacy_view(failure: &JobFailureInfo) -> JobFailureDiagnosticView {
+    let failure = failure.clone().with_formal_fields();
     JobFailureDiagnosticView {
-        failed_stage: failure.stage.clone(),
-        error_kind: failure.category.clone(),
+        failed_stage: failure.failed_stage_value().to_string(),
+        error_kind: failure.failure_code_value().to_string(),
         summary: failure.summary.clone(),
         root_cause: failure.root_cause.clone(),
         retryable: failure.retryable,

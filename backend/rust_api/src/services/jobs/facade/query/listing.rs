@@ -5,12 +5,13 @@ use crate::models::{
     ArtifactLinksView, JobArtifactManifestView, JobDetailView, JobEventListView, JobListView,
     JobSnapshot, ListJobEventsQuery, ListJobsQuery,
 };
-use crate::services::jobs::{
-    build_job_artifact_links_view, build_job_artifact_manifest_view, build_job_detail_view,
-    build_job_events_view, build_job_list_view, load_job_or_404,
-    load_ocr_job_with_supported_layout, load_supported_job,
-};
 
+use super::super::super::presentation::{
+    build_job_artifact_links_view, build_job_artifact_manifest_view, build_job_detail_view,
+    build_job_events_view, build_job_list_view, load_ocr_job_with_supported_layout,
+    load_supported_job,
+};
+use super::super::super::query::load_job_or_404;
 use super::super::JobsFacade;
 
 impl<'a> JobsFacade<'a> {
@@ -86,7 +87,7 @@ impl<'a> JobsFacade<'a> {
         } else {
             let _ = load_job_or_404(self.query.db, job_id)?;
         }
-        build_job_events_view(self.query.db, job_id, query)
+        build_job_events_view(self.query.db, &self.query.config.data_root, job_id, query)
     }
 
     pub fn load_supported_job_snapshot(

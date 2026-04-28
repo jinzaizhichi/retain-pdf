@@ -40,6 +40,8 @@ def aggregate_payload_diagnostics(translated_pages_map: dict[int, list[dict]]) -
     heavy_block_split_summary: dict[str, int] = {}
     slow_items: list[dict] = []
     latencies: list[int] = []
+    dead_letter_items: list[dict] = []
+    unresolved_items: list[dict] = []
     for page_idx, items in sorted(translated_pages_map.items()):
         for item in items:
             payload = dict(item.get("translation_diagnostics") or {})
@@ -71,6 +73,26 @@ def aggregate_payload_diagnostics(translated_pages_map: dict[int, list[dict]]) -
             payload["final_status"] = final_status
             status_summary[final_status] = status_summary.get(final_status, 0) + 1
             route_path = payload.get("route_path") or []
+            if bool(payload.get("dead_letter")) or "dlq" in route_path:
+                dead_letter_items.append(
+                    {
+                        "item_id": payload.get("item_id", ""),
+                        "page_idx": payload.get("page_idx"),
+                        "reason": payload.get("degradation_reason", "") or "dead_letter_queue",
+                    }
+                )
+            blocking_untranslated = final_status in {FinalStatus.KEPT_ORIGIN.value, FinalStatus.FAILED.value} and (
+                "fast_path_keep_origin" not in route_path
+            )
+            if blocking_untranslated:
+                unresolved_items.append(
+                    {
+                        "item_id": payload.get("item_id", ""),
+                        "page_idx": payload.get("page_idx"),
+                        "final_status": final_status,
+                        "reason": payload.get("degradation_reason", "") or payload.get("fallback_to", "") or "untranslated",
+                    }
+                )
             for route in route_path:
                 route_key = str(route or "")
                 stats = route_summary.setdefault(route_key, {"count": 0, "success": 0})
@@ -122,4 +144,8 @@ def aggregate_payload_diagnostics(translated_pages_map: dict[int, list[dict]]) -
         "formula_route_summary": formula_route_summary,
         "heavy_block_split_summary": heavy_block_split_summary,
         "slow_items": slow_items[:20],
+        "dead_letter_items": dead_letter_items[:100],
+        "dead_letter_count": len(dead_letter_items),
+        "unresolved_items": unresolved_items[:100],
+        "unresolved_translation_count": len(unresolved_items),
     }

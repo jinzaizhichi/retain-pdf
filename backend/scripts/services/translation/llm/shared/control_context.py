@@ -38,6 +38,7 @@ class FallbackPolicy:
     formula_segment_attempts: int = 2
     allow_tagged_placeholder_retry: bool = True
     allow_keep_origin_degradation: bool = True
+    transport_tail_retry_passes: int = 1
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,8 @@ class TimeoutPolicy:
     batch_plain_text_seconds: int = 45
     formula_segment_seconds: int = 60
     formula_window_seconds: int = 75
+    long_plain_text_seconds: int = 55
+    transport_tail_retry_seconds: int = 70
 
 
 @dataclass(frozen=True)

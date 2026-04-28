@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import os
+import random
 import re
 import socket
 import threading
@@ -277,15 +278,17 @@ def _is_retryable_http_error(exc: Exception) -> bool:
     return is_transport_error(exc)
 
 
-def _retry_delay(attempt: int) -> int:
-    return min(HTTP_RETRY_BACKOFF_MAX_SECS, 2 * attempt)
+def _retry_delay(attempt: int) -> float:
+    base_delay = min(float(HTTP_RETRY_BACKOFF_MAX_SECS), float(2 ** max(0, attempt - 1)))
+    jitter_window = max(0.25, base_delay * 0.5)
+    return min(float(HTTP_RETRY_BACKOFF_MAX_SECS), base_delay + random.uniform(0.0, jitter_window))
 
 
-def _retry_after_delay(exc: Exception, attempt: int) -> tuple[int, str]:
+def _retry_after_delay(exc: Exception, attempt: int) -> tuple[float, str]:
     if isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.status_code == 429:
         header = str(exc.response.headers.get("Retry-After", "") or "").strip()
         if header.isdigit():
-            return max(1, int(header)), "retry_after"
+            return float(max(1, int(header))), "retry_after"
     return _retry_delay(attempt), "backoff"
 
 
@@ -479,7 +482,7 @@ def request_chat_content(
                     ) from exc
             if request_label:
                 print(
-                    f"{request_label}: retrying in {delay_secs}s ({delay_kind})",
+                    f"{request_label}: retrying in {delay_secs:.2f}s ({delay_kind})",
                     flush=True,
                 )
             time.sleep(delay_secs)

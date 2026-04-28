@@ -16,6 +16,28 @@ from services.translation.diagnostics import write_translation_diagnostics
 from services.translation.terms import GlossaryEntry
 
 
+def _blocking_untranslated_items(translated_pages_map: dict[int, list[dict]]) -> list[dict[str, object]]:
+    blocked: list[dict[str, object]] = []
+    for page_idx, items in sorted(translated_pages_map.items()):
+        for item in items:
+            final_status = str(item.get("final_status", "") or "").strip()
+            if final_status not in {"kept_origin", "failed"}:
+                continue
+            diagnostics = dict(item.get("translation_diagnostics") or {})
+            route_path = list(diagnostics.get("route_path") or [])
+            if "fast_path_keep_origin" in route_path:
+                continue
+            blocked.append(
+                {
+                    "item_id": str(item.get("item_id", "") or ""),
+                    "page_idx": int(item.get("page_idx", page_idx) or page_idx),
+                    "final_status": final_status,
+                    "reason": str(diagnostics.get("degradation_reason", "") or diagnostics.get("fallback_to", "") or "untranslated"),
+                }
+            )
+    return blocked
+
+
 def run_book_pipeline(
     *,
     source_json_path: Path,
@@ -96,6 +118,15 @@ def run_book_pipeline(
     translated_items_total = translation_summary["translated_items"]
     for page_summary in translation_summary["summaries"]:
         print(f"page {page_summary['page_idx'] + 1}: translated {page_summary['translated_items']}/{page_summary['total_items']}")
+    blocking_untranslated = _blocking_untranslated_items(translation_summary["translated_pages_map"])
+    if blocking_untranslated:
+        preview = ", ".join(
+            f"p{int(item['page_idx']) + 1}:{item['item_id']}:{item['reason']}"
+            for item in blocking_untranslated[:8]
+        )
+        raise RuntimeError(
+            f"translation export gate blocked: unresolved_translation_count={len(blocking_untranslated)} preview={preview}"
+        )
 
     save_started = time.perf_counter()
     render_summary = run_render_stage(

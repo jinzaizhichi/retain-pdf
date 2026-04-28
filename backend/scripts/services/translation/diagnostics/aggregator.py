@@ -109,6 +109,7 @@ class TranslationRunDiagnostics:
     _adaptive_limit: int = field(default=0, init=False, repr=False)
     _adaptive_peak_limit: int = field(default=0, init=False, repr=False)
     _adaptive_success_streak: int = field(default=0, init=False, repr=False)
+    _adaptive_recent_failure_count: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
         initial_limit = max(1, int(self.configured_workers))
@@ -245,11 +246,12 @@ class TranslationRunDiagnostics:
     ) -> None:
         min_limit = max(1, min(8, self.configured_workers))
         max_limit = max(1, self.configured_workers)
-        timeout_like = error_class in {"ReadTimeout", "ConnectTimeout", "Timeout"}
+        timeout_like = error_class in {"ReadTimeout", "ConnectTimeout", "Timeout", "ConnectionError"}
         overloaded_status = status_code in {408, 429, 500, 502, 503, 504}
         if not success and (timeout_like or overloaded_status):
-            reduced = max(min_limit, int(self._adaptive_limit * 0.7))
-            self._adaptive_limit = min(self._adaptive_limit - 1, reduced) if self._adaptive_limit > min_limit else min_limit
+            self._adaptive_recent_failure_count += 1
+            reduced = max(min_limit, int(math.floor(self._adaptive_limit * 0.5)))
+            self._adaptive_limit = reduced
             self._adaptive_success_streak = 0
             return
         if success and elapsed_ms >= 90000:
@@ -257,6 +259,7 @@ class TranslationRunDiagnostics:
             self._adaptive_success_streak = 0
             return
         if success:
+            self._adaptive_recent_failure_count = 0
             self._adaptive_success_streak += 1
             if elapsed_ms <= 15000 and self._adaptive_success_streak >= 12 and self._adaptive_limit < max_limit:
                 self._adaptive_limit += 1

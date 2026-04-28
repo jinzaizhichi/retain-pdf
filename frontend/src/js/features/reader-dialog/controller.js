@@ -10,7 +10,7 @@ let pdfDocumentModulePromise = null;
 
 async function loadPdfDocument() {
   if (!pdfDocumentModulePromise) {
-    pdfDocumentModulePromise = import("../../../../node_modules/pdf-lib/dist/pdf-lib.esm.js")
+    pdfDocumentModulePromise = import("../../../../vendor/pdf-lib/dist/pdf-lib.esm.js")
       .then((module) => module.PDFDocument);
   }
   return pdfDocumentModulePromise;

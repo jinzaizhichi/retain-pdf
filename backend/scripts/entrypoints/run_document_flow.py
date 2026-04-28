@@ -219,8 +219,8 @@ def main() -> None:
     print(f"source: {job_dirs.source_dir}")
     print(f"ocr: {job_dirs.ocr_dir}")
     print(f"translated: {job_dirs.translated_dir}")
-    print(f"translations: {result.translations_dir}")
-    print(f"output: {result.output_pdf_path}")
+    print(f"translations: {result['output_dir']}")
+    print(f"output: {result['output_pdf_path']}")
 
 
 if __name__ == "__main__":

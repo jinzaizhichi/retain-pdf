@@ -1,9 +1,9 @@
-import * as pdfjsLib from "../../node_modules/pdfjs-dist/build/pdf.mjs";
+import * as pdfjsLib from "../../vendor/pdfjs-dist/build/pdf.mjs";
 import {
   EventBus,
   PDFLinkService,
   PDFViewer,
-} from "../../node_modules/pdfjs-dist/web/pdf_viewer.mjs";
+} from "../../vendor/pdfjs-dist/web/pdf_viewer.mjs";
 import { apiBase, isMockMode, readerMessageTargetOrigin } from "./config.js";
 import { $ } from "./dom.js";
 import { API_PREFIX } from "./constants.js";
@@ -16,11 +16,11 @@ import { getMockJobId } from "./mock.js";
 import { fetchJobArtifactsManifest, fetchJobPayload, fetchProtected } from "./network.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  "../../node_modules/pdfjs-dist/build/pdf.worker.mjs",
+  "../../vendor/pdfjs-dist/build/pdf.worker.mjs",
   import.meta.url,
 ).toString();
-const PDFJS_CMAP_URL = new URL("../../node_modules/pdfjs-dist/cmaps/", import.meta.url).toString();
-const PDFJS_STANDARD_FONT_DATA_URL = new URL("../../node_modules/pdfjs-dist/standard_fonts/", import.meta.url).toString();
+const PDFJS_CMAP_URL = new URL("../../vendor/pdfjs-dist/cmaps/", import.meta.url).toString();
+const PDFJS_STANDARD_FONT_DATA_URL = new URL("../../vendor/pdfjs-dist/standard_fonts/", import.meta.url).toString();
 
 const PDF_TO_CSS_UNITS = 96 / 72;
 

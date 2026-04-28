@@ -20,6 +20,8 @@
   `shared/orchestration/retrying_translator.py`
 - 想看 plain-text 降级、placeholder 稳定策略：
   `shared/orchestration/fallbacks.py`
+- 想看编排目录的完整职责地图：
+  `shared/orchestration/README.md`
 - 想看公式切窗、segment 路由：
   `shared/orchestration/segment_routing.py`
 - 想看占位符校验与降级原因：
@@ -41,6 +43,7 @@
 - `shared/orchestration/`
   只放跨 provider 的翻译编排、fallback、segment routing。
   这里应优先依赖 `shared/provider_runtime.py`，不要直接 import `providers/deepseek/*`。
+  目录内更细的模块边界说明见 `shared/orchestration/README.md`。
 - 顶层 `llm/`
   现在只保留稳定聚合入口和少量顶层公共模块。
   新代码应优先直接依赖 `providers/` 或 `shared/` 下的真实实现。
@@ -77,7 +80,19 @@
   - `shared/structured_output.py`
   - `shared/structured_parsers.py`
 - shared 编排层
+  - `shared/orchestration/README.md`
   - `shared/orchestration/fallbacks.py`
+  - `shared/orchestration/batched_plain.py`
+  - `shared/orchestration/direct_typst.py`
+  - `shared/orchestration/direct_typst_long_text.py`
+  - `shared/orchestration/direct_typst_salvage.py`
+  - `shared/orchestration/heavy_formula.py`
+  - `shared/orchestration/plain_text_validation.py`
+  - `shared/orchestration/sentence_level.py`
+  - `shared/orchestration/transport.py`
+  - `shared/orchestration/keep_origin.py`
+  - `shared/orchestration/metadata.py`
+  - `shared/orchestration/common.py`
   - `shared/orchestration/segment_routing.py`
   - `shared/orchestration/retrying_translator.py`
 - 公共逻辑
@@ -128,6 +143,7 @@
 - 批次重试、单 item 降级：
   `shared/orchestration/retrying_translator.py`
   `shared/orchestration/fallbacks.py`
+  `shared/orchestration/README.md`
 - 结构化输出解析失败：
   `shared/structured_output.py`
   `shared/structured_parsers.py`

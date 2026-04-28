@@ -1,5 +1,5 @@
 import { $ } from "./dom.js";
-import * as pdfjsLib from "../../node_modules/pdfjs-dist/build/pdf.mjs";
+import * as pdfjsLib from "../../vendor/pdfjs-dist/build/pdf.mjs";
 import {
   apiBase,
   applyKeyInputs,
@@ -85,11 +85,11 @@ const WORKFLOW_BOOK = "book";
 const WORKFLOW_TRANSLATE = "translate";
 const WORKFLOW_RENDER = "render";
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  "../../node_modules/pdfjs-dist/build/pdf.worker.mjs",
+  "../../vendor/pdfjs-dist/build/pdf.worker.mjs",
   import.meta.url,
 ).toString();
-const PDFJS_CMAP_URL = new URL("../../node_modules/pdfjs-dist/cmaps/", import.meta.url).toString();
-const PDFJS_STANDARD_FONT_DATA_URL = new URL("../../node_modules/pdfjs-dist/standard_fonts/", import.meta.url).toString();
+const PDFJS_CMAP_URL = new URL("../../vendor/pdfjs-dist/cmaps/", import.meta.url).toString();
+const PDFJS_STANDARD_FONT_DATA_URL = new URL("../../vendor/pdfjs-dist/standard_fonts/", import.meta.url).toString();
 let browserCredentialsFeature = null;
 let developerFeature = null;
 let artifactDownloadsFeature = null;

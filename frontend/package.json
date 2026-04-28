@@ -4,8 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build": "npm run build:css",
+    "build": "npm run prepare:vendor && npm run build:css",
     "build:css": "tailwindcss -c tailwind.config.js -i ./src/input.css -o ./styles.css --minify",
+    "prepare:vendor": "node ./scripts/prepare-runtime-deps.mjs",
     "smoke:status": "node ./scripts/frontend-status-smoke.mjs",
     "watch:css": "tailwindcss -c tailwind.config.js -i ./src/input.css -o ./styles.css --watch"
   },

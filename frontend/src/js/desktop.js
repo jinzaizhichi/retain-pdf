@@ -67,24 +67,36 @@ export async function saveDesktopConfig(mineruToken, modelApiKey, afterSave, ext
     nextBrowserConfig = { ...(mineruToken.browserConfig || mineruToken) };
     markConfigured = !!mineruToken.markConfigured;
     callback = typeof modelApiKey === "function" ? modelApiKey : afterSave;
+  } else {
+    markConfigured = !!extraBrowserConfig?.markConfigured;
   }
   let persisted = await savePersistedBrowserStoredConfig({
     ...nextBrowserConfig,
   });
   state.developerConfig = persisted.developerConfig || state.developerConfig;
   applyKeyInputs(persisted.browserConfig || {});
-  if (callback) {
-    await callback();
-  }
   if (markConfigured && !persisted.firstRunCompleted) {
     persisted = await savePersistedDesktopConfig({ firstRunCompleted: true });
+    state.developerConfig = persisted.developerConfig || state.developerConfig;
+    applyKeyInputs(persisted.browserConfig || {});
   }
-  state.developerConfig = persisted.developerConfig || state.developerConfig;
-  applyKeyInputs(persisted.browserConfig || {});
   state.desktopConfigured = !!persisted.firstRunCompleted;
   if (state.desktopConfigured) {
     closeSetupDialog();
     $("error-box").textContent = "-";
   }
+  if (callback) {
+    try {
+      await callback();
+    } catch (error) {
+      if (state.desktopConfigured) {
+        const message = error?.message || String(error);
+        throw new Error(`首次配置已保存，但当前无法连接本地后端。${message}`);
+      }
+      throw error;
+    }
+  }
+  state.developerConfig = persisted.developerConfig || state.developerConfig;
+  applyKeyInputs(persisted.browserConfig || {});
   return persisted;
 }

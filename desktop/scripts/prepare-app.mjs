@@ -161,6 +161,21 @@ function rewriteAbsoluteSymlinksWithinRoot(root, sourceRoot) {
   visit(normalizedRoot);
 }
 
+function pruneBundledMacPythonRuntime(root) {
+  if (!fs.existsSync(root)) {
+    return;
+  }
+  const removalTargets = [
+    path.join(root, "Frameworks", "Python.framework", "Versions", "Current", "Frameworks", "Tk.framework"),
+    path.join(root, "Frameworks", "Python.framework", "Versions", "Current", "Frameworks", "Tcl.framework"),
+    path.join(root, "Frameworks", "Python.framework", "Versions", "Current", "Headers"),
+    path.join(root, "Frameworks", "Python.framework", "Versions", "Current", "share", "doc"),
+  ];
+  for (const target of removalTargets) {
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+}
+
 const embeddedPythonRoot = resolveRuntimeCandidate("python");
 const bundledTypstRoot = resolveRuntimeCandidate("typst");
 const typstPackagesRoot = resolveSharedRuntimePath("typst-packages");
@@ -554,6 +569,7 @@ if (!frontendOnly && targetPlatform === "darwin" && hasBundledPosixPython(embedd
     const targetPythonRoot = path.join(outputBackendRoot, "python");
     copyRuntimeTree(embeddedPythonRoot, targetPythonRoot);
     rewriteAbsoluteSymlinksWithinRoot(targetPythonRoot, embeddedPythonRoot);
+    pruneBundledMacPythonRuntime(targetPythonRoot);
   } else {
     console.warn(
       "[prepare-app] skip bundling backend/python for darwin because RETAIN_PDF_BUNDLE_MAC_PYTHON!=1",

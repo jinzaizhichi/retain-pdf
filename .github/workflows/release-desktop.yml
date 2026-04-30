@@ -482,9 +482,34 @@ jobs:
             exit 1
           fi
           mkdir -p "$bundle_root/Frameworks"
-          rsync -aL \
+          rsync -a \
             --exclude '__pycache__' \
             "$framework_root/" "$framework_bundle_framework_root/"
+          export FRAMEWORK_ROOT="$framework_root"
+          export FRAMEWORK_BUNDLE_FRAMEWORK_ROOT="$framework_bundle_framework_root"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          source_root = Path(os.environ["FRAMEWORK_ROOT"]).resolve()
+          bundle_root = Path(os.environ["FRAMEWORK_BUNDLE_FRAMEWORK_ROOT"]).resolve()
+
+          for path in bundle_root.rglob("*"):
+            if not path.is_symlink():
+              continue
+            target = os.readlink(path)
+            if not target.startswith("/"):
+              continue
+            try:
+              resolved = Path(target).resolve(strict=False)
+              resolved.relative_to(source_root)
+            except ValueError:
+              continue
+            rel_from_source = resolved.relative_to(source_root)
+            replacement = bundle_root / rel_from_source
+            path.unlink()
+            path.symlink_to(os.path.relpath(replacement, start=path.parent))
+          PY
           rm -f \
             "$framework_bundle_framework_root/Headers" \
             "$framework_bundle_framework_root/Python" \

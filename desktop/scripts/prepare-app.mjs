@@ -114,6 +114,15 @@ function resolveSharedRuntimePaths(relativePath) {
   return [...new Set(candidates)];
 }
 
+function copyRuntimeTree(from, to, options = {}) {
+  const dereference = options.dereference === true;
+  fs.cpSync(from, to, {
+    recursive: true,
+    force: true,
+    dereference,
+  });
+}
+
 const embeddedPythonRoot = resolveRuntimeCandidate("python");
 const bundledTypstRoot = resolveRuntimeCandidate("typst");
 const typstPackagesRoot = resolveSharedRuntimePath("typst-packages");
@@ -495,24 +504,18 @@ if (!frontendOnly && fs.existsSync(rustApiBinary.path)) {
 }
 
 if (!frontendOnly && targetPlatform === "win32" && fs.existsSync(path.join(embeddedPythonRoot, "python.exe"))) {
-  fs.cpSync(embeddedPythonRoot, path.join(outputBackendRoot, "python"), {
-    recursive: true,
-    force: true,
-  });
+  copyRuntimeTree(embeddedPythonRoot, path.join(outputBackendRoot, "python"));
 }
 
 if (!frontendOnly && targetPlatform === "linux" && hasBundledPosixPython(embeddedPythonRoot)) {
-  fs.cpSync(embeddedPythonRoot, path.join(outputBackendRoot, "python"), {
-    recursive: true,
-    force: true,
-  });
+  copyRuntimeTree(embeddedPythonRoot, path.join(outputBackendRoot, "python"));
 }
 
 if (!frontendOnly && targetPlatform === "darwin" && hasBundledPosixPython(embeddedPythonRoot)) {
   if (allowBundledMacPython) {
-    fs.cpSync(embeddedPythonRoot, path.join(outputBackendRoot, "python"), {
-      recursive: true,
-      force: true,
+    copyRuntimeTree(embeddedPythonRoot, path.join(outputBackendRoot, "python"), {
+      // macOS bundled Python.framework may still contain symlinks; copy real files into app resources.
+      dereference: true,
     });
   } else {
     console.warn(

@@ -557,10 +557,20 @@ jobs:
             -id "$framework_launcher_dep" \
             "$framework_bundle_root/$framework_binary_name"
           if [ -e "$bundle_python_app" ]; then
-            install_name_tool \
-              -change "@executable_path/../Python" \
-              "$(loader_path_to "$bundle_python_app" "$framework_bundle_root/$framework_binary_name")" \
-              "$bundle_python_app"
+            launcher_target="@executable_path/../../../../$framework_binary_name"
+            for launcher_source in \
+              "/Library/Frameworks/Python.framework/Versions/$framework_version/$framework_binary_name" \
+              "/System/Library/Frameworks/Python.framework/Versions/$framework_version/$framework_binary_name" \
+              "@executable_path/../Python" \
+              "@loader_path/../Python"
+            do
+              if otool -L "$bundle_python_app" | tail -n +2 | awk '{print $1}' | grep -Fxq "$launcher_source"; then
+                install_name_tool \
+                  -change "$launcher_source" \
+                  "$launcher_target" \
+                  "$bundle_python_app"
+              fi
+            done
             codesign --force --sign - "$bundle_python_app"
           fi
           codesign --force --sign - "$framework_bundle_root/$framework_binary_name"

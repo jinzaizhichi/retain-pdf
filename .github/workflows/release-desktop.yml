@@ -600,7 +600,7 @@ jobs:
           export PKG_CONFIG_PATH="$qpdf_prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
           "$bundle_python3" -m pip install --upgrade pip
           "$bundle_python3" -m pip install -r desktop/requirements-desktop-posix.txt
-          export PYTHONHOME="$framework_bundle_root/Versions/Current"
+          export PYTHONHOME="$framework_bundle_root"
           export PYTHONPATH="$bundle_root/lib/python$framework_version/site-packages"
           test -d "$PYTHONHOME/lib/python$framework_version/lib-dynload"
           ls "$PYTHONHOME/lib/python$framework_version/lib-dynload"/_socket*.so >/dev/null

@@ -518,6 +518,11 @@ jobs:
             if [ ! -f "$framework_bin" ]; then
               continue
             fi
+            case "$framework_bin" in
+              *.a|*.o)
+                continue
+                ;;
+            esac
             if ! file "$framework_bin" | grep -q 'Mach-O'; then
               continue
             fi
@@ -548,6 +553,11 @@ jobs:
             if [ ! -f "$framework_bin" ]; then
               continue
             fi
+            case "$framework_bin" in
+              *.a|*.o)
+                continue
+                ;;
+            esac
             if ! file "$framework_bin" | grep -q 'Mach-O'; then
               continue
             fi
@@ -570,6 +580,11 @@ jobs:
             if [ ! -f "$framework_bin" ]; then
               continue
             fi
+            case "$framework_bin" in
+              *.a|*.o)
+                continue
+                ;;
+            esac
             if ! file "$framework_bin" | grep -q 'Mach-O'; then
               continue
             fi

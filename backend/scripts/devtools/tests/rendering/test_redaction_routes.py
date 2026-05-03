@@ -291,7 +291,22 @@ def test_apply_redaction_route_auto_removes_safe_plain_text_layer(monkeypatch) -
     page = _FakePage()
     rect = fitz.Rect(20, 20, 120, 60)
     removable_rect = fitz.Rect(24, 24, 110, 54)
-    valid_items = [(rect, {"item_id": "p010-b002", "source_text": "plain text"}, "中文")]
+    valid_items = [
+        (
+            rect,
+            {
+                "item_id": "p010-b002",
+                "block_kind": "text",
+                "block_type": "text",
+                "layout_role": "paragraph",
+                "semantic_role": "body",
+                "structure_role": "body",
+                "source_text": "This is a long body paragraph that should be eligible for source cleanup.",
+                "bbox": [20, 20, 120, 60],
+            },
+            "中文",
+        )
+    ]
     covered_rects: list[fitz.Rect] = []
 
     monkeypatch.setattr(redaction_routes, "draw_white_covers", lambda _page, rects: covered_rects.extend(rects))
@@ -325,7 +340,16 @@ def test_apply_redaction_route_auto_skips_formula_item_text_cleanup(monkeypatch)
             rect,
             {
                 "item_id": "p010-b002",
-                "source_text": "text [[FORMULA_1]]",
+                "block_kind": "text",
+                "block_type": "text",
+                "layout_role": "paragraph",
+                "semantic_role": "body",
+                "structure_role": "body",
+                "source_text": (
+                    "This is a long enough body paragraph containing an inline formula [[FORMULA_1]] "
+                    "that should be treated as body text but skipped by risky formula cleanup."
+                ),
+                "bbox": [20, 20, 120, 60],
                 "formula_map": [{"placeholder": "[[FORMULA_1]]", "formula_text": "x^2"}],
             },
             "中文 [[FORMULA_1]]",
@@ -351,7 +375,82 @@ def test_apply_redaction_route_auto_skips_formula_item_text_cleanup(monkeypatch)
     assert diagnostics["strategy"] == "auto"
     assert diagnostics["auto_text_cleanup_items_skipped"] == 1
     assert diagnostics["raw_removable_rects"] == 0
+    assert diagnostics["cover_rects"] == 1
+    assert diagnostics["fast_page_cover_only"] is True
     assert covered_rects == [rect]
     assert removable_calls == 0
+    assert page.redact_annots == []
+    assert page.redaction_calls == []
+
+
+def test_apply_redaction_route_auto_covers_provided_render_blocks(monkeypatch) -> None:
+    page = _FakePage()
+    rect = fitz.Rect(20, 20, 160, 42)
+    valid_items = [
+        (
+            rect,
+            {
+                "item_id": "item-3",
+                "block_kind": "render_block",
+                "block_type": "render_block",
+                "source_text": "Fig. 1. A figure caption should be covered when it is actually rendered.",
+                "bbox": [20, 20, 160, 42],
+            },
+            "图1. 图注实际渲染时应该触发源页面遮盖。",
+        )
+    ]
+    covered_rects: list[fitz.Rect] = []
+
+    monkeypatch.setattr(redaction_routes, "draw_white_covers", lambda _page, rects: covered_rects.extend(rects))
+    monkeypatch.setattr(redaction_routes, "collect_page_math_protection_rects", lambda _page: [])
+    monkeypatch.setattr(redaction_routes, "collect_page_non_math_span_heights", lambda _page: [])
+    monkeypatch.setattr(redaction_routes, "page_has_intrusive_math_protection", lambda *_args: False)
+
+    diagnostics = redaction_routes.apply_redaction_route(page, valid_items)
+
+    assert diagnostics["route"] == "auto"
+    assert diagnostics["strategy"] == "auto"
+    assert diagnostics["cover_rects"] == 1
+    assert diagnostics["fast_page_cover_only"] is True
+    assert covered_rects == [rect]
+    assert page.redact_annots == []
+    assert page.redaction_calls == []
+
+
+def test_apply_redaction_route_auto_does_not_cover_intrusive_math_page(monkeypatch) -> None:
+    page = _FakePage()
+    rect = fitz.Rect(20, 20, 120, 60)
+    valid_items = [
+        (
+            rect,
+            {
+                "item_id": "p010-b002",
+                "block_kind": "text",
+                "block_type": "text",
+                "layout_role": "paragraph",
+                "semantic_role": "body",
+                "structure_role": "body",
+                "source_text": "This is a long body paragraph that should normally be redacted.",
+                "bbox": [20, 20, 120, 60],
+            },
+            "中文",
+        )
+    ]
+    covered_rects: list[fitz.Rect] = []
+
+    monkeypatch.setattr(redaction_routes, "draw_white_covers", lambda _page, rects: covered_rects.extend(rects))
+    monkeypatch.setattr(redaction_routes, "collect_page_math_protection_rects", lambda _page: [rect])
+    monkeypatch.setattr(redaction_routes, "collect_page_non_math_span_heights", lambda _page: [])
+    monkeypatch.setattr(redaction_routes, "page_has_intrusive_math_protection", lambda *_args: True)
+
+    diagnostics = redaction_routes.apply_redaction_route(page, valid_items)
+
+    assert diagnostics["route"] == "auto"
+    assert diagnostics["strategy"] == "auto"
+    assert diagnostics["auto_text_cleanup_skipped_reason"] == "intrusive_math_protection"
+    assert diagnostics["auto_text_cleanup_items_skipped"] == 1
+    assert diagnostics["cover_rects"] == 1
+    assert diagnostics["fast_page_cover_only"] is True
+    assert covered_rects == [rect]
     assert page.redact_annots == []
     assert page.redaction_calls == []

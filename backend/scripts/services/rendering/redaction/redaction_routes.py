@@ -25,6 +25,7 @@ from services.rendering.redaction.redaction_fill import prepare_background_cover
 from services.rendering.redaction.redaction_fill import resolved_fill_color
 from services.rendering.redaction.redaction_geometry import expand_image_page_item_rect
 from services.rendering.redaction.redaction_geometry import expand_item_rect
+from services.rendering.redaction.redaction_geometry import rect_area
 from services.rendering.redaction.shared import iter_valid_translated_items
 
 ITEM_REMOVABLE_RECTS_FAST_COVER_THRESHOLD = 24
@@ -34,6 +35,8 @@ PAGE_ITEM_REMOVABLE_RECTS_FAST_COVER_COUNT = 8
 RECT_MERGE_GAP_X_PT = 3.0
 RECT_MERGE_GAP_Y_PT = 2.0
 RECT_MERGE_MAX_VERTICAL_MISALIGN_PT = 6.0
+RECT_MERGE_MAX_AREA_GROWTH_RATIO = 2.4
+RECT_MERGE_MIN_COLUMN_X_OVERLAP_RATIO = 0.6
 RedactionStrategy = Literal["auto", "visual_only", "visual_and_text", "text_redaction"]
 DEFAULT_REDACTION_STRATEGY: RedactionStrategy = "auto"
 
@@ -53,17 +56,27 @@ def iter_valid_redaction_items(
 
 
 def _rects_should_merge(left: fitz.Rect, right: fitz.Rect) -> bool:
+    union = left | right
+    combined_area = rect_area(left) + rect_area(right)
+    if combined_area <= 0.0:
+        return False
+    area_growth_ratio = rect_area(union) / combined_area
     if not ((left & right).is_empty):
-        return True
+        return area_growth_ratio <= RECT_MERGE_MAX_AREA_GROWTH_RATIO
     same_row = (
         abs(left.y0 - right.y0) <= RECT_MERGE_MAX_VERTICAL_MISALIGN_PT
         and abs(left.y1 - right.y1) <= RECT_MERGE_MAX_VERTICAL_MISALIGN_PT
     )
     horizontal_gap = max(0.0, max(left.x0, right.x0) - min(left.x1, right.x1))
     vertical_gap = max(0.0, max(left.y0, right.y0) - min(left.y1, right.y1))
+    x_overlap = max(0.0, min(left.x1, right.x1) - max(left.x0, right.x0))
+    min_width = max(1.0, min(left.width, right.width))
+    same_column = x_overlap / min_width >= RECT_MERGE_MIN_COLUMN_X_OVERLAP_RATIO
+    if area_growth_ratio > RECT_MERGE_MAX_AREA_GROWTH_RATIO:
+        return False
     if same_row and horizontal_gap <= RECT_MERGE_GAP_X_PT:
         return True
-    if vertical_gap <= RECT_MERGE_GAP_Y_PT and horizontal_gap <= RECT_MERGE_GAP_X_PT:
+    if same_column and vertical_gap <= RECT_MERGE_GAP_Y_PT:
         return True
     return False
 
@@ -167,6 +180,8 @@ def apply_visual_redaction(
 
 
 def _item_is_safe_for_auto_text_cleanup(item: dict) -> bool:
+    if str(item.get("block_kind", item.get("block_type", "")) or "").strip().lower() == "render_block":
+        return False
     if _should_force_bbox_redaction(item):
         return False
     if item_has_formula(item) or is_direct_typst_math_mode(item):
@@ -185,32 +200,41 @@ def apply_auto_redaction(
     flat_cover: bool = False,
 ) -> dict[str, object]:
     diagnostics = _new_redaction_diagnostics(valid_items)
-    cover_rects = _cover_rects_from_valid_items(valid_items)
-    if flat_cover:
-        draw_flat_white_covers(page, cover_rects)
-    else:
-        draw_white_covers(page, cover_rects)
-
-    diagnostics["cover_rects"] = len(cover_rects)
-    diagnostics["fast_page_cover_only"] = True
     diagnostics["route"] = "auto"
     diagnostics["strategy"] = "auto"
 
     protected_math_rects = collect_page_math_protection_rects(page)
     non_math_span_heights = collect_page_non_math_span_heights(page)
-    if page_has_intrusive_math_protection(valid_items, protected_math_rects, non_math_span_heights):
+    has_intrusive_math_protection = page_has_intrusive_math_protection(
+        valid_items,
+        protected_math_rects,
+        non_math_span_heights,
+    )
+    if has_intrusive_math_protection:
         diagnostics["auto_text_cleanup_skipped_reason"] = "intrusive_math_protection"
-        return diagnostics
 
+    cover_items: list[tuple[fitz.Rect, dict, str]] = []
     removable_rects: list[fitz.Rect] = []
     skipped_risky_items = 0
     for rect, item, _translated_text in valid_items:
+        cover_items.append((rect, item, _translated_text))
+        if has_intrusive_math_protection:
+            skipped_risky_items += 1
+            continue
         if not _item_is_safe_for_auto_text_cleanup(item):
             skipped_risky_items += 1
             continue
         item_rects = item_removable_text_rects(page, item, rect)
         diagnostics["raw_removable_rects"] = int(diagnostics["raw_removable_rects"]) + len(item_rects)
         removable_rects.extend(item_rects)
+
+    cover_rects = _cover_rects_from_valid_items(cover_items)
+    if flat_cover:
+        draw_flat_white_covers(page, cover_rects)
+    else:
+        draw_white_covers(page, cover_rects)
+    diagnostics["cover_rects"] = len(cover_rects)
+    diagnostics["fast_page_cover_only"] = bool(cover_rects) and len(cover_items) == len(valid_items)
 
     merged_removable_rects = _merge_rects(removable_rects)
     diagnostics["merged_removable_rects"] = len(merged_removable_rects)

@@ -7,6 +7,7 @@ import fitz
 
 from services.rendering.api.background_image_route import replace_background_image_page
 from services.rendering.api.pdf_overlay import redact_translated_text_areas
+from services.rendering.api.render_payloads import build_render_blocks
 from services.rendering.api.pdf_overlay import strip_page_links
 from services.rendering.redaction.shared import iter_valid_translated_items
 from services.rendering.redaction.vector_text_cleanup import collect_vector_text_rects
@@ -32,6 +33,30 @@ def should_use_cover_only_for_vector_text(page: fitz.Page, translated_items: lis
     return bool(collect_vector_text_rects(page, target_rects))
 
 
+def redaction_items_from_render_blocks(
+    translated_items: list[dict],
+    *,
+    page_width: float,
+    page_height: float,
+) -> list[dict]:
+    redaction_items: list[dict] = []
+    for block in build_render_blocks(translated_items, page_width=page_width, page_height=page_height):
+        if len(block.cover_bbox) != 4:
+            continue
+        item = {
+            "item_id": block.block_id,
+            "block_kind": "render_block",
+            "block_type": "render_block",
+            "source_text": block.plain_text,
+            "translated_text": block.plain_text,
+            "protected_translated_text": block.markdown_text,
+            "render_protected_text": block.markdown_text,
+            "bbox": list(block.cover_bbox),
+        }
+        redaction_items.append(item)
+    return redaction_items
+
+
 def apply_source_page_overlay(
     page: fitz.Page,
     translated_items: list[dict],
@@ -45,15 +70,25 @@ def apply_source_page_overlay(
         replace_background_image_page(page, translated_items)
         # Pseudo-scan pages can still carry visible vector text above the background image.
         # After patching the image itself, remove any touched source text within translated rects.
-        redaction = redact_translated_text_areas(page, translated_items, cover_only=False, strategy=redaction_strategy)
+        redaction_items = redaction_items_from_render_blocks(
+            translated_items,
+            page_width=page.rect.width,
+            page_height=page.rect.height,
+        )
+        redaction = redact_translated_text_areas(page, redaction_items, cover_only=False, strategy=redaction_strategy)
         redaction["elapsed_seconds"] = time.perf_counter() - started
         redaction["source_overlay_mode"] = "background_image"
         return redaction
 
     vector_cover_only = should_use_cover_only_for_vector_text(page, translated_items)
+    redaction_items = redaction_items_from_render_blocks(
+        translated_items,
+        page_width=page.rect.width,
+        page_height=page.rect.height,
+    )
     redaction = redact_translated_text_areas(
         page,
-        translated_items,
+        redaction_items,
         cover_only=cover_only or vector_cover_only,
         strategy=redaction_strategy,
     )

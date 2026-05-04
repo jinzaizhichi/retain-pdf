@@ -16,21 +16,21 @@ from services.translation.llm.shared.provider_runtime import translate_batch_onc
 from services.translation.llm.shared.provider_runtime import translate_single_item_plain_text as _translate_single_item_plain_text_impl
 from services.translation.llm.shared.provider_runtime import translate_single_item_tagged_text as _translate_single_item_tagged_text_impl
 from services.translation.llm.shared.provider_runtime import translate_single_item_with_decision as _translate_single_item_with_decision_impl
-from services.translation.llm.placeholder_guard import INTERNAL_PLACEHOLDER_DEGRADED_REASON
-from services.translation.llm.placeholder_guard import KEEP_ORIGIN_LABEL
-from services.translation.llm.placeholder_guard import PlaceholderInventoryError
-from services.translation.llm.placeholder_guard import SuspiciousKeepOriginError
-from services.translation.llm.placeholder_guard import UnexpectedPlaceholderError
-from services.translation.llm.placeholder_guard import canonicalize_batch_result as _canonicalize_batch_result
-from services.translation.llm.placeholder_guard import has_formula_placeholders as _has_formula_placeholders
-from services.translation.llm.placeholder_guard import internal_keep_origin_result as _internal_keep_origin_result
-from services.translation.llm.placeholder_guard import is_internal_placeholder_degraded as _is_internal_placeholder_degraded
-from services.translation.llm.placeholder_guard import log_placeholder_failure as _log_placeholder_failure
-from services.translation.llm.placeholder_guard import normalize_decision as _normalize_decision
-from services.translation.llm.placeholder_guard import placeholder_sequence as _placeholder_sequence
-from services.translation.llm.placeholder_guard import result_entry as _result_entry
-from services.translation.llm.placeholder_guard import unit_source_text as _unit_source_text
-from services.translation.llm.placeholder_guard import validate_batch_result as _validate_batch_result
+from services.translation.llm.result_validator import validate_batch_result as _validate_batch_result
+from services.translation.llm.placeholder_diagnostics import log_placeholder_failure as _log_placeholder_failure
+from services.translation.llm.placeholder_transform import has_formula_placeholders as _has_formula_placeholders
+from services.translation.llm.result_canonicalizer import canonicalize_batch_result as _canonicalize_batch_result
+from services.translation.llm.result_payload import INTERNAL_PLACEHOLDER_DEGRADED_REASON
+from services.translation.llm.result_payload import KEEP_ORIGIN_LABEL
+from services.translation.llm.result_payload import internal_keep_origin_result as _internal_keep_origin_result
+from services.translation.llm.result_payload import is_internal_placeholder_degraded as _is_internal_placeholder_degraded
+from services.translation.llm.result_payload import normalize_decision as _normalize_decision
+from services.translation.llm.result_payload import result_entry as _result_entry
+from services.translation.llm.validation.english_residue import unit_source_text as _unit_source_text
+from services.translation.llm.validation.errors import PlaceholderInventoryError
+from services.translation.llm.validation.errors import SuspiciousKeepOriginError
+from services.translation.llm.validation.errors import UnexpectedPlaceholderError
+from services.translation.llm.validation.placeholder_tokens import placeholder_sequence as _placeholder_sequence
 
 
 def _build_context(*, mode: str, domain_guidance: str, request_label: str, context: TranslationControlContext | None = None):

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from services.translation.diagnostics import TranslationDiagnosticsCollector
 from services.translation.item_reader import item_raw_block_type
-from services.translation.llm.placeholder_guard import is_direct_math_mode
-from services.translation.llm.placeholder_guard import result_entry
+from services.translation.llm.result_payload import result_entry
+from services.translation.llm.validation.english_residue import is_direct_math_mode
 from services.translation.llm.shared.orchestration.common import chunk_source_text_fallback
 from services.translation.llm.shared.orchestration.common import SENTENCE_SPLIT_RE
 from services.translation.llm.shared.orchestration.metadata import formula_route_diagnostics

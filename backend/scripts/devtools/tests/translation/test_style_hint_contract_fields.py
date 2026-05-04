@@ -23,6 +23,17 @@ def test_structure_style_hint_prefers_top_level_structure_role() -> None:
     assert "section heading" in hint
 
 
+def test_structure_style_hint_appends_translation_style_hint() -> None:
+    item = {
+        "structure_role": "body",
+        "translation_style_hint": "保持结构化字段名和值。",
+    }
+
+    hint = structure_style_hint(item)
+
+    assert "保持结构化字段名和值" in hint
+
+
 def test_candidate_record_projects_contract_fields_for_classification() -> None:
     record = _candidate_record(
         {

@@ -4,7 +4,7 @@ import json
 import time
 
 from services.translation.diagnostics import TranslationDiagnosticsCollector
-from services.translation.llm.placeholder_guard import validate_batch_result
+from services.translation.llm.result_validator import validate_batch_result
 from services.translation.llm.shared.orchestration.common import is_continuation_or_group_unit
 from services.translation.llm.shared.orchestration.common import looks_like_cjk_dominant_body_text
 from services.translation.llm.shared.orchestration.common import sentence_level_fallback_allowed
@@ -23,7 +23,7 @@ from services.translation.llm.shared.orchestration.transport import plain_text_t
 from services.translation.llm.shared.provider_runtime import is_transport_error
 from services.translation.llm.shared.provider_runtime import translate_single_item_plain_text
 from services.translation.llm.shared.provider_runtime import translate_single_item_plain_text_unstructured
-from services.translation.llm.placeholder_guard import should_force_translate_body_text
+from services.translation.llm.validation.english_residue import should_force_translate_body_text
 
 
 def _is_named_validation_exception(exc: Exception, *names: str) -> bool:

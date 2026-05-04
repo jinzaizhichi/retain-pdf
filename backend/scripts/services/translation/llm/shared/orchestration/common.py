@@ -7,10 +7,10 @@ from services.translation.item_reader import item_is_bodylike
 from services.translation.item_reader import item_is_caption_like
 from services.translation.item_reader import item_policy_translate
 from services.translation.item_reader import item_raw_block_type
-from services.translation.llm.placeholder_guard import has_formula_placeholders
-from services.translation.llm.placeholder_guard import is_direct_math_mode
-from services.translation.llm.placeholder_guard import placeholder_sequence
-from services.translation.llm.placeholder_guard import should_force_translate_body_text
+from services.translation.llm.placeholder_transform import has_formula_placeholders
+from services.translation.llm.validation.english_residue import is_direct_math_mode
+from services.translation.llm.validation.english_residue import should_force_translate_body_text
+from services.translation.llm.validation.placeholder_tokens import placeholder_sequence
 from services.translation.payload.parts.common import item_source_text
 from services.translation.policy.metadata_filter import looks_like_hard_nontranslatable_metadata
 

@@ -3,15 +3,8 @@ from __future__ import annotations
 import json
 
 from services.translation.diagnostics import TranslationDiagnosticsCollector
-from services.translation.llm.placeholder_guard import EmptyTranslationError
-from services.translation.llm.placeholder_guard import EnglishResidueError
-from services.translation.llm.placeholder_guard import MathDelimiterError
-from services.translation.llm.placeholder_guard import PlaceholderInventoryError
-from services.translation.llm.placeholder_guard import SuspiciousKeepOriginError
-from services.translation.llm.placeholder_guard import TranslationProtocolError
-from services.translation.llm.placeholder_guard import UnexpectedPlaceholderError
-from services.translation.llm.placeholder_guard import canonicalize_batch_result
-from services.translation.llm.placeholder_guard import item_with_runtime_hard_glossary
+from services.translation.llm.placeholder_transform import item_with_runtime_hard_glossary
+from services.translation.llm.result_canonicalizer import canonicalize_batch_result
 from services.translation.llm.shared.cache import split_cached_batch
 from services.translation.llm.shared.cache import store_cached_batch
 from services.translation.llm.shared.orchestration.common import is_low_risk_deepseek_batch_item
@@ -23,7 +16,14 @@ from services.translation.llm.shared.orchestration.transport import build_transp
 from services.translation.llm.shared.orchestration.transport import mark_transport_result_dead_letter
 from services.translation.llm.shared.provider_runtime import is_transport_error
 from services.translation.llm.shared.provider_runtime import translate_batch_once
-from services.translation.llm.placeholder_guard import validate_batch_result
+from services.translation.llm.result_validator import validate_batch_result
+from services.translation.llm.validation.errors import EmptyTranslationError
+from services.translation.llm.validation.errors import EnglishResidueError
+from services.translation.llm.validation.errors import MathDelimiterError
+from services.translation.llm.validation.errors import PlaceholderInventoryError
+from services.translation.llm.validation.errors import SuspiciousKeepOriginError
+from services.translation.llm.validation.errors import TranslationProtocolError
+from services.translation.llm.validation.errors import UnexpectedPlaceholderError
 
 
 def should_use_direct_deepseek_batch(

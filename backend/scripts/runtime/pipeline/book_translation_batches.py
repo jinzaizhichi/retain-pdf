@@ -1,112 +1,26 @@
 from __future__ import annotations
 
-import json
-import re
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable
 
-from services.translation.llm.shared.provider_runtime import is_transport_error
 from services.translation.llm.shared.control_context import TranslationControlContext
-from services.translation.llm.placeholder_guard import has_formula_placeholders
-from services.translation.llm.placeholder_guard import result_entry
-from services.translation.llm.placeholder_guard import placeholder_sequence
-from services.translation.llm.placeholder_guard import should_force_translate_body_text
-from services.translation.llm.placeholder_guard import strip_placeholders
-from services.translation.policy.metadata_filter import looks_like_hard_nontranslatable_metadata
+from services.translation.llm.shared.orchestration import translate_batch
 from services.translation.payload import apply_translated_text_map
 from services.translation.payload import pending_translation_items
 from services.translation.payload.parts.common import GROUP_ITEM_PREFIX
-from services.translation.llm.shared.orchestration import translate_batch
-from services.translation.item_reader import item_block_kind
-from services.translation.item_reader import item_is_bodylike
-from services.translation.item_reader import item_is_caption_like
-from services.translation.item_reader import item_policy_translate
-from services.translation.item_reader import item_layout_role
-from services.translation.item_reader import item_semantic_role
 
-from runtime.pipeline.book_translation_pages import save_pages
-
-
-def chunked(seq: list[dict], size: int) -> list[list[dict]]:
-    return [seq[i : i + size] for i in range(0, len(seq), size)]
-
-
-def _save_flush_interval(*, workers: int, total_batches: int) -> int:
-    if total_batches <= 1:
-        return 1
-    return max(2, min(12, max(1, workers) * 2))
-
-
-def _effective_translation_batch_size(
-    *,
-    batch_size: int,
-    model: str,
-    base_url: str,
-    translation_context: TranslationControlContext | None,
-) -> int:
-    configured = max(1, batch_size)
-    if translation_context is None:
-        return configured
-    return max(configured, max(1, translation_context.batch_policy.plain_batch_size))
-
-
-def _source_text(item: dict) -> str:
-    return str(
-        item.get("translation_unit_protected_source_text")
-        or item.get("group_protected_source_text")
-        or item.get("protected_source_text")
-        or item.get("source_text")
-        or ""
-    )
-
-
-def _normalized_text_without_placeholders(item: dict) -> str:
-    return " ".join(strip_placeholders(_source_text(item)).split())
-
-
-def _dedupe_signature(item: dict) -> str | None:
-    item_id = str(item.get("item_id", "") or "")
-    if item_id.startswith(GROUP_ITEM_PREFIX):
-        return None
-    if item.get("continuation_group"):
-        return None
-    if item.get("formula_map") or item.get("translation_unit_formula_map"):
-        return None
-    if item.get("protected_map") or item.get("translation_unit_protected_map"):
-        return None
-    source = _source_text(item).strip()
-    if not source:
-        return None
-    payload = {
-        "block_kind": item_block_kind(item),
-        "layout_role": item_layout_role(item),
-        "semantic_role": item_semantic_role(item),
-        "source": source,
-        "mixed_literal_action": str(item.get("mixed_literal_action", "") or ""),
-        "mixed_literal_prefix": str(item.get("mixed_literal_prefix", "") or ""),
-    }
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
-
-
-def _dedupe_pending_items(pending: list[dict]) -> tuple[list[dict], dict[str, list[dict]]]:
-    unique: list[dict] = []
-    duplicates_by_rep_id: dict[str, list[dict]] = {}
-    representative_by_signature: dict[str, dict] = {}
-    for item in pending:
-        signature = _dedupe_signature(item)
-        if signature is None:
-            unique.append(item)
-            continue
-        representative = representative_by_signature.get(signature)
-        if representative is None:
-            representative_by_signature[signature] = item
-            unique.append(item)
-            continue
-        rep_id = str(representative.get("item_id", "") or "")
-        duplicates_by_rep_id.setdefault(rep_id, []).append(item)
-    return unique, duplicates_by_rep_id
+from runtime.pipeline.book_translation_executor import _keep_origin_results_for_transport_batch
+from runtime.pipeline.book_translation_executor import _submit_parallel_translation_batches as _submit_parallel_translation_batches_impl
+from runtime.pipeline.book_translation_executor import _translate_batch_or_keep_origin as _translate_batch_or_keep_origin_impl
+from runtime.pipeline.book_translation_flush import TranslationFlushState
+from runtime.pipeline.book_translation_plan import _allocate_translation_queue_workers
+from runtime.pipeline.book_translation_plan import _build_translation_batches
+from runtime.pipeline.book_translation_plan import _classify_translation_batches
+from runtime.pipeline.book_translation_plan import _dedupe_pending_items
+from runtime.pipeline.book_translation_plan import _effective_translation_batch_size
+from runtime.pipeline.book_translation_plan import _save_flush_interval
+from runtime.pipeline.book_translation_plan import TranslationBatchRunStats
 
 
 def _clone_result_for_item(payload: dict[str, str], *, item: dict) -> dict[str, str]:
@@ -137,229 +51,6 @@ def _expand_duplicate_results(
                 item=duplicate_item,
             )
     return expanded
-
-
-def _fast_path_keep_origin_result(item: dict, reason: str) -> dict[str, dict[str, str]]:
-    payload = result_entry("keep_origin", "")
-    payload["translation_diagnostics"] = {
-        "item_id": item.get("item_id", ""),
-        "page_idx": item.get("page_idx"),
-        "route_path": ["block_level", "fast_path_keep_origin"],
-        "output_mode_path": [],
-        "fallback_to": "keep_origin",
-        "degradation_reason": reason,
-        "final_status": "kept_origin",
-    }
-    return {str(item.get("item_id", "") or ""): payload}
-
-
-def _is_fast_path_keep_origin_item(item: dict) -> tuple[bool, str]:
-    source = _source_text(item)
-    compact = _normalized_text_without_placeholders(item)
-    layout_zone = str(item.get("layout_zone", "") or "").strip().lower()
-    policy_translate = item_policy_translate(item)
-    if not source.strip():
-        return True, "empty_source_text"
-    if not compact:
-        return True, "placeholder_only"
-    if policy_translate is False:
-        return True, "policy_skip"
-    if looks_like_hard_nontranslatable_metadata(item):
-        return True, "hard_metadata_fragment"
-    if (
-        len(compact) <= 4
-        and compact.replace(" ", "").isalnum()
-        and item_is_caption_like(item)
-    ):
-        return True, "short_non_body_label"
-    if (
-        len(compact) <= 4
-        and compact.replace(" ", "").isalnum()
-        and not policy_translate
-        and layout_zone == "non_flow"
-    ):
-        return True, "short_non_body_label"
-    return False, ""
-
-
-def _is_low_risk_batchable_item(item: dict, *, translation_context: TranslationControlContext | None) -> bool:
-    if translation_context is None:
-        return False
-    if str(item.get("math_mode", "placeholder") or "placeholder").strip() == "direct_typst":
-        return False
-    if str(item.get("continuation_group", "") or "").strip():
-        return False
-    if str(item.get("translation_unit_id", "") or "").startswith(GROUP_ITEM_PREFIX):
-        return False
-    if item_block_kind(item) != "text":
-        return False
-    if not item_is_bodylike(item):
-        return False
-    if not should_force_translate_body_text(item):
-        return False
-    source = _source_text(item).strip()
-    if not source:
-        return False
-    compact = _normalized_text_without_placeholders(item)
-    if (
-        len(compact) < translation_context.batch_policy.batch_low_risk_min_chars
-        or len(compact) > translation_context.batch_policy.batch_low_risk_max_chars
-    ):
-        return False
-    placeholder_count = len(placeholder_sequence(source))
-    if placeholder_count > translation_context.batch_policy.batch_low_risk_max_placeholders:
-        return False
-    return True
-
-
-def _build_translation_batches(
-    pending: list[dict],
-    *,
-    effective_batch_size: int,
-    translation_context: TranslationControlContext | None,
-) -> tuple[list[list[dict]], list[dict[str, dict[str, str]]]]:
-    immediate_results: list[dict[str, dict[str, str]]] = []
-    batchable: list[dict] = []
-    singles: list[dict] = []
-    for item in pending:
-        should_skip, reason = _is_fast_path_keep_origin_item(item)
-        if should_skip:
-            immediate_results.append(_fast_path_keep_origin_result(item, reason))
-            continue
-        if _is_low_risk_batchable_item(item, translation_context=translation_context):
-            tagged_item = dict(item)
-            tagged_item["_batched_plain_candidate"] = True
-            batchable.append(tagged_item)
-        else:
-            singles.append(item)
-
-    batches: list[list[dict]] = []
-    if batchable:
-        batches.extend(chunked(batchable, effective_batch_size))
-    for item in singles:
-        batches.append([item])
-    return batches, immediate_results
-
-
-def _is_batched_fast_batch(batch: list[dict]) -> bool:
-    return bool(batch) and (
-        len(batch) > 1 or any(item.get("_batched_plain_candidate") for item in batch)
-    )
-
-
-def _is_single_slow_batch(batch: list[dict]) -> bool:
-    if len(batch) != 1:
-        return False
-    item = batch[0]
-    return bool(item.get("_heavy_formula_split_applied"))
-
-
-def _classify_translation_batches(
-    batches: list[list[dict]],
-) -> tuple[list[list[dict]], list[list[dict]], list[list[dict]]]:
-    batched_fast_batches: list[list[dict]] = []
-    single_fast_batches: list[list[dict]] = []
-    single_slow_batches: list[list[dict]] = []
-    for batch in batches:
-        if _is_batched_fast_batch(batch):
-            batched_fast_batches.append(batch)
-        elif _is_single_slow_batch(batch):
-            single_slow_batches.append(batch)
-        else:
-            single_fast_batches.append(batch)
-    return batched_fast_batches, single_fast_batches, single_slow_batches
-
-
-def _allocate_translation_queue_workers(
-    total_workers: int,
-    *,
-    batched_fast_count: int,
-    single_fast_count: int,
-    single_slow_count: int,
-) -> dict[str, int]:
-    workers = max(1, total_workers)
-    allocation = {
-        "batched_fast": 0,
-        "single_fast": 0,
-        "single_slow": 0,
-    }
-    if workers == 1:
-        if batched_fast_count > 0:
-            allocation["batched_fast"] = 1
-        elif single_fast_count > 0:
-            allocation["single_fast"] = 1
-        elif single_slow_count > 0:
-            allocation["single_slow"] = 1
-        return allocation
-
-    if single_slow_count > 0:
-        slow_cap = 1 if workers <= 8 else 2 if workers <= 24 else min(4, max(2, workers // 8))
-        allocation["single_slow"] = min(single_slow_count, slow_cap, max(1, workers - 1))
-
-    remaining = workers - allocation["single_slow"]
-    fast_targets: list[tuple[str, int]] = []
-    if batched_fast_count > 0:
-        fast_targets.append(("batched_fast", batched_fast_count))
-    if single_fast_count > 0:
-        fast_targets.append(("single_fast", single_fast_count))
-
-    if not fast_targets:
-        allocation["single_slow"] = workers
-        return allocation
-    if len(fast_targets) == 1:
-        allocation[fast_targets[0][0]] = remaining
-        return allocation
-
-    remaining_after_floor = remaining - len(fast_targets)
-    for name, _count in fast_targets:
-        allocation[name] = 1
-    total_fast_batches = sum(count for _, count in fast_targets)
-    if remaining_after_floor > 0 and total_fast_batches > 0:
-        extras: dict[str, int] = {}
-        assigned = 0
-        for index, (name, count) in enumerate(fast_targets):
-            if index == len(fast_targets) - 1:
-                extra = remaining_after_floor - assigned
-            else:
-                extra = (remaining_after_floor * count) // total_fast_batches
-                assigned += extra
-            extras[name] = extra
-        for name, extra in extras.items():
-            allocation[name] += extra
-    return allocation
-
-
-def _submit_parallel_translation_batches(
-    batches: list[list[dict]],
-    *,
-    worker_count: int,
-    queue_name: str,
-    api_key: str,
-    model: str,
-    base_url: str,
-    domain_guidance: str,
-    mode: str,
-    translation_context: TranslationControlContext | None,
-    executors: list[ThreadPoolExecutor],
-) -> dict[object, tuple[str, list[dict]]]:
-    if not batches:
-        return {}
-    executor = ThreadPoolExecutor(max_workers=max(1, worker_count))
-    executors.append(executor)
-    return {
-            executor.submit(
-                _translate_batch_or_keep_origin,
-                batch,
-                api_key=api_key,
-                model=model,
-                base_url=base_url,
-                request_label=f"book: {queue_name} batch {index}/{len(batches)}",
-                domain_guidance=domain_guidance,
-                mode=mode,
-                context=translation_context,
-            ): (queue_name, batch)
-            for index, batch in enumerate(batches, start=1)
-        }
 
 
 def _current_payload_page_indexes(flat_payload: list[dict], fallback_item_to_page: dict[str, int]) -> tuple[dict[str, int], dict[str, set[int]]]:
@@ -394,29 +85,6 @@ def touched_pages_for_batch(
     return touched_pages
 
 
-def _keep_origin_results_for_transport_batch(
-    batch: list[dict],
-    *,
-    degradation_reason: str = "batch_transport_timeout_budget_exceeded",
-) -> dict[str, dict[str, str]]:
-    degraded: dict[str, dict[str, str]] = {}
-    for item in batch:
-        payload = result_entry("keep_origin", "")
-        payload["error_taxonomy"] = "transport"
-        payload["translation_diagnostics"] = {
-            "item_id": item.get("item_id", ""),
-            "page_idx": item.get("page_idx"),
-            "route_path": ["block_level", "batched_plain", "keep_origin"],
-            "output_mode_path": [],
-            "error_trace": [{"type": "transport", "code": "BATCH_TRANSPORT_ERROR"}],
-            "fallback_to": "keep_origin",
-            "degradation_reason": degradation_reason,
-            "final_status": "kept_origin",
-        }
-        degraded[str(item.get("item_id", "") or "")] = payload
-    return degraded
-
-
 def _translate_batch_or_keep_origin(
     batch: list[dict],
     *,
@@ -428,26 +96,45 @@ def _translate_batch_or_keep_origin(
     mode: str,
     context: TranslationControlContext | None,
 ) -> dict[str, dict[str, str]]:
-    try:
-        return translate_batch(
-            batch,
-            api_key=api_key,
-            model=model,
-            base_url=base_url,
-            request_label=request_label,
-            domain_guidance=domain_guidance,
-            mode=mode,
-            context=context,
-        )
-    except Exception as exc:
-        if not is_transport_error(exc):
-            raise
-        if request_label:
-            print(
-                f"{request_label}: transport failure, degrade batch to keep_origin: {type(exc).__name__}: {exc}",
-                flush=True,
-            )
-        return _keep_origin_results_for_transport_batch(batch)
+    return _translate_batch_or_keep_origin_impl(
+        batch,
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        request_label=request_label,
+        domain_guidance=domain_guidance,
+        mode=mode,
+        context=context,
+        translate_fn=translate_batch,
+    )
+
+
+def _submit_parallel_translation_batches(
+    batches: list[list[dict]],
+    *,
+    worker_count: int,
+    queue_name: str,
+    api_key: str,
+    model: str,
+    base_url: str,
+    domain_guidance: str,
+    mode: str,
+    translation_context: TranslationControlContext | None,
+    executors: list[ThreadPoolExecutor],
+) -> dict[object, tuple[str, list[dict]]]:
+    return _submit_parallel_translation_batches_impl(
+        batches,
+        worker_count=worker_count,
+        queue_name=queue_name,
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        domain_guidance=domain_guidance,
+        mode=mode,
+        translation_context=translation_context,
+        executors=executors,
+        translate_fn=translate_batch,
+    )
 
 
 def translate_pending_units(
@@ -493,6 +180,16 @@ def translate_pending_units(
         single_fast_count=len(single_fast_batches),
         single_slow_count=len(single_slow_batches),
     )
+    run_stats = TranslationBatchRunStats(
+        pending_items=len(pending),
+        total_batches=total_batches,
+        effective_batch_size=effective_batch_size,
+        flush_interval=flush_interval,
+        effective_workers=max(1, workers),
+        batched_fast_batches=len(batched_fast_batches),
+        single_fast_batches=len(single_fast_batches),
+        single_slow_batches=len(single_slow_batches),
+    )
     print(
         f"book: pending items={len(pending)} batches={total_batches} workers={max(1, workers)} "
         f"mode={mode} effective_batch_size={effective_batch_size}",
@@ -515,19 +212,19 @@ def translate_pending_units(
             f"single_slow={queue_workers['single_slow']})",
             flush=True,
         )
-    dirty_pages: set[int] = set()
+    flush_state = TranslationFlushState(
+        page_payloads=page_payloads,
+        translation_paths=translation_paths,
+        flush_interval=flush_interval,
+        total_batches=total_batches,
+        progress_callback=progress_callback,
+    )
     for immediate in immediate_results:
         immediate = _expand_duplicate_results(immediate, duplicate_items_by_rep_id=duplicate_items_by_rep_id)
         apply_translated_text_map(flat_payload, immediate)
-        dirty_pages.update(touched_pages_for_batch(immediate, flat_payload, item_to_page))
-    if immediate_results and not batches and dirty_pages:
-        save_started = time.perf_counter()
-        save_pages(page_payloads, translation_paths, dirty_pages)
-        print(
-            f"book: final flush pages={len(dirty_pages)} for fast-path items in {time.perf_counter() - save_started:.2f}s",
-            flush=True,
-        )
-        dirty_pages.clear()
+        flush_state.mark_dirty(touched_pages_for_batch(immediate, flat_payload, item_to_page))
+    if immediate_results and not batches:
+        flush_state.flush(label="final flush for fast-path items")
     if workers <= 1:
         for index, batch in enumerate(batches, start=1):
             batch_label = f"book: batch {index}/{total_batches}"
@@ -544,37 +241,11 @@ def translate_pending_units(
             translated = _expand_duplicate_results(translated, duplicate_items_by_rep_id=duplicate_items_by_rep_id)
             apply_translated_text_map(flat_payload, translated)
             touched_pages = touched_pages_for_batch(translated, flat_payload, item_to_page)
-            dirty_pages.update(touched_pages)
-            if progress_callback is not None:
-                progress_callback(index, total_batches, touched_pages)
-            if index % flush_interval == 0 and dirty_pages:
-                save_started = time.perf_counter()
-                save_pages(page_payloads, translation_paths, dirty_pages)
-                print(
-                    f"book: flushed pages={len(dirty_pages)} after batch {index}/{total_batches} in "
-                    f"{time.perf_counter() - save_started:.2f}s",
-                    flush=True,
-                )
-                dirty_pages.clear()
-        if dirty_pages:
-            save_started = time.perf_counter()
-            save_pages(page_payloads, translation_paths, dirty_pages)
-            print(
-                f"book: final flush pages={len(dirty_pages)} in {time.perf_counter() - save_started:.2f}s",
-                flush=True,
-            )
-        return {
-            "pending_items": len(pending),
-            "total_batches": total_batches,
-            "effective_batch_size": effective_batch_size,
-            "flush_interval": flush_interval,
-            "effective_workers": max(1, workers),
-            "fast_queue_batches": len(batched_fast_batches) + len(single_fast_batches),
-            "slow_queue_batches": len(single_slow_batches),
-            "batched_fast_batches": len(batched_fast_batches),
-            "single_fast_batches": len(single_fast_batches),
-            "single_slow_batches": len(single_slow_batches),
-        }
+            flush_state.mark_dirty(touched_pages)
+            flush_state.record_progress(index, touched_pages)
+            flush_state.flush_if_due(index, label=f"flushed after batch {index}/{total_batches}")
+        flush_state.final_flush()
+        return run_stats.as_dict()
 
     executors: list[ThreadPoolExecutor] = []
     futures: dict[object, tuple[str, list[dict]]] = {}
@@ -628,38 +299,12 @@ def translate_pending_units(
             apply_translated_text_map(flat_payload, translated)
             completed += 1
             touched_pages = touched_pages_for_batch(translated, flat_payload, item_to_page)
-            dirty_pages.update(touched_pages)
-            if progress_callback is not None:
-                progress_callback(completed, total_batches, touched_pages)
-            if completed % flush_interval == 0 and dirty_pages:
-                save_started = time.perf_counter()
-                save_pages(page_payloads, translation_paths, dirty_pages)
-                print(
-                    f"book: flushed pages={len(dirty_pages)} after completed batch {completed}/{total_batches} in "
-                    f"{time.perf_counter() - save_started:.2f}s",
-                    flush=True,
-                )
-                dirty_pages.clear()
+            flush_state.mark_dirty(touched_pages)
+            flush_state.record_progress(completed, touched_pages)
+            flush_state.flush_if_due(completed, label=f"flushed after completed batch {completed}/{total_batches}")
             print(f"book: completed batch {completed}/{total_batches}", flush=True)
     finally:
         for executor in executors:
             executor.shutdown(wait=True, cancel_futures=False)
-    if dirty_pages:
-        save_started = time.perf_counter()
-        save_pages(page_payloads, translation_paths, dirty_pages)
-        print(
-            f"book: final flush pages={len(dirty_pages)} in {time.perf_counter() - save_started:.2f}s",
-            flush=True,
-        )
-    return {
-        "pending_items": len(pending),
-        "total_batches": total_batches,
-        "effective_batch_size": effective_batch_size,
-        "flush_interval": flush_interval,
-        "effective_workers": max(1, workers),
-        "fast_queue_batches": len(batched_fast_batches) + len(single_fast_batches),
-        "slow_queue_batches": len(single_slow_batches),
-        "batched_fast_batches": len(batched_fast_batches),
-        "single_fast_batches": len(single_fast_batches),
-        "single_slow_batches": len(single_slow_batches),
-    }
+    flush_state.final_flush()
+    return run_stats.as_dict()

@@ -6,6 +6,7 @@ from ..formula_protection import restore_protected_tokens
 from .common import (
     clear_translation_fields,
     effective_translation_unit_id,
+    existing_group_unit_id,
     is_group_unit_id,
 )
 from .translation_units import refresh_payload_translation_units
@@ -176,6 +177,11 @@ def _split_group_protected_translation(protected_text: str, items: list[dict]) -
 
 
 def apply_translated_text_map(payload: list[dict], translated: dict) -> None:
+    preserved_group_units = {
+        str(item.get("item_id", "") or ""): existing_group_unit_id(item)
+        for item in payload
+        if str(item.get("item_id", "") or "") in translated and existing_group_unit_id(item)
+    }
     refresh_payload_translation_units(payload)
     group_items: dict[str, list[dict]] = {}
     for item in payload:
@@ -258,6 +264,11 @@ def apply_translated_text_map(payload: list[dict], translated: dict) -> None:
             prefix = str(item.get("mixed_literal_prefix", "") or "")
             item["protected_translated_text"] = _join_prefix_and_tail(prefix, item["protected_translated_text"])
             item["translated_text"] = _join_prefix_and_tail(prefix, item["translated_text"])
+        preserved_group_unit_id = preserved_group_units.get(str(item_id or ""))
+        if preserved_group_unit_id:
+            item["translation_unit_id"] = preserved_group_unit_id
+            item["translation_unit_kind"] = "group"
+            item["translation_unit_member_ids"] = [str(item_id or "")]
         diagnostics = _result_diagnostics_for_item(metadata, item)
         if diagnostics:
             item["translation_diagnostics"] = diagnostics

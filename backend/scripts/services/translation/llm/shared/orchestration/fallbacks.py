@@ -4,26 +4,26 @@ import json
 import time
 
 from services.translation.diagnostics import TranslationDiagnosticsCollector
-from services.translation.llm.placeholder_guard import EmptyTranslationError
-from services.translation.llm.placeholder_guard import EnglishResidueError
-from services.translation.llm.placeholder_guard import MathDelimiterError
-from services.translation.llm.placeholder_guard import PlaceholderInventoryError
-from services.translation.llm.placeholder_guard import SuspiciousKeepOriginError
-from services.translation.llm.placeholder_guard import TranslationProtocolError
-from services.translation.llm.placeholder_guard import UnexpectedPlaceholderError
-from services.translation.llm.placeholder_guard import canonicalize_batch_result
-from services.translation.llm.placeholder_guard import has_formula_placeholders
-from services.translation.llm.placeholder_guard import is_direct_math_mode
-from services.translation.llm.placeholder_guard import item_with_placeholder_aliases
-from services.translation.llm.placeholder_guard import item_with_runtime_hard_glossary
-from services.translation.llm.placeholder_guard import log_placeholder_failure
-from services.translation.llm.placeholder_guard import placeholder_alias_maps
-from services.translation.llm.placeholder_guard import placeholder_sequence
-from services.translation.llm.placeholder_guard import placeholder_stability_guidance
-from services.translation.llm.placeholder_guard import restore_placeholder_aliases
-from services.translation.llm.placeholder_guard import result_entry
-from services.translation.llm.placeholder_guard import should_force_translate_body_text
-from services.translation.llm.placeholder_guard import validate_batch_result
+from services.translation.llm.result_validator import validate_batch_result
+from services.translation.llm.placeholder_diagnostics import log_placeholder_failure
+from services.translation.llm.placeholder_transform import has_formula_placeholders
+from services.translation.llm.placeholder_transform import item_with_placeholder_aliases
+from services.translation.llm.placeholder_transform import item_with_runtime_hard_glossary
+from services.translation.llm.placeholder_transform import placeholder_alias_maps
+from services.translation.llm.placeholder_transform import placeholder_stability_guidance
+from services.translation.llm.placeholder_transform import restore_placeholder_aliases
+from services.translation.llm.result_canonicalizer import canonicalize_batch_result
+from services.translation.llm.result_payload import result_entry
+from services.translation.llm.validation.english_residue import is_direct_math_mode
+from services.translation.llm.validation.english_residue import should_force_translate_body_text
+from services.translation.llm.validation.errors import EmptyTranslationError
+from services.translation.llm.validation.errors import EnglishResidueError
+from services.translation.llm.validation.errors import MathDelimiterError
+from services.translation.llm.validation.errors import PlaceholderInventoryError
+from services.translation.llm.validation.errors import SuspiciousKeepOriginError
+from services.translation.llm.validation.errors import TranslationProtocolError
+from services.translation.llm.validation.errors import UnexpectedPlaceholderError
+from services.translation.llm.validation.placeholder_tokens import placeholder_sequence
 from services.translation.llm.shared.cache import split_cached_batch
 from services.translation.llm.shared.cache import store_cached_batch
 from services.translation.llm.shared.orchestration.batched_plain import translate_items_plain_text as _translate_items_plain_text
@@ -45,6 +45,7 @@ from services.translation.llm.shared.orchestration.keep_origin import keep_origi
 from services.translation.llm.shared.orchestration.metadata import attach_result_metadata
 from services.translation.llm.shared.orchestration.metadata import formula_route_diagnostics
 from services.translation.llm.shared.orchestration.metadata import restore_runtime_term_tokens
+from services.translation.llm.shared.orchestration.metadata import should_store_translation_result
 from services.translation.llm.shared.orchestration.plain_text_validation import finalize_plain_text_validation_failure
 from services.translation.llm.shared.orchestration.plain_text_validation import try_salvage_partial_english_residue
 from services.translation.llm.shared.orchestration.plain_text_validation import try_salvage_protocol_shell_error
@@ -69,6 +70,66 @@ _keep_origin_payload_for_repeated_empty_translation = keep_origin_payload_for_re
 _keep_origin_payload_for_transport_error = keep_origin_payload_for_transport_error
 _should_keep_origin_on_empty_translation = should_keep_origin_on_empty_translation
 _heavy_formula_split_reason = heavy_formula_split_reason
+_should_store_translation_result = should_store_translation_result
+
+
+def _translate_heavy_formula_block(
+    item: dict,
+    *,
+    api_key: str,
+    model: str,
+    base_url: str,
+    request_label: str,
+    context: TranslationControlContext,
+    diagnostics: TranslationDiagnosticsCollector | None,
+    split_reason: str,
+) -> dict[str, dict[str, str]] | None:
+    return translate_heavy_formula_block(
+        item,
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        request_label=request_label,
+        context=context,
+        diagnostics=diagnostics,
+        split_reason=split_reason,
+        translate_single_item_fn=translate_single_item_plain_text_with_retries,
+        deferred_transport_retry_type=DeferredTransportRetry,
+    )
+
+
+def _sentence_level_fallback(
+    item: dict,
+    *,
+    api_key: str,
+    model: str,
+    base_url: str,
+    request_label: str,
+    context: TranslationControlContext,
+    diagnostics: TranslationDiagnosticsCollector | None,
+    translate_plain_fn=None,
+    translate_unstructured_fn=None,
+) -> dict[str, dict[str, str]]:
+    try:
+        return sentence_level_fallback(
+            item,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            request_label=request_label,
+            context=context,
+            diagnostics=diagnostics,
+            translate_plain_fn=translate_plain_fn or translate_single_item_plain_text,
+            translate_unstructured_fn=translate_unstructured_fn or translate_single_item_plain_text_unstructured,
+        )
+    except Exception as exc:
+        if exc.__class__.__name__ == "EnglishResidueError" and not isinstance(exc, EnglishResidueError):
+            raise EnglishResidueError(
+                str(item.get("item_id", "") or ""),
+                source_text=str(item.get("translation_unit_protected_source_text") or item.get("protected_source_text") or ""),
+                translated_text=str(getattr(exc, "translated_text", "") or ""),
+            ) from exc
+        raise
 
 
 def translate_single_item_stable_placeholder_text(

@@ -17,8 +17,12 @@ STYLE_HINTS_BY_ROLE = {
 
 def structure_style_hint(payload: dict | None) -> str:
     source = payload or {}
+    explicit_hint = str(source.get("translation_style_hint", "") or "").strip()
     explicit = str(source.get("structure_role", "") or "").strip().lower()
-    return STYLE_HINTS_BY_ROLE.get(explicit, "")
+    role_hint = STYLE_HINTS_BY_ROLE.get(explicit, "")
+    if explicit_hint and role_hint:
+        return f"{role_hint}\n{explicit_hint}"
+    return explicit_hint or role_hint
 
 
 __all__ = ["structure_style_hint"]

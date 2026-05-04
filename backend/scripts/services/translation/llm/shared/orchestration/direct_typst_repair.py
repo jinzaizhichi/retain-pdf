@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from foundation.shared.prompt_loader import load_prompt
 from services.translation.diagnostics import TranslationDiagnosticsCollector
-from services.translation.llm.placeholder_guard import canonicalize_batch_result
-from services.translation.llm.placeholder_guard import MathDelimiterError
-from services.translation.llm.placeholder_guard import result_entry
-from services.translation.llm.placeholder_guard import validate_batch_result
+from services.translation.llm.result_validator import validate_batch_result
+from services.translation.llm.result_canonicalizer import canonicalize_batch_result
+from services.translation.llm.result_payload import result_entry
+from services.translation.llm.validation.errors import MathDelimiterError
 from services.translation.llm.shared.orchestration.metadata import attach_result_metadata
 from services.translation.llm.shared.orchestration.metadata import restore_runtime_term_tokens
 from services.translation.llm.shared.provider_runtime import request_chat_content

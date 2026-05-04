@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from services.translation.diagnostics import TranslationDiagnosticsCollector
-from services.translation.llm.placeholder_guard import EmptyTranslationError
-from services.translation.llm.placeholder_guard import result_entry
+from services.translation.llm.result_payload import result_entry
+from services.translation.llm.validation.errors import EmptyTranslationError
 from services.translation.llm.shared.orchestration.common import chunk_source_text_fallback
 from services.translation.llm.shared.orchestration.common import formula_placeholder_count
 from services.translation.llm.shared.orchestration.common import SENTENCE_SPLIT_RE
@@ -11,6 +11,7 @@ from services.translation.llm.shared.orchestration.metadata import formula_route
 
 HEAVY_FORMULA_CHUNK_PLACEHOLDERS = 8
 HEAVY_FORMULA_CHUNK_CHARS = 900
+HEAVY_FORMULA_MIN_MARKER_DENSITY = 0.016
 
 
 def heavy_formula_split_reason(item: dict, *, context) -> str:
@@ -19,6 +20,9 @@ def heavy_formula_split_reason(item: dict, *, context) -> str:
     if placeholder_count < context.segmentation_policy.max_formula_segment_count:
         return ""
     if len(source_text) < 1200 and placeholder_count < 24:
+        return ""
+    marker_density = placeholder_count / max(1, len(source_text))
+    if placeholder_count < 24 and marker_density < HEAVY_FORMULA_MIN_MARKER_DENSITY:
         return ""
     return "heavy_formula_density"
 

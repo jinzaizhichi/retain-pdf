@@ -18,7 +18,7 @@ _PROMPT_HASHES: dict[str, str] = {}
 _CACHE_LOCK = threading.Lock()
 FORMULA_SEGMENT_STRATEGY_VERSION = "formula_segments_v2"
 PLAIN_TEXT_STRATEGY_VERSION = "plain_text_v2"
-TRANSLATION_PROTOCOL_VERSION = "translation_control_v3_tagged_body"
+TRANSLATION_PROTOCOL_VERSION = "translation_control_v4_structured_technical_context"
 UNESCAPED_INLINE_DOLLAR_RE = re.compile(r"(?<!\\)\$")
 TRANSLATION_PROMPT_FILES = (
     "translation_system.txt",
@@ -84,6 +84,8 @@ def cache_key_for_item(
         "prompt_hash": _prompt_hash(mode=mode),
         "translation_protocol_version": TRANSLATION_PROTOCOL_VERSION,
         "strategy_signature": _strategy_signature(item),
+        "translation_style_hint": str(item.get("translation_style_hint", "") or "").strip(),
+        "translation_structure_kind": str(item.get("translation_structure_kind", "") or "").strip(),
         "source_text": _unit_source_text(item),
     }
     body = json.dumps(payload, ensure_ascii=False, sort_keys=True)

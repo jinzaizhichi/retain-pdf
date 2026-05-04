@@ -31,6 +31,10 @@ def _candidate_text_item_context(item: TextItem, order: int) -> TranslationItemC
     )
 
 
+def _candidate_record(item: dict, order: int) -> dict:
+    return build_item_context(item, order=order).as_classification_record()
+
+
 
 def classify_item_contexts(
     item_contexts: list[TranslationItemContext],

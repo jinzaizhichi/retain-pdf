@@ -7,14 +7,14 @@ import time
 from services.translation.diagnostics import TranslationDiagnosticsCollector
 from services.translation.llm.shared.control_context import SegmentationPolicy
 from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL, DEFAULT_MODEL, request_chat_content
-from services.translation.llm.placeholder_guard import canonicalize_batch_result
-from services.translation.llm.placeholder_guard import has_formula_placeholders
-from services.translation.llm.placeholder_guard import normalize_inline_whitespace
-from services.translation.llm.placeholder_guard import placeholder_sequence
-from services.translation.llm.placeholder_guard import result_entry
-from services.translation.llm.placeholder_guard import strip_placeholders
-from services.translation.llm.placeholder_guard import unit_source_text
-from services.translation.llm.placeholder_guard import validate_batch_result
+from services.translation.llm.result_validator import validate_batch_result
+from services.translation.llm.placeholder_transform import has_formula_placeholders
+from services.translation.llm.result_canonicalizer import canonicalize_batch_result
+from services.translation.llm.result_payload import result_entry
+from services.translation.llm.validation.english_residue import normalize_inline_whitespace
+from services.translation.llm.validation.english_residue import unit_source_text
+from services.translation.llm.validation.placeholder_tokens import placeholder_sequence
+from services.translation.llm.validation.placeholder_tokens import strip_placeholders
 from services.translation.llm.shared.structured_models import FORMULA_SEGMENT_RESPONSE_SCHEMA
 
 

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from services.translation.diagnostics import TranslationDiagnosticsCollector
-from services.translation.llm.placeholder_guard import EnglishResidueError
-from services.translation.llm.placeholder_guard import EmptyTranslationError
-from services.translation.llm.placeholder_guard import MathDelimiterError
-from services.translation.llm.placeholder_guard import TranslationProtocolError
-from services.translation.llm.placeholder_guard import UnexpectedPlaceholderError
-from services.translation.llm.placeholder_guard import PlaceholderInventoryError
+from services.translation.llm.validation.errors import EnglishResidueError
+from services.translation.llm.validation.errors import EmptyTranslationError
+from services.translation.llm.validation.errors import MathDelimiterError
+from services.translation.llm.validation.errors import TranslationProtocolError
+from services.translation.llm.validation.errors import UnexpectedPlaceholderError
+from services.translation.llm.validation.errors import PlaceholderInventoryError
 from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_repeated_empty_translation
 from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_validation
 

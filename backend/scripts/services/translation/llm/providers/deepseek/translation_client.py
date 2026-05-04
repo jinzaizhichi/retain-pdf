@@ -9,9 +9,9 @@ from services.translation.llm.providers.deepseek.client import DEFAULT_MODEL
 from services.translation.llm.providers.deepseek.client import request_chat_content
 from services.translation.llm.shared.prompt_building import build_messages
 from services.translation.llm.shared.prompt_building import build_single_item_fallback_messages
-from services.translation.llm.placeholder_guard import canonicalize_batch_result
-from services.translation.llm.placeholder_guard import result_entry
-from services.translation.llm.placeholder_guard import validate_batch_result
+from services.translation.llm.result_validator import validate_batch_result
+from services.translation.llm.result_canonicalizer import canonicalize_batch_result
+from services.translation.llm.result_payload import result_entry
 from services.translation.llm.shared.response_parsing import extract_json_text
 from services.translation.llm.shared.response_parsing import extract_single_item_translation_text
 from services.translation.llm.shared.response_parsing import unwrap_translation_shell

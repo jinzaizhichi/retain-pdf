@@ -20,6 +20,11 @@ def sanitize_prompt_context_text(text: str) -> str:
     return sanitized
 
 
+def _merge_context_text(*values: object) -> str:
+    parts = [sanitize_prompt_context_text(str(value or "")) for value in values]
+    return " ".join(part for part in parts if part).strip()
+
+
 def _line_texts(lines: list[dict]) -> list[str]:
     return [" ".join(span.get("content", "") for span in line.get("spans", [])).strip() for line in lines]
 
@@ -161,8 +166,14 @@ def build_item_context(item: dict[str, Any], *, order: int = 0, page_idx: int | 
         math_mode=str(item.get("math_mode", "placeholder") or "placeholder").strip() or "placeholder",
         style_hint=structure_style_hint(item),
         continuation_group=str(item.get("continuation_group", "") or ""),
-        context_before=str(item.get("continuation_prev_text", "") or ""),
-        context_after=str(item.get("continuation_next_text", "") or ""),
+        context_before=_merge_context_text(
+            item.get("translation_context_before", ""),
+            item.get("continuation_prev_text", ""),
+        ),
+        context_after=_merge_context_text(
+            item.get("continuation_next_text", ""),
+            item.get("translation_context_after", ""),
+        ),
         metadata=dict(item.get("metadata", {}) or {}),
         raw_item=item,
     )

@@ -286,7 +286,7 @@ print(json.dumps({
         job.job_id = "job-ai-diagnosis".to_string();
         job.request_payload.runtime.job_id = job.job_id.clone();
         job.request_payload.translation.api_key = "sk-test".to_string();
-        job.request_payload.translation.model = "deepseek-chat".to_string();
+        job.request_payload.translation.model = "deepseek-v4-flash".to_string();
         job.request_payload.translation.base_url = "https://api.deepseek.com/v1".to_string();
         job.status = JobStatusKind::Failed;
         job.stage = Some("failed".to_string());

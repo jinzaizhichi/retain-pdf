@@ -83,7 +83,7 @@ def test_provider_pipeline_dispatches_to_paddle_and_writes_standard_artifacts(
                     "glossary_inline_entry_count": 0,
                     "glossary_overridden_entry_count": 0,
                     "glossary_entries": [],
-                    "model": "deepseek-chat",
+                    "model": "deepseek-v4-flash",
                     "base_url": "https://api.deepseek.com/v1",
                     "credential_ref": "",
                 },

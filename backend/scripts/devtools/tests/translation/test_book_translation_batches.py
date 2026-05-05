@@ -616,3 +616,42 @@ def test_translate_batch_wrapper_degrades_transport_failure_to_keep_origin() -> 
     assert result["b"]["decision"] == "keep_origin"
     assert result["a"]["translation_diagnostics"]["degradation_reason"] == "batch_transport_timeout_budget_exceeded"
     assert result["a"]["translation_diagnostics"]["route_path"] == ["block_level", "batched_plain", "keep_origin"]
+
+
+def test_translate_batch_wrapper_appends_relevant_job_memory_to_domain_guidance() -> None:
+    captured: dict[str, object] = {}
+
+    class _MemoryStore:
+        def summary(self) -> str:
+            return "当前文档记忆：术语保持一致。\n- SCF => 自洽场\n- DFTB => 密度泛函紧束缚"
+
+        def summary_for_batch(self, batch) -> str:
+            source = "\n".join(str(item.get("source_text") or "") for item in batch)
+            if "SCF" in source:
+                return "当前块相关文档记忆：术语保持一致。\n- SCF => 自洽场"
+            return ""
+
+    def _fake_translate_fn(*_args, **kwargs):
+        captured["domain_guidance"] = kwargs["domain_guidance"]
+        captured["context"] = kwargs["context"]
+        return {"a": {"decision": "translate", "translated_text": "自洽场"}}
+
+    result = _translate_batch_or_keep_origin(
+        [_item("a", "SCF")],
+        api_key="sk-test",
+        model="deepseek-chat",
+        base_url="https://api.deepseek.com/v1",
+        request_label="book: batch 1/1",
+        domain_guidance="文档领域：量子化学。",
+        mode="fast",
+        context=build_translation_control_context(),
+        memory_store=_MemoryStore(),
+        translate_fn=_fake_translate_fn,
+    )
+
+    assert result["a"]["translated_text"] == "自洽场"
+    assert "文档领域：量子化学。" in captured["domain_guidance"]
+    assert "SCF => 自洽场" in captured["domain_guidance"]
+    assert "DFTB =>" not in captured["domain_guidance"]
+    assert "SCF => 自洽场" in captured["context"].merged_guidance
+    assert "DFTB =>" not in captured["context"].merged_guidance

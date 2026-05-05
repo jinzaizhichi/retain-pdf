@@ -7,6 +7,7 @@ REPO_SCRIPTS_ROOT = Path("/home/wxyhgk/tmp/Code/backend/scripts")
 sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 from foundation.shared.structured_errors import classify_exception
+from foundation.shared.structured_errors import infer_failure_stage
 
 
 def test_classify_exception_emits_new_and_legacy_failure_fields():
@@ -44,3 +45,28 @@ def test_classify_exception_extracts_provider_code_and_provider_category():
     assert payload["provider"] == "mineru"
     assert payload["summary"] == "鉴权失败"
     assert "凭据" in payload["suggestion"] or "token" in payload["suggestion"].lower()
+
+
+def test_direct_typst_protocol_shell_is_classified_as_translation_not_render():
+    trace = (
+        'File "/Applications/RetainPDF.app/Contents/Resources/backend/scripts/'
+        'services/translation/llm/shared/orchestration/direct_typst.py", line 399\n'
+        "services.translation.llm.placeholder_guard.TranslationProtocolError: "
+        "p007-b004: translated output still contains protocol/json shell"
+    )
+
+    assert infer_failure_stage(
+        default_stage="render",
+        trace_text=trace,
+        detail="p007-b004: translated output still contains protocol/json shell",
+    ) == "translation"
+
+    try:
+        raise RuntimeError("p007-b004: translated output still contains protocol/json shell")
+    except RuntimeError as exc:
+        failure = classify_exception(exc, default_stage="render", provider="translation")
+
+    payload = json.loads(failure.to_json())
+    assert payload["failed_stage"] == "translation"
+    assert payload["failure_category"] == "translation"
+    assert payload["failure_code"] == "translation_protocol_shell"

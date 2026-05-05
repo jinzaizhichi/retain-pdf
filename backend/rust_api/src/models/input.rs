@@ -22,7 +22,7 @@ mod tests {
             "source": { "upload_id": "upload-1" },
             "ocr": { "mineru_token": "mineru-token" },
             "translation": {
-                "model": "deepseek-chat",
+                "model": "deepseek-v4-flash",
                 "base_url": "https://api.deepseek.com/v1",
                 "api_key": "sk-test"
             },
@@ -34,7 +34,7 @@ mod tests {
         assert_eq!(input.workflow, WorkflowKind::Book);
         assert_eq!(input.source.upload_id, "upload-1");
         assert_eq!(input.ocr.mineru_token, "mineru-token");
-        assert_eq!(input.translation.model, "deepseek-chat");
+        assert_eq!(input.translation.model, "deepseek-v4-flash");
         assert_eq!(input.translation.base_url, "https://api.deepseek.com/v1");
         assert_eq!(input.translation.api_key, "sk-test");
         assert_eq!(input.render.render_mode, "auto");
@@ -47,7 +47,7 @@ mod tests {
         let err = CreateJobInput::from_api_value(json!({
             "workflow": "book",
             "upload_id": "upload-legacy",
-            "model": "deepseek-chat",
+            "model": "deepseek-v4-flash",
             "base_url": "https://api.deepseek.com/v1",
             "api_key": "sk-legacy",
             "mineru_token": "mineru-legacy",
@@ -79,7 +79,7 @@ mod tests {
             "workflow": "translate",
             "source": { "upload_id": "upload-translate" },
             "translation": {
-                "model": "deepseek-chat",
+                "model": "deepseek-v4-flash",
                 "base_url": "https://api.deepseek.com/v1",
                 "api_key": "sk-test"
             }
@@ -88,7 +88,7 @@ mod tests {
 
         assert_eq!(input.workflow, WorkflowKind::Translate);
         assert_eq!(input.source.upload_id, "upload-translate");
-        assert_eq!(input.translation.model, "deepseek-chat");
+        assert_eq!(input.translation.model, "deepseek-v4-flash");
     }
 
     #[test]
@@ -98,7 +98,7 @@ mod tests {
             "source": { "upload_id": "upload-book" },
             "ocr": { "mineru_token": "mineru-token" },
             "translation": {
-                "model": "deepseek-chat",
+                "model": "deepseek-v4-flash",
                 "base_url": "https://api.deepseek.com/v1",
                 "api_key": "sk-test"
             }
@@ -118,7 +118,7 @@ mod tests {
             "workflow": "translate",
             "source": { "upload_id": "upload-translate" },
             "translation": {
-                "model": "deepseek-chat",
+                "model": "deepseek-v4-flash",
                 "base_url": "https://api.deepseek.com/v1",
                 "api_key": "sk-test"
             }
@@ -139,7 +139,7 @@ mod tests {
     fn resolved_job_spec_from_input_derives_job_id_and_workers() {
         let mut input = CreateJobInput::default();
         input.source.upload_id = "upload-1".to_string();
-        input.translation.model = "deepseek-chat".to_string();
+        input.translation.model = "deepseek-v4-flash".to_string();
         input.translation.base_url = "https://api.deepseek.com/v1".to_string();
         input.translation.api_key = "sk-test".to_string();
         input.ocr.mineru_token = "mineru-token".to_string();

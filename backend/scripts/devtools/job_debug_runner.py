@@ -170,7 +170,7 @@ def _build_translate_spec(
             "glossary_inline_entry_count": 0,
             "glossary_overridden_entry_count": 0,
             "glossary_entries": [],
-            "model": "deepseek-chat",
+            "model": "deepseek-v4-flash",
             "base_url": "https://api.deepseek.com/v1",
             "credential_ref": "env:DEEPSEEK_API_KEY",
         },

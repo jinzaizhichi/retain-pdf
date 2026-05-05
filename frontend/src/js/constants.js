@@ -13,6 +13,6 @@ export const DEFAULT_CLASSIFY_BATCH_SIZE = 12;
 export const DEFAULT_COMPILE_WORKERS = 8;
 export const DEFAULT_TIMEOUT_SECONDS = 1800;
 export const FRONT_MAX_BYTES = 100 * 1024 * 1024;
-export const FRONT_MAX_PAGE_COUNT = 100;
+export const FRONT_MAX_PAGE_COUNT = 300;
 export const BROWSER_CONFIG_STORAGE_KEY = "retainpdf.browser.config.v1";
 export const DEVELOPER_CONFIG_STORAGE_KEY = "retainpdf.developer.config.v1";

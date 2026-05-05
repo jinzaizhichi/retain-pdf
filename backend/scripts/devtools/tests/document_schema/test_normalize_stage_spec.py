@@ -145,7 +145,7 @@ def test_translate_stage_spec_loads_and_resolves_env_credential(tmp_path: Path, 
                     "glossary_inline_entry_count": 0,
                     "glossary_overridden_entry_count": 0,
                     "glossary_entries": [],
-                    "model": "deepseek-chat",
+                    "model": "deepseek-v4-flash",
                     "base_url": "https://api.deepseek.com/v1",
                     "credential_ref": "env:RETAIN_TRANSLATION_API_KEY",
                 },
@@ -160,7 +160,7 @@ def test_translate_stage_spec_loads_and_resolves_env_credential(tmp_path: Path, 
     spec = TranslateStageSpec.load(spec_path)
 
     assert spec.stage == "translate"
-    assert spec.params.model == "deepseek-chat"
+    assert spec.params.model == "deepseek-v4-flash"
     assert resolve_credential_ref(spec.params.credential_ref) == "sk-stage-test"
 
 
@@ -189,7 +189,7 @@ def test_translate_stage_spec_defaults_math_mode_to_direct_typst(tmp_path: Path)
                     "layout_json": "",
                 },
                 "params": {
-                    "model": "deepseek-chat",
+                    "model": "deepseek-v4-flash",
                     "base_url": "https://api.deepseek.com/v1",
                     "credential_ref": "",
                 },
@@ -245,7 +245,7 @@ def test_render_stage_spec_loads_and_resolves_paths(tmp_path: Path) -> None:
                     "inner_bbox_shrink_y": 0.0,
                     "inner_bbox_dense_shrink_x": 0.0,
                     "inner_bbox_dense_shrink_y": 0.0,
-                    "model": "deepseek-chat",
+                    "model": "deepseek-v4-flash",
                     "base_url": "https://api.deepseek.com/v1",
                     "credential_ref": "",
                 },
@@ -304,7 +304,7 @@ def test_render_stage_spec_empty_font_family_uses_default_font(tmp_path: Path) -
                     "inner_bbox_shrink_y": 0.0,
                     "inner_bbox_dense_shrink_x": 0.0,
                     "inner_bbox_dense_shrink_y": 0.0,
-                    "model": "deepseek-chat",
+                    "model": "deepseek-v4-flash",
                     "base_url": "https://api.deepseek.com/v1",
                     "credential_ref": ""
                 },
@@ -374,7 +374,7 @@ def test_provider_stage_spec_loads_and_resolves_credentials(tmp_path: Path, monk
                     "glossary_inline_entry_count": 0,
                     "glossary_overridden_entry_count": 0,
                     "glossary_entries": [],
-                    "model": "deepseek-chat",
+                    "model": "deepseek-v4-flash",
                     "base_url": "https://api.deepseek.com/v1",
                     "credential_ref": "env:RETAIN_TRANSLATION_API_KEY",
                 },
@@ -450,7 +450,7 @@ def test_provider_stage_spec_loads_paddle_provider_fields(tmp_path: Path, monkey
                     "poll_timeout": 1800,
                 },
                 "translation": {
-                    "model": "deepseek-chat",
+                    "model": "deepseek-v4-flash",
                     "base_url": "https://api.deepseek.com/v1",
                     "credential_ref": "env:RETAIN_TRANSLATION_API_KEY",
                     "glossary_entries": [],
@@ -528,7 +528,7 @@ def test_book_stage_spec_loads_and_resolves_credentials(tmp_path: Path, monkeypa
                     "glossary_inline_entry_count": 0,
                     "glossary_overridden_entry_count": 0,
                     "glossary_entries": [],
-                    "model": "deepseek-chat",
+                    "model": "deepseek-v4-flash",
                     "base_url": "https://api.deepseek.com/v1",
                     "credential_ref": "env:RETAIN_TRANSLATION_API_KEY",
                 },

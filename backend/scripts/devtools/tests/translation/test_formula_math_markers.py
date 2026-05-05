@@ -210,6 +210,15 @@ def test_direct_typst_passthrough_escapes_literal_double_asterisk_outside_math()
     assert r"$E=mc^2$" in markdown
 
 
+def test_direct_typst_passthrough_preserves_markdown_italic_outside_math() -> None:
+    markdown = build_direct_typst_passthrough_text(
+        r"源自德语 *Farbe*，并保留 $C_{3\nu}$ 不变。"
+    )
+    assert r"*Farbe*" in markdown
+    assert r"\*Farbe\*" not in markdown
+    assert r"$C_{3\nu}$" in markdown
+
+
 def test_build_markdown_from_parts_direct_typst_passthrough() -> None:
     markdown = build_direct_typst_passthrough_text(
         r"观察到 $\mathrm{Ph(i-PrO)SiH_2}$ (6) 的消耗速率快于其他硅烷。"

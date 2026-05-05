@@ -160,7 +160,11 @@ def build_translation_policy_config(
         enable_candidate_continuation_review=should_apply_candidate_continuation_review()
         if enable_candidate_continuation_review is None
         else enable_candidate_continuation_review,
-        enable_page_no_trans_classification=(mode in {"sci", "precise"})
+        # Keep no-translation classification opt-in. Running a separate
+        # pre-translation model to decide "do not translate" competes with the
+        # main translator's context-aware decision and can remove legitimate
+        # fragments from the translation queue before the translator sees them.
+        enable_page_no_trans_classification=False
         if enable_page_no_trans_classification is None
         else enable_page_no_trans_classification,
         enable_domain_inference=(mode == "sci")

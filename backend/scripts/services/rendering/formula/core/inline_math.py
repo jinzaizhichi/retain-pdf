@@ -4,6 +4,13 @@ import re
 
 
 INLINE_MATH_BLOCK_RE = re.compile(r"(?<!\\)\$(?:\\.|[^$\\\n])+(?<!\\)\$")
+MARKDOWN_EMPHASIS_RE = re.compile(
+    r"(?<![\\*])(?P<marker>\*\*|\*)"
+    r"(?=\S)"
+    r"(?P<body>[^*\n]*?\S)"
+    r"(?P=marker)"
+    r"(?!\*)"
+)
 
 
 def apply_to_non_math_segments(text: str, replacer) -> str:
@@ -23,6 +30,20 @@ def apply_to_non_math_segments(text: str, replacer) -> str:
 
 def escape_markdown_literal_asterisks(text: str) -> str:
     return (text or "").replace("*", r"\*")
+
+
+def escape_literal_asterisks_preserving_emphasis(text: str) -> str:
+    source = text or ""
+    if "*" not in source:
+        return source
+    chunks: list[str] = []
+    last_end = 0
+    for match in MARKDOWN_EMPHASIS_RE.finditer(source):
+        chunks.append(escape_markdown_literal_asterisks(source[last_end : match.start()]))
+        chunks.append(match.group(0))
+        last_end = match.end()
+    chunks.append(escape_markdown_literal_asterisks(source[last_end:]))
+    return "".join(chunks)
 
 
 def surround_inline_math_with_spaces(markdown: str) -> str:
@@ -63,6 +84,6 @@ def sanitize_direct_typst_inline_math(text: str) -> str:
 
 
 def build_direct_typst_passthrough_markdown(text: str) -> str:
-    markdown = apply_to_non_math_segments(str(text or "").strip(), escape_markdown_literal_asterisks)
+    markdown = apply_to_non_math_segments(str(text or "").strip(), escape_literal_asterisks_preserving_emphasis)
     markdown = sanitize_direct_typst_inline_math(markdown)
     return surround_inline_math_with_spaces(markdown)

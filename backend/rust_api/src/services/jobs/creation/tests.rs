@@ -180,7 +180,7 @@ fn base_translation_input(workflow: WorkflowKind) -> CreateJobInput {
     let mut input = CreateJobInput::default();
     input.workflow = workflow;
     input.translation.api_key = "sk-test".to_string();
-    input.translation.model = "deepseek-chat".to_string();
+    input.translation.model = "deepseek-v4-flash".to_string();
     input.translation.base_url = "https://api.deepseek.com/v1".to_string();
     input.ocr.mineru_token = "mineru-token".to_string();
     input

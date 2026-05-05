@@ -1,4 +1,4 @@
-export const DEFAULT_OCR_PROVIDER = "paddle";
+export const DEFAULT_OCR_PROVIDER = "mineru";
 
 export const OCR_PROVIDER_DEFINITIONS = [
   {

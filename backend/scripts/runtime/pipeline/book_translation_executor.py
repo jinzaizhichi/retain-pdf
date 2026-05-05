@@ -7,6 +7,9 @@ from services.translation.llm.result_payload import result_entry
 from services.translation.llm.shared.control_context import TranslationControlContext
 from services.translation.llm.shared.orchestration import translate_batch as default_translate_batch
 from services.translation.llm.shared.provider_runtime import is_transport_error
+from services.translation.memory import JobMemoryStore
+from services.translation.context.execution_context import context_with_memory_guidance
+from services.translation.context.execution_context import domain_guidance_with_retrieved_memory
 
 TranslateBatchFn = Callable[..., dict[str, dict[str, str]]]
 
@@ -44,8 +47,18 @@ def _translate_batch_or_keep_origin(
     domain_guidance: str,
     mode: str,
     context: TranslationControlContext | None,
+    memory_store: JobMemoryStore | None = None,
     translate_fn: TranslateBatchFn = default_translate_batch,
 ) -> dict[str, dict[str, str]]:
+    effective_context = context_with_memory_guidance(
+        context,
+        domain_guidance=domain_guidance,
+        memory_store=memory_store,
+        batch=batch,
+        mode=mode,
+        request_label=request_label,
+    )
+    effective_domain_guidance = domain_guidance_with_retrieved_memory(domain_guidance, memory_store, batch)
     try:
         return translate_fn(
             batch,
@@ -53,9 +66,9 @@ def _translate_batch_or_keep_origin(
             model=model,
             base_url=base_url,
             request_label=request_label,
-            domain_guidance=domain_guidance,
+            domain_guidance=effective_domain_guidance,
             mode=mode,
-            context=context,
+            context=effective_context,
         )
     except Exception as exc:
         if not is_transport_error(exc):
@@ -79,6 +92,7 @@ def _submit_parallel_translation_batches(
     domain_guidance: str,
     mode: str,
     translation_context: TranslationControlContext | None,
+    memory_store: JobMemoryStore | None = None,
     executors: list[ThreadPoolExecutor],
     translate_fn: TranslateBatchFn = default_translate_batch,
 ) -> dict[object, tuple[str, list[dict]]]:
@@ -97,6 +111,7 @@ def _submit_parallel_translation_batches(
             domain_guidance=domain_guidance,
             mode=mode,
             context=translation_context,
+            memory_store=memory_store,
             translate_fn=translate_fn,
         ): (queue_name, batch)
         for index, batch in enumerate(batches, start=1)

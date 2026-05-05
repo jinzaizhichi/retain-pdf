@@ -250,7 +250,7 @@ mod tests {
         input.workflow = workflow;
         input.ocr.mineru_token = "mineru-token-test".to_string();
         input.translation.api_key = "sk-test".to_string();
-        input.translation.model = "deepseek-chat".to_string();
+        input.translation.model = "deepseek-v4-flash".to_string();
         input.translation.base_url = "https://api.deepseek.com/v1".to_string();
         input.translation.workers = 3;
         input.render.render_mode = "auto".to_string();

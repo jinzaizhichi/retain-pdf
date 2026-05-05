@@ -40,7 +40,7 @@ def test_apply_standard_redaction_uses_text_only_rects_for_mixed_items(monkeypat
 
     monkeypatch.setattr(redaction_routes, "collect_page_drawing_rects", lambda _page: [fitz.Rect(0, 0, 120, 60)])
     monkeypatch.setattr(redaction_routes, "page_should_use_cover_only", lambda _rects: False)
-    monkeypatch.setattr(redaction_routes, "item_removable_text_rects", lambda _page, _item, _rect: [removable_rect])
+    monkeypatch.setattr(redaction_routes, "item_removable_text_rects", lambda _page, _item, _rect, **_kwargs: [removable_rect])
     monkeypatch.setattr(
         redaction_routes,
         "draw_white_covers",
@@ -313,7 +313,7 @@ def test_apply_redaction_route_auto_removes_safe_plain_text_layer(monkeypatch) -
     monkeypatch.setattr(redaction_routes, "collect_page_math_protection_rects", lambda _page: [])
     monkeypatch.setattr(redaction_routes, "collect_page_non_math_span_heights", lambda _page: [])
     monkeypatch.setattr(redaction_routes, "page_has_intrusive_math_protection", lambda *_args: False)
-    monkeypatch.setattr(redaction_routes, "item_removable_text_rects", lambda _page, _item, _rect: [removable_rect])
+    monkeypatch.setattr(redaction_routes, "item_removable_text_rects", lambda _page, _item, _rect, **_kwargs: [removable_rect])
 
     diagnostics = redaction_routes.apply_redaction_route(page, valid_items)
 
@@ -321,7 +321,9 @@ def test_apply_redaction_route_auto_removes_safe_plain_text_layer(monkeypatch) -
     assert diagnostics["strategy"] == "auto"
     assert diagnostics["raw_removable_rects"] == 1
     assert diagnostics["merged_removable_rects"] == 1
-    assert covered_rects == [rect]
+    assert covered_rects == []
+    assert diagnostics["cover_rects"] == 0
+    assert diagnostics["fast_page_cover_only"] is False
     assert page.redact_annots == [(removable_rect, False)]
     assert page.redaction_calls == [
         {
@@ -332,7 +334,7 @@ def test_apply_redaction_route_auto_removes_safe_plain_text_layer(monkeypatch) -
     ]
 
 
-def test_apply_redaction_route_auto_skips_formula_item_text_cleanup(monkeypatch) -> None:
+def test_apply_redaction_route_auto_uses_safe_text_cleanup_for_formula_item(monkeypatch) -> None:
     page = _FakePage()
     rect = fitz.Rect(20, 20, 120, 60)
     valid_items = [
@@ -356,31 +358,35 @@ def test_apply_redaction_route_auto_skips_formula_item_text_cleanup(monkeypatch)
         )
     ]
     covered_rects: list[fitz.Rect] = []
-    removable_calls = 0
+    removable_rect = fitz.Rect(24, 24, 95, 54)
 
-    def _unexpected_removable_call(_page, _item, _rect):
-        nonlocal removable_calls
-        removable_calls += 1
-        return [rect]
+    def _removable_call(_page, _item, _rect, **kwargs):
+        assert kwargs.get("special_math_rects") is None
+        return [removable_rect]
 
     monkeypatch.setattr(redaction_routes, "draw_white_covers", lambda _page, rects: covered_rects.extend(rects))
     monkeypatch.setattr(redaction_routes, "collect_page_math_protection_rects", lambda _page: [])
     monkeypatch.setattr(redaction_routes, "collect_page_non_math_span_heights", lambda _page: [])
     monkeypatch.setattr(redaction_routes, "page_has_intrusive_math_protection", lambda *_args: False)
-    monkeypatch.setattr(redaction_routes, "item_removable_text_rects", _unexpected_removable_call)
+    monkeypatch.setattr(redaction_routes, "item_removable_text_rects", _removable_call)
 
     diagnostics = redaction_routes.apply_redaction_route(page, valid_items)
 
     assert diagnostics["route"] == "auto"
     assert diagnostics["strategy"] == "auto"
-    assert diagnostics["auto_text_cleanup_items_skipped"] == 1
-    assert diagnostics["raw_removable_rects"] == 0
-    assert diagnostics["cover_rects"] == 1
-    assert diagnostics["fast_page_cover_only"] is True
-    assert covered_rects == [rect]
-    assert removable_calls == 0
-    assert page.redact_annots == []
-    assert page.redaction_calls == []
+    assert diagnostics["auto_text_cleanup_items_skipped"] == 0
+    assert diagnostics["raw_removable_rects"] == 1
+    assert diagnostics["cover_rects"] == 0
+    assert diagnostics["fast_page_cover_only"] is False
+    assert covered_rects == []
+    assert page.redact_annots == [(removable_rect, False)]
+    assert page.redaction_calls == [
+        {
+            "images": fitz.PDF_REDACT_IMAGE_NONE,
+            "graphics": fitz.PDF_REDACT_LINE_ART_NONE,
+            "text": fitz.PDF_REDACT_TEXT_REMOVE,
+        }
+    ]
 
 
 def test_apply_redaction_route_auto_covers_provided_render_blocks(monkeypatch) -> None:
@@ -417,7 +423,7 @@ def test_apply_redaction_route_auto_covers_provided_render_blocks(monkeypatch) -
     assert page.redaction_calls == []
 
 
-def test_apply_redaction_route_auto_does_not_cover_intrusive_math_page(monkeypatch) -> None:
+def test_apply_redaction_route_auto_filters_text_cleanup_with_intrusive_math_page(monkeypatch) -> None:
     page = _FakePage()
     rect = fitz.Rect(20, 20, 120, 60)
     valid_items = [
@@ -437,20 +443,81 @@ def test_apply_redaction_route_auto_does_not_cover_intrusive_math_page(monkeypat
         )
     ]
     covered_rects: list[fitz.Rect] = []
+    math_rect = fitz.Rect(50, 25, 80, 45)
+    removable_rect = fitz.Rect(24, 24, 45, 54)
+
+    def _removable_call(_page, _item, _rect, **kwargs):
+        assert kwargs.get("special_math_rects") == [math_rect]
+        return [removable_rect]
 
     monkeypatch.setattr(redaction_routes, "draw_white_covers", lambda _page, rects: covered_rects.extend(rects))
-    monkeypatch.setattr(redaction_routes, "collect_page_math_protection_rects", lambda _page: [rect])
+    monkeypatch.setattr(redaction_routes, "collect_page_math_protection_rects", lambda _page: [math_rect])
     monkeypatch.setattr(redaction_routes, "collect_page_non_math_span_heights", lambda _page: [])
     monkeypatch.setattr(redaction_routes, "page_has_intrusive_math_protection", lambda *_args: True)
+    monkeypatch.setattr(redaction_routes, "item_removable_text_rects", _removable_call)
 
     diagnostics = redaction_routes.apply_redaction_route(page, valid_items)
 
     assert diagnostics["route"] == "auto"
     assert diagnostics["strategy"] == "auto"
-    assert diagnostics["auto_text_cleanup_skipped_reason"] == "intrusive_math_protection"
-    assert diagnostics["auto_text_cleanup_items_skipped"] == 1
-    assert diagnostics["cover_rects"] == 1
-    assert diagnostics["fast_page_cover_only"] is True
+    assert diagnostics["auto_text_cleanup_math_protected"] is True
+    assert diagnostics["auto_text_cleanup_items_skipped"] == 0
+    assert diagnostics["raw_removable_rects"] == 1
+    assert diagnostics["cover_rects"] == 0
+    assert diagnostics["fast_page_cover_only"] is False
+    assert covered_rects == []
+    assert page.redact_annots == [(removable_rect, False)]
+    assert page.redaction_calls == [
+        {
+            "images": fitz.PDF_REDACT_IMAGE_NONE,
+            "graphics": fitz.PDF_REDACT_LINE_ART_NONE,
+            "text": fitz.PDF_REDACT_TEXT_REMOVE,
+        }
+    ]
+
+
+def test_apply_image_page_redaction_never_redacts_pixels_or_line_art(monkeypatch) -> None:
+    page = _FakePage()
+    rect = fitz.Rect(20, 20, 120, 60)
+    valid_items = [(rect, {"item_id": "p010-b002"}, "中文")]
+    prepared: list[fitz.Rect] = []
+    applied: list[list[fitz.Rect]] = []
+
+    monkeypatch.setattr(redaction_routes, "prepare_background_covers", lambda _page, rects: prepared.extend(rects) or ["cover"])
+    monkeypatch.setattr(redaction_routes, "apply_prepared_background_covers", lambda _page, covers: applied.append(covers))
+
+    diagnostics = redaction_routes.apply_image_page_redaction(page, valid_items)
+
+    assert diagnostics["route"] == "image_page_redaction"
+    assert prepared == [rect]
+    assert applied == [["cover"]]
+    assert page.redact_annots == [(rect, False)]
+    assert page.redaction_calls == [
+        {
+            "images": fitz.PDF_REDACT_IMAGE_NONE,
+            "graphics": fitz.PDF_REDACT_LINE_ART_NONE,
+            "text": fitz.PDF_REDACT_TEXT_REMOVE,
+        }
+    ]
+
+
+def test_apply_vector_heavy_redaction_never_redacts_pixels_or_line_art(monkeypatch) -> None:
+    page = _FakePage()
+    rect = fitz.Rect(20, 20, 120, 60)
+    valid_items = [(rect, {"item_id": "p010-b002"}, "中文")]
+    covered_rects: list[fitz.Rect] = []
+
+    monkeypatch.setattr(redaction_routes, "draw_white_covers", lambda _page, rects: covered_rects.extend(rects))
+
+    diagnostics = redaction_routes.apply_vector_heavy_redaction(page, valid_items)
+
+    assert diagnostics["route"] == "vector_heavy_redaction"
     assert covered_rects == [rect]
-    assert page.redact_annots == []
-    assert page.redaction_calls == []
+    assert page.redact_annots == [(rect, False)]
+    assert page.redaction_calls == [
+        {
+            "images": fitz.PDF_REDACT_IMAGE_NONE,
+            "graphics": fitz.PDF_REDACT_LINE_ART_NONE,
+            "text": fitz.PDF_REDACT_TEXT_REMOVE,
+        }
+    ]

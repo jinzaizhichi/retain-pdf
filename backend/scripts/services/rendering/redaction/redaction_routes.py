@@ -4,13 +4,11 @@ from typing import Literal
 
 import fitz
 
-from services.rendering.formula.mode_router import is_direct_typst_math_mode
 from services.rendering.formula.complexity import item_has_complex_inline_math
 from services.rendering.redaction.redaction_analysis import collect_page_drawing_rects
 from services.rendering.redaction.redaction_analysis import collect_page_math_protection_rects
 from services.rendering.redaction.redaction_analysis import collect_page_non_math_span_heights
 from services.rendering.redaction.redaction_analysis import item_has_removable_text
-from services.rendering.redaction.redaction_analysis import item_has_formula
 from services.rendering.redaction.redaction_analysis import item_removable_text_rects
 from services.rendering.redaction.redaction_analysis import page_drawing_count
 from services.rendering.redaction.redaction_analysis import page_has_intrusive_math_protection
@@ -184,10 +182,6 @@ def _item_is_safe_for_auto_text_cleanup(item: dict) -> bool:
         return False
     if _should_force_bbox_redaction(item):
         return False
-    if item_has_formula(item) or is_direct_typst_math_mode(item):
-        return False
-    if item.get("render_formula_map") or item.get("translation_unit_formula_map") or item.get("group_formula_map"):
-        return False
     if item.get("continuation_group") or item.get("continuation_group_id"):
         return False
     return True
@@ -211,22 +205,27 @@ def apply_auto_redaction(
         non_math_span_heights,
     )
     if has_intrusive_math_protection:
-        diagnostics["auto_text_cleanup_skipped_reason"] = "intrusive_math_protection"
+        diagnostics["auto_text_cleanup_math_protected"] = True
 
     cover_items: list[tuple[fitz.Rect, dict, str]] = []
     removable_rects: list[fitz.Rect] = []
     skipped_risky_items = 0
     for rect, item, _translated_text in valid_items:
-        cover_items.append((rect, item, _translated_text))
-        if has_intrusive_math_protection:
-            skipped_risky_items += 1
-            continue
         if not _item_is_safe_for_auto_text_cleanup(item):
             skipped_risky_items += 1
+            cover_items.append((rect, item, _translated_text))
             continue
-        item_rects = item_removable_text_rects(page, item, rect)
+        item_rects = item_removable_text_rects(
+            page,
+            item,
+            rect,
+            special_math_rects=protected_math_rects if has_intrusive_math_protection else None,
+        )
         diagnostics["raw_removable_rects"] = int(diagnostics["raw_removable_rects"]) + len(item_rects)
-        removable_rects.extend(item_rects)
+        if item_rects:
+            removable_rects.extend(item_rects)
+        else:
+            cover_items.append((rect, item, _translated_text))
 
     cover_rects = _cover_rects_from_valid_items(cover_items)
     if flat_cover:
@@ -254,13 +253,7 @@ def apply_image_page_redaction(
     diagnostics["route"] = "image_page_redaction"
     diagnostics["strategy"] = "text_redaction"
     prepared_covers = prepare_background_covers(page, rects)
-    for rect in rects:
-        page.add_redact_annot(rect, fill=False)
-    page.apply_redactions(
-        images=fitz.PDF_REDACT_IMAGE_PIXELS,
-        graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_TOUCHED,
-        text=fitz.PDF_REDACT_TEXT_REMOVE,
-    )
+    _remove_text_under_rects(page, rects)
     apply_prepared_background_covers(page, prepared_covers)
     return diagnostics
 
@@ -275,13 +268,7 @@ def apply_vector_heavy_redaction(
     diagnostics["route"] = "vector_heavy_redaction"
     diagnostics["strategy"] = "text_redaction"
     draw_white_covers(page, rects)
-    for rect in rects:
-        page.add_redact_annot(rect, fill=False)
-    page.apply_redactions(
-        images=fitz.PDF_REDACT_IMAGE_PIXELS,
-        graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_TOUCHED,
-        text=fitz.PDF_REDACT_TEXT_REMOVE,
-    )
+    _remove_text_under_rects(page, rects)
     return diagnostics
 
 

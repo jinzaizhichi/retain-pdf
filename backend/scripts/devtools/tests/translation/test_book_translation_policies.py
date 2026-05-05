@@ -316,13 +316,13 @@ def test_policy_config_honors_skip_title_translation_true() -> None:
     assert config.enable_title_skip is True
 
 
-def test_policy_config_enables_page_no_trans_classification_for_sci_and_precise() -> None:
+def test_policy_config_keeps_page_no_trans_classification_opt_in() -> None:
     sci_config = build_translation_policy_config(mode="sci", skip_title_translation=False)
     precise_config = build_translation_policy_config(mode="precise", skip_title_translation=False)
     fast_config = build_translation_policy_config(mode="fast", skip_title_translation=False)
 
-    assert sci_config.enable_page_no_trans_classification is True
-    assert precise_config.enable_page_no_trans_classification is True
+    assert sci_config.enable_page_no_trans_classification is False
+    assert precise_config.enable_page_no_trans_classification is False
     assert fast_config.enable_page_no_trans_classification is False
 
 
@@ -334,6 +334,140 @@ def test_policy_config_honors_page_no_trans_classification_override() -> None:
     )
 
     assert config.enable_page_no_trans_classification is False
+
+
+def test_apply_translation_policies_does_not_call_no_trans_classifier_by_default(monkeypatch) -> None:
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("no-trans classifier should be opt-in")
+
+    monkeypatch.setattr(TranslationPlanner, "classify_no_trans", _fail_if_called)
+    payload = [
+        {
+            "item_id": "p001-b001",
+            "page_idx": 0,
+            "block_idx": 1,
+            "block_type": "text",
+            "block_kind": "text",
+            "layout_role": "paragraph",
+            "semantic_role": "body",
+            "structure_role": "body",
+            "policy_translate": True,
+            "source_text": "Default: 0\nType: <INT>",
+            "protected_source_text": "Default: 0\nType: <INT>",
+            "classification_label": "",
+            "should_translate": True,
+            "skip_reason": "",
+            "translation_unit_kind": "single",
+            "translation_unit_protected_source_text": "Default: 0\nType: <INT>",
+            "translation_unit_formula_map": [],
+            "formula_map": [],
+            "mixed_original_protected_source_text": "",
+            "translation_unit_protected_translated_text": "",
+            "translation_unit_translated_text": "",
+            "protected_translated_text": "",
+            "translated_text": "",
+            "group_protected_translated_text": "",
+            "group_translated_text": "",
+            "final_status": "",
+            "layout_zone": "",
+        }
+    ]
+
+    classified, _ = apply_translation_policies(
+        payload=payload,
+        mode="sci",
+        classify_batch_size=8,
+        workers=1,
+        api_key="",
+        model="deepseek-chat",
+        base_url="https://api.deepseek.com/v1",
+        skip_title_translation=False,
+        page_idx=0,
+        sci_cutoff_page_idx=None,
+        sci_cutoff_block_idx=None,
+    )
+
+    assert classified == 0
+    assert payload[0]["should_translate"] is True
+    assert payload[0]["classification_label"] == ""
+
+
+def test_translation_context_windows_attach_neighbor_text() -> None:
+    from services.translation.context.windows import annotate_translation_context_windows
+
+    page_payloads = {
+        4: [
+            {
+                "item_id": "p005-b001",
+                "page_idx": 4,
+                "block_idx": 1,
+                "block_type": "text",
+                "block_kind": "text",
+                "layout_role": "paragraph",
+                "semantic_role": "body",
+                "structure_role": "body",
+                "source_text": "The matrix contains one-electron kinetic",
+            },
+            {
+                "item_id": "p005-b002",
+                "page_idx": 4,
+                "block_idx": 2,
+                "block_type": "text",
+                "block_kind": "text",
+                "layout_role": "paragraph",
+                "semantic_role": "body",
+                "structure_role": "body",
+                "source_text": "and nuclear attraction elements",
+            },
+            {
+                "item_id": "p005-b003",
+                "page_idx": 4,
+                "block_idx": 3,
+                "block_type": "text",
+                "block_kind": "text",
+                "layout_role": "paragraph",
+                "semantic_role": "body",
+                "structure_role": "body",
+                "source_text": "that are used to build the Fock operator.",
+            },
+        ]
+    }
+
+    updates = annotate_translation_context_windows(page_payloads, neighbors=1)
+
+    middle = page_payloads[4][1]
+    assert updates >= 2
+    assert middle["translation_context_before"] == "The matrix contains one-electron kinetic"
+    assert middle["translation_context_after"] == "that are used to build the Fock operator."
+
+
+def test_prompt_building_uses_translation_context_windows() -> None:
+    from services.translation.llm.shared.prompt_building import build_single_item_fallback_messages
+
+    item = {
+        "item_id": "p005-b002",
+        "block_type": "text",
+        "block_kind": "text",
+        "layout_role": "paragraph",
+        "semantic_role": "body",
+        "structure_role": "body",
+        "source_text": "and nuclear attraction elements",
+        "protected_source_text": "and nuclear attraction elements",
+        "translation_context_before": "The matrix contains one-electron kinetic",
+        "translation_context_after": "that are used to build the Fock operator.",
+        "math_mode": "direct_typst",
+    }
+
+    messages = build_single_item_fallback_messages(
+        item,
+        domain_guidance="",
+        mode="sci",
+        response_style="plain_text",
+    )
+
+    user_content = messages[-1]["content"]
+    assert "前文上下文：The matrix contains one-electron kinetic" in user_content
+    assert "后文上下文：that are used to build the Fock operator." in user_content
 
 
 def test_apply_title_skip_preserves_source_text_for_render_fallback() -> None:
@@ -914,6 +1048,190 @@ def test_apply_translation_policies_translates_figure_caption_by_default() -> No
     assert payload[0]["should_translate"] is True
     assert payload[0]["skip_reason"] == ""
     assert payload[0]["classification_label"] == ""
+
+
+def test_apply_classification_labels_does_not_skip_translatable_figure_caption() -> None:
+    from services.translation.payload.parts.policy_mutations import apply_classification_labels
+
+    payload = [
+        {
+            "item_id": "p003-b004",
+            "block_type": "text",
+            "block_kind": "text",
+            "layout_role": "caption",
+            "semantic_role": "metadata",
+            "structure_role": "figure_caption",
+            "policy_translate": True,
+            "raw_block_type": "text",
+            "normalized_sub_type": "figure_caption",
+            "source_text": "FIG. 2 (color online). Temperature weighted scattering function vs energy.",
+            "protected_source_text": "FIG. 2 (color online). Temperature weighted scattering function vs energy.",
+            "metadata": {"structure_role": "figure_caption", "policy_translate": True},
+            "classification_label": "",
+            "should_translate": True,
+            "skip_reason": "",
+            "final_status": "",
+        }
+    ]
+
+    classified = apply_classification_labels(payload, {"p003-b004": "no_trans"})
+
+    assert classified == 0
+    assert payload[0]["should_translate"] is True
+    assert payload[0]["classification_label"] == ""
+    assert payload[0]["skip_reason"] == ""
+
+
+def test_apply_classification_labels_does_not_skip_long_body_text() -> None:
+    from services.translation.payload.parts.policy_mutations import apply_classification_labels
+
+    source = (
+        "The analysis of the spectrum as a function of the temperature allows more insight into "
+        "the formation of spin wave excitations and their temperature-dependent linewidths across "
+        "multiple reciprocal-space positions."
+    )
+    payload = [
+        {
+            "item_id": "p002-b010",
+            "block_type": "text",
+            "block_kind": "text",
+            "layout_role": "paragraph",
+            "semantic_role": "body",
+            "structure_role": "body",
+            "policy_translate": True,
+            "source_text": source,
+            "protected_source_text": source,
+            "metadata": {"structure_role": "body", "policy_translate": True},
+            "classification_label": "",
+            "should_translate": True,
+            "skip_reason": "",
+            "final_status": "",
+        }
+    ]
+
+    classified = apply_classification_labels(payload, {"p002-b010": "no_trans"})
+
+    assert classified == 0
+    assert payload[0]["should_translate"] is True
+    assert payload[0]["classification_label"] == ""
+
+
+def test_apply_classification_labels_does_not_skip_body_continuation_fragment() -> None:
+    from services.translation.payload.parts.policy_mutations import apply_classification_labels
+
+    payload = [
+        {
+            "item_id": "p005-b002",
+            "block_type": "text",
+            "block_kind": "text",
+            "layout_role": "paragraph",
+            "semantic_role": "body",
+            "structure_role": "body",
+            "policy_translate": True,
+            "source_text": "and nuclear attraction elements",
+            "protected_source_text": "and nuclear attraction elements",
+            "metadata": {"structure_role": "body", "policy_translate": True},
+            "classification_label": "",
+            "should_translate": True,
+            "skip_reason": "",
+            "final_status": "",
+            "continuation_group": "cg-004-002",
+        }
+    ]
+
+    classified = apply_classification_labels(payload, {"p005-b002": "no_trans"})
+
+    assert classified == 0
+    assert payload[0]["should_translate"] is True
+    assert payload[0]["classification_label"] == ""
+
+
+def test_apply_classification_labels_does_not_skip_short_body_connector() -> None:
+    from services.translation.payload.parts.policy_mutations import apply_classification_labels
+
+    payload = [
+        {
+            "item_id": "p005-b008",
+            "block_type": "text",
+            "block_kind": "text",
+            "layout_role": "paragraph",
+            "semantic_role": "body",
+            "structure_role": "body",
+            "policy_translate": True,
+            "source_text": "and",
+            "protected_source_text": "and",
+            "metadata": {"structure_role": "body", "policy_translate": True},
+            "classification_label": "",
+            "should_translate": True,
+            "skip_reason": "",
+            "final_status": "",
+        }
+    ]
+
+    classified = apply_classification_labels(payload, {"p005-b008": "no_trans"})
+
+    assert classified == 0
+    assert payload[0]["should_translate"] is True
+    assert payload[0]["classification_label"] == ""
+
+
+def test_no_trans_classifier_excludes_long_body_candidates() -> None:
+    from services.translation.classification.rule_engine import should_include
+
+    item = {
+        "item_id": "p002-b010",
+        "block_type": "text",
+        "block_kind": "text",
+        "layout_role": "paragraph",
+        "semantic_role": "body",
+        "structure_role": "body",
+        "should_translate": True,
+        "classification_label": "",
+        "source_text": (
+            "The analysis of the spectrum as a function of the temperature allows more insight into "
+            "the formation of spin wave excitations and their temperature-dependent linewidths across "
+            "multiple reciprocal-space positions."
+        ),
+    }
+
+    assert should_include(item) is False
+
+
+def test_no_trans_classifier_excludes_body_continuation_fragment() -> None:
+    from services.translation.classification.rule_engine import should_include
+
+    item = {
+        "item_id": "p005-b002",
+        "block_type": "text",
+        "block_kind": "text",
+        "layout_role": "paragraph",
+        "semantic_role": "body",
+        "structure_role": "body",
+        "should_translate": True,
+        "classification_label": "",
+        "source_text": "and nuclear attraction elements",
+        "continuation_group": "cg-004-002",
+    }
+
+    assert should_include(item) is False
+
+
+def test_no_trans_classifier_excludes_short_body_connector() -> None:
+    from services.translation.classification.rule_engine import should_include
+
+    item = {
+        "item_id": "p005-b008",
+        "block_type": "text",
+        "block_kind": "text",
+        "layout_role": "paragraph",
+        "semantic_role": "body",
+        "structure_role": "body",
+        "should_translate": True,
+        "classification_label": "",
+        "source_text": "and",
+    }
+
+    assert should_include(item) is False
 
 
 def test_apply_mixed_literal_split_policy_forces_bad_ocr_prose_to_translate_all(monkeypatch) -> None:

@@ -4,7 +4,7 @@ window.__FRONT_RUNTIME_CONFIG__ = {
   // Rust API auth header value, sent as X-API-Key.
   xApiKey: "",
   // Default OCR provider for the browser UI: paddle | mineru.
-  ocrProvider: "paddle",
+  ocrProvider: "mineru",
   // OCR provider credential, submitted under payload.ocr.mineru_token.
   mineruToken: "",
   // OCR provider credential, submitted under payload.ocr.paddle_token.

@@ -326,6 +326,20 @@ def rect_intersects_intrusive_display_text(rect: fitz.Rect, intrusive_rects: lis
     return False
 
 
+def _filter_rects_away_from_special_math(
+    rects: list[fitz.Rect],
+    special_math_rects: list[fitz.Rect] | None,
+) -> list[fitz.Rect]:
+    if not rects or not special_math_rects:
+        return rects
+    filtered: list[fitz.Rect] = []
+    for rect in rects:
+        if any(rects_overlap_area(rect, math_rect) > 0.5 for math_rect in special_math_rects):
+            continue
+        filtered.append(rect)
+    return filtered
+
+
 def item_has_formula(item: dict) -> bool:
     return bool(get_item_formula_map(item))
 
@@ -350,9 +364,8 @@ def item_removable_text_rects(
 ) -> list[fitz.Rect]:
     matched = safe_direct_redaction_rect(page, item, rect, competing_rects=competing_rects)
     if matched is not None:
-        return [matched]
+        return _filter_rects_away_from_special_math([matched], special_math_rects)
 
-    del special_math_rects
     source_text = (item.get("source_text") or item.get("protected_source_text") or "").strip()
     if not source_text:
         return []
@@ -388,7 +401,9 @@ def item_removable_text_rects(
             seen_blocks.add(key)
             matched_block_rects.append(expanded)
         if matched_block_rects:
-            return matched_block_rects
+            filtered_block_rects = _filter_rects_away_from_special_math(matched_block_rects, special_math_rects)
+            if filtered_block_rects:
+                return filtered_block_rects
 
     word_entries = extract_item_word_entries(page, rect, page_words=page_words)
     if not word_entries:
@@ -406,7 +421,7 @@ def item_removable_text_rects(
     if not source_words:
         if len(pdf_words) < 2:
             return []
-        return item_bbox_redaction_rect(rect)
+        return _filter_rects_away_from_special_math(item_bbox_redaction_rect(rect), special_math_rects)
 
     pdf_word_set = set(pdf_words)
     source_word_set = set(source_words)
@@ -422,4 +437,4 @@ def item_removable_text_rects(
 
     if not passed:
         return []
-    return word_entries_to_redaction_rects(word_entries)
+    return _filter_rects_away_from_special_math(word_entries_to_redaction_rects(word_entries), special_math_rects)

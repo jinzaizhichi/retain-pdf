@@ -7,6 +7,8 @@ use crate::ocr_provider::{
 
 const MINERU_MAX_BYTES: u64 = 200 * 1024 * 1024;
 const MINERU_MAX_PAGES: u32 = 600;
+const PADDLE_MAX_BYTES: u64 = 100 * 1024 * 1024;
+const PADDLE_MAX_PAGES: u32 = 300;
 
 pub fn validate_provider_credentials(input: &CreateJobInput) -> Result<(), AppError> {
     let provider_kind = require_supported_provider(input.ocr.provider.trim())
@@ -66,26 +68,57 @@ pub fn validate_mineru_upload_limits(
     input: &CreateJobInput,
     upload: &UploadRecord,
 ) -> Result<(), AppError> {
-    if !request_uses_mineru(input) {
-        return Ok(());
-    }
-    if upload.bytes >= MINERU_MAX_BYTES {
-        return Err(AppError::bad_request(format!(
-            "MinerU API 限制：PDF 文件大小必须小于 200MB；当前文件为 {:.2}MB",
-            upload.bytes as f64 / 1024.0 / 1024.0
-        )));
-    }
-    if upload.page_count > MINERU_MAX_PAGES {
-        return Err(AppError::bad_request(format!(
-            "MinerU API 限制：PDF 页数必须不超过 600 页；当前文件为 {} 页",
-            upload.page_count
-        )));
+    match parse_provider_kind(&input.ocr.provider) {
+        OcrProviderKind::Mineru => {
+            validate_upload_limit(
+                upload,
+                "MinerU",
+                MINERU_MAX_BYTES,
+                MINERU_MAX_PAGES,
+                false,
+            )?;
+        }
+        OcrProviderKind::Paddle => {
+            validate_upload_limit(
+                upload,
+                "PaddleOCR",
+                PADDLE_MAX_BYTES,
+                PADDLE_MAX_PAGES,
+                true,
+            )?;
+        }
+        OcrProviderKind::Unknown => {}
     }
     Ok(())
 }
 
-fn request_uses_mineru(input: &CreateJobInput) -> bool {
-    parse_provider_kind(&input.ocr.provider) == OcrProviderKind::Mineru
+fn validate_upload_limit(
+    upload: &UploadRecord,
+    provider_name: &str,
+    max_bytes: u64,
+    max_pages: u32,
+    bytes_inclusive: bool,
+) -> Result<(), AppError> {
+    let too_large = if bytes_inclusive {
+        upload.bytes > max_bytes
+    } else {
+        upload.bytes >= max_bytes
+    };
+    if too_large {
+        let relation = if bytes_inclusive { "不超过" } else { "小于" };
+        return Err(AppError::bad_request(format!(
+            "{provider_name} API 限制：PDF 文件大小必须{relation} {:.0}MB；当前文件为 {:.2}MB",
+            max_bytes as f64 / 1024.0 / 1024.0,
+            upload.bytes as f64 / 1024.0 / 1024.0
+        )));
+    }
+    if upload.page_count > max_pages {
+        return Err(AppError::bad_request(format!(
+            "{provider_name} API 限制：PDF 页数必须不超过 {max_pages} 页；当前文件为 {} 页",
+            upload.page_count
+        )));
+    }
+    Ok(())
 }
 
 fn looks_like_url(value: &str) -> bool {

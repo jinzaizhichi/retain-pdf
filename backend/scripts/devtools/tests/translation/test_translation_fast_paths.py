@@ -1245,6 +1245,11 @@ class TranslationFastPathTests(unittest.TestCase):
         self.assertIn("不要输出占位符、结构化数据、标签、代码块或解释", system_prompt)
         self.assertNotIn("返回结果时只输出符合以下结构的合法 JSON", system_prompt)
         self.assertNotIn('{"translations":[{"item_id":"...","translated_text":"..."}]}', system_prompt)
+        self.assertNotIn("source_text", system_prompt)
+        self.assertNotIn("translated_text", system_prompt)
+        self.assertNotIn("item_id", system_prompt)
+        self.assertNotIn("decision", system_prompt)
+        self.assertNotIn("JSON", system_prompt)
 
     def test_build_single_item_fallback_messages_plain_text_user_prompt_is_not_json(self):
         module = _load_module(
@@ -1331,11 +1336,15 @@ class TranslationFastPathTests(unittest.TestCase):
             response_style="tagged",
         )
         system_prompt = messages[0]["content"]
+        user_prompt = messages[1]["content"]
         self.assertIn("当前启用 direct_typst 公式直出模式", system_prompt)
         self.assertIn("请先理解整句语义", system_prompt)
         self.assertIn("请主动用 `$...$` 包裹", system_prompt)
         self.assertIn("最小修复", system_prompt)
         self.assertIn("不要补写缺失的正文内容", system_prompt)
+        self.assertIn("<<<ITEM item_id=ITEM_ID>>>", system_prompt)
+        self.assertIn("请为每段输出一个 tagged block", user_prompt)
+        self.assertNotIn("不要回写编号、决策字段、结构化数据或标签", user_prompt)
         self.assertIn(r"\mu", messages[1]["content"])
         self.assertNotIn(r"\\mu", messages[1]["content"])
 

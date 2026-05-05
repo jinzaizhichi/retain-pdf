@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from services.document_schema.semantics import build_role_profile
+from services.translation.classification.rule_engine import is_short_no_trans_candidate
+from services.translation.classification.rule_engine import looks_like_no_trans_code_candidate
 from services.translation.item_reader import item_is_algorithm_like
 from services.translation.item_reader import item_block_kind
+from services.translation.item_reader import item_is_caption_like
 from services.translation.item_reader import item_is_bodylike
 from services.translation.item_reader import item_is_reference_heading_like
 from services.translation.item_reader import item_is_reference_like
@@ -108,6 +111,28 @@ def _preserve_source_as_translation(item: dict) -> None:
     item["translated_text"] = source_text
 
 
+def _protect_caption_from_model_skip(item: dict, label_value: str) -> bool:
+    if label_value not in {"code", "no_trans", "keep_origin", "skip_model_keep_origin"}:
+        return False
+    if not item_is_caption_like(item):
+        return False
+    return item_policy_translate(item) is True
+
+
+def _allow_model_skip_label(item: dict, label_value: str) -> bool:
+    if label_value not in {"code", "no_trans", "keep_origin", "skip_model_keep_origin"}:
+        return True
+    if str(item.get("continuation_group", "") or "").strip():
+        return False
+    if item_is_bodylike(item) and not looks_like_no_trans_code_candidate(item):
+        return False
+    if not is_short_no_trans_candidate(item):
+        return False
+    if _protect_caption_from_model_skip(item, label_value):
+        return False
+    return True
+
+
 def apply_classification_labels(payload: list[dict], labels: dict[str, str]) -> int:
     classified_items = 0
     for item in payload:
@@ -117,6 +142,8 @@ def apply_classification_labels(payload: list[dict], labels: dict[str, str]) -> 
         item_id = item.get("item_id")
         label_value = labels.get(item_id, "translate")
         if label_value == "translate":
+            continue
+        if not _allow_model_skip_label(item, label_value):
             continue
         if label_value in {"code", "no_trans", "keep_origin"}:
             label_value = "skip_model_keep_origin"

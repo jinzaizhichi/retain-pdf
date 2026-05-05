@@ -747,7 +747,7 @@ async function startBundledBackend() {
     RUST_API_DATA_ROOT: dataRoot,
     RUST_API_ROOT: rustApiRoot,
     RUST_API_NORMAL_MAX_BYTES: String(200 * 1024 * 1024),
-    RUST_API_NORMAL_MAX_PAGES: "600",
+    RUST_API_NORMAL_MAX_PAGES: "300",
     RUST_API_PROJECT_ROOT: backendRoot,
     RUST_API_SCRIPTS_DIR: scriptsDir,
     PYTHON_BIN: pythonRuntime.command,

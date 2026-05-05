@@ -56,22 +56,25 @@ def _extract_upstream_host(text: str) -> str:
 
 def infer_failure_stage(*, default_stage: str, trace_text: str, detail: str) -> str:
     combined = f"{trace_text}\n{detail}".lower()
-    if any(token in combined for token in ("render_stage.py", "services.rendering", "typst", "render failed", "failed to render")):
-        return "render"
-    if "normaliz" in combined or "document_schema" in combined:
-        return "normalization"
     if any(
         token in combined
         for token in (
             "services.translation",
             "translate_only_pipeline",
             "translate_from_ocr",
+            "direct_typst.py",
             "deepseek",
             "placeholderinventoryerror",
             "unexpectedplaceholdererror",
+            "translationprotocolerror",
+            "protocol/json shell",
         )
     ):
         return "translation"
+    if any(token in combined for token in ("render_stage.py", "services.rendering", "typst compile", "typst error", "render failed", "failed to render")):
+        return "render"
+    if "normaliz" in combined or "document_schema" in combined:
+        return "normalization"
     return default_stage
 
 
@@ -137,7 +140,7 @@ def _failure_category_for(*, failure_code: str, failed_stage: str) -> str:
         "render_failed",
     }:
         return "render"
-    if failed_stage == "translation" or failure_code in {"placeholder_unstable"}:
+    if failed_stage == "translation" or failure_code in {"placeholder_unstable", "translation_protocol_shell"}:
         return "translation"
     return "internal"
 
@@ -150,6 +153,7 @@ def _suggestion_for(*, failure_code: str, failure_category: str, provider: str) 
         "upstream_timeout": "检查网络质量、上游服务负载或适当增大超时后再重试。",
         "upstream_bad_request": "检查请求参数、输入文件和上游接口约束，修正后再重试。",
         "placeholder_unstable": "检查公式占位符保护链和当前批次输入，必要时缩小批次或切换保守模式。",
+        "translation_protocol_shell": "检查翻译提示词与模型返回；该错误通常表示模型输出了 JSON/协议外壳而不是纯译文。",
         "typst_dependency_download_failed": "检查 Typst 依赖源网络连通性，必要时预热依赖或重试。",
         "render_failed": "检查渲染输入、字体和 Typst 编译日志，修正渲染问题后重试。",
         "json_decode_failed": "检查 OCR 原始结果是否完整有效，必要时重新拉取或重新生成。",
@@ -235,6 +239,10 @@ def classify_exception(exc: BaseException, *, default_stage: str, provider: str 
     ):
         error_type = "placeholder_unstable"
         summary = "公式占位符校验失败"
+    elif any(token in lowered for token in ("translationprotocolerror", "protocol/json shell")):
+        error_type = "translation_protocol_shell"
+        summary = "翻译模型返回了协议或 JSON 外壳"
+        stage = "translation"
     elif any(token in lowered for token in ("failed to download package", "packages.typst.org", "downloading @preview/")):
         error_type = "typst_dependency_download_failed"
         summary = "Typst 渲染依赖下载失败"

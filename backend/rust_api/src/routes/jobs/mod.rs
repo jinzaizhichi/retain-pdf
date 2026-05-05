@@ -34,7 +34,7 @@ mod tests {
         let input = CreateJobInput::from_api_value(json!({
             "source": { "upload_id": "grouped-upload" },
             "translation": {
-                "model": "deepseek-chat",
+                "model": "deepseek-v4-flash",
                 "base_url": "https://api.deepseek.com/v1",
                 "api_key": "sk-test"
             },

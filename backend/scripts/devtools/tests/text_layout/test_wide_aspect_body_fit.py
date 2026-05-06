@@ -9,6 +9,7 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 from services.rendering.layout.font_fit import estimate_font_size_pt
 from services.rendering.layout.font_fit import estimate_leading_em
 from services.rendering.layout.font_fit import local_font_size_pt
+from services.rendering.layout.payload.blocks import build_render_blocks
 from services.rendering.layout.payload.block_seed import _relax_wide_aspect_body_leading
 
 
@@ -71,6 +72,123 @@ class WideAspectBodyFitTests(unittest.TestCase):
         wide_font = estimate_font_size_pt(wide_item, page_font_size, page_line_pitch, page_line_height, density_baseline)
 
         self.assertGreater(wide_font, base_font)
+
+    def test_body_font_estimate_does_not_apply_page_factor_twice(self):
+        item = _sample_item(wide_aspect=False)
+        page_font_size = 11.0
+        page_line_pitch = 15.0
+        page_line_height = 13.0
+        density_baseline = 28.0
+
+        font = estimate_font_size_pt(item, page_font_size, page_line_pitch, page_line_height, density_baseline)
+
+        self.assertGreaterEqual(font, 10.5)
+
+    def test_small_single_line_body_uses_page_body_font_and_expands_inner_height(self):
+        items = [
+            _sample_item(wide_aspect=False),
+            {
+                "item_id": "small-line",
+                "block_type": "text",
+                "source_text": "This is a body continuation line whose OCR bbox is too short for the real font size.",
+                "bbox": [40, 220, 512, 228],
+                "lines": [
+                    {
+                        "bbox": [40, 220, 510, 228],
+                        "spans": [
+                            {
+                                "type": "text",
+                                "content": "This is a body continuation line whose OCR bbox is too short.",
+                            }
+                        ],
+                    }
+                ],
+                "protected_translated_text": "这是正文中的一行续写，OCR 给出的高度偏小，但字号应当跟随本页正文。",
+            },
+        ]
+
+        blocks = build_render_blocks(items, page_width=612.0, page_height=792.0)
+        body_block = next(block for block in blocks if block.block_id == "item-1")
+
+        self.assertGreaterEqual(body_block.font_size_pt, 10.5)
+        self.assertGreaterEqual(body_block.inner_bbox[3] - body_block.inner_bbox[1], 16.0)
+
+    def test_narrow_single_line_body_expands_inner_width_to_page_body_width(self):
+        items = [
+            _sample_item(wide_aspect=False),
+            {
+                "item_id": "line-1",
+                "block_type": "text",
+                "source_text": "This normal body line provides the page body width reference for rendering.",
+                "bbox": [40, 220, 512, 235],
+                "lines": [
+                    {
+                        "bbox": [40, 220, 510, 235],
+                        "spans": [{"type": "text", "content": "This normal body line provides the reference."}],
+                    }
+                ],
+                "protected_translated_text": "这是正常宽度的正文行，用来提供页面正文宽度基准。",
+            },
+            {
+                "item_id": "line-2",
+                "block_type": "text",
+                "source_text": "This middle body line has a clipped OCR bbox but should render at normal width.",
+                "bbox": [40, 240, 250, 255],
+                "lines": [
+                    {
+                        "bbox": [40, 240, 250, 255],
+                        "spans": [{"type": "text", "content": "This middle body line has a clipped OCR bbox."}],
+                    }
+                ],
+                "protected_translated_text": "这是中间一行正文，OCR 给出的宽度偏短，但排版不应该因此强制换行。",
+            },
+            {
+                "item_id": "line-3",
+                "block_type": "text",
+                "source_text": "This following body line also keeps the normal page body text width.",
+                "bbox": [40, 260, 512, 275],
+                "lines": [
+                    {
+                        "bbox": [40, 260, 510, 275],
+                        "spans": [{"type": "text", "content": "This following body line keeps normal width."}],
+                    }
+                ],
+                "protected_translated_text": "这是后续正常宽度的正文行。",
+            },
+        ]
+
+        blocks = build_render_blocks(items, page_width=612.0, page_height=792.0)
+        narrow_block = next(block for block in blocks if block.block_id == "item-2")
+
+        self.assertGreater(narrow_block.inner_bbox[2] - narrow_block.inner_bbox[0], 360.0)
+        self.assertEqual(narrow_block.cover_bbox, [40, 240, 250, 255])
+
+    def test_short_page_aligned_body_line_expands_even_when_source_text_is_short(self):
+        items = [
+            _sample_item(wide_aspect=False),
+            {
+                "item_id": "short-equation-reference",
+                "block_type": "text",
+                "block_kind": "text",
+                "layout_role": "paragraph",
+                "semantic_role": "body",
+                "source_text": "and Eq. (2.18), we find",
+                "bbox": [47.5, 399.5, 155.0, 412.0],
+                "lines": [
+                    {
+                        "bbox": [47.5, 399.5, 155.0, 412.0],
+                        "spans": [{"type": "text", "content": "and Eq. (2.18), we find"}],
+                    }
+                ],
+                "protected_translated_text": "以及方程(2.18)，我们发现",
+            },
+        ]
+
+        blocks = build_render_blocks(items, page_width=612.0, page_height=792.0)
+        short_block = next(block for block in blocks if block.block_id == "item-1")
+
+        self.assertGreater(short_block.inner_bbox[2] - short_block.inner_bbox[0], 200.0)
+        self.assertEqual(short_block.cover_bbox, [47.5, 399.5, 155.0, 412.0])
 
     def test_wide_aspect_body_preserves_more_ocr_line_pitch_signal(self):
         base_item = _sample_item(wide_aspect=False)

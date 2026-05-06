@@ -234,7 +234,7 @@ def estimate_font_size_pt(
 
     compactness = source_compactness_score(item)
     wide_aspect_body_text = bool(item.get("_wide_aspect_body_text", False))
-    page_estimate = page_font_size * block_scale * layout.BODY_FONT_SIZE_FACTOR if page_font_size > 0 else local_font
+    page_estimate = page_font_size * block_scale if page_font_size > 0 else local_font
     page_weight = max(BODY_PAGE_BLEND_MIN, BODY_PAGE_BLEND_BASE - compactness * 0.18)
     if wide_aspect_body_text:
         page_weight = max(BODY_PAGE_BLEND_MIN - 0.1, page_weight - WIDE_ASPECT_PAGE_BLEND_REDUCTION)

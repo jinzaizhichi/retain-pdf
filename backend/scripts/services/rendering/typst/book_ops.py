@@ -235,6 +235,7 @@ def build_book_typst_background_pdf(
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
     font_paths: list[Path] | None = None,
     temp_root: Path | None = None,
+    redaction_strategy: str | None = None,
 ) -> None:
     work_dir = prepare_background_work_dir(output_pdf_path, temp_root)
     page_specs = build_render_page_specs(
@@ -245,6 +246,7 @@ def build_book_typst_background_pdf(
         source_pdf_path=source_pdf_path,
         translated_pages=translated_pages,
         output_pdf_path=work_dir / "book-background-cleaned.pdf",
+        redaction_strategy=redaction_strategy,
     )
     background_pdf = _compile_render_pages_pdf_resilient(
         source_pdf_path=source_pdf_path,

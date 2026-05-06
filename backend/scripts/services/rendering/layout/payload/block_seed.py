@@ -31,11 +31,22 @@ from services.rendering.layout.payload.shared import translation_density_ratio
 from services.rendering.layout.typography.geometry import inner_bbox
 from services.rendering.layout.typography.measurement import bbox_height
 from services.rendering.layout.typography.measurement import bbox_width
+from services.rendering.layout.typography.measurement import source_visual_line_count
 from services.translation.item_reader import item_block_kind
 
 
 BODY_PAGE_FONT_ANCHOR_PERCENTILE = 0.46
 BODY_PAGE_FONT_FLOOR_DELTA_PT = 0.38
+BODY_SMALL_SINGLE_LINE_HEIGHT_RATIO = 0.74
+BODY_SMALL_SINGLE_LINE_FONT_DOWN_BAND = 0.04
+BODY_SMALL_SINGLE_LINE_FONT_UP_BAND = 0.18
+BODY_SMALL_SINGLE_LINE_INNER_HEIGHT_FACTOR = 1.28
+BODY_SMALL_SINGLE_LINE_MIN_INNER_HEIGHT_PT = 16.0
+BODY_NARROW_SINGLE_LINE_WIDTH_RATIO = 0.82
+BODY_NARROW_SINGLE_LINE_TARGET_WIDTH_RATIO = 0.96
+BODY_NARROW_SINGLE_LINE_PAGE_MARGIN_PT = 8.0
+BODY_SINGLE_LINE_MIN_CHARS = 12
+BODY_SINGLE_LINE_LEFT_ALIGN_TOLERANCE_PT = 18.0
 SMALL_PAGE_BOX_RATIO = 0.06
 ULTRA_SMALL_PAGE_BOX_RATIO = 0.04
 WIDE_ASPECT_BODY_RATIO = 3.6
@@ -68,9 +79,78 @@ def _relax_wide_aspect_body_leading(
     return candidate
 
 
+def _expand_small_single_line_inner_bbox(
+    item_inner_bbox: list[float],
+    *,
+    bbox: list[float],
+    page_line_pitch: float,
+    page_line_height: float,
+) -> list[float]:
+    if len(item_inner_bbox) != 4 or len(bbox) != 4:
+        return item_inner_bbox
+    current_height = max(0.0, item_inner_bbox[3] - item_inner_bbox[1])
+    reference_height = max(page_line_pitch, page_line_height, BODY_SMALL_SINGLE_LINE_MIN_INNER_HEIGHT_PT)
+    target_height = min(reference_height * BODY_SMALL_SINGLE_LINE_INNER_HEIGHT_FACTOR, max(reference_height, current_height))
+    if target_height <= current_height:
+        return item_inner_bbox
+    center_y = (bbox[1] + bbox[3]) / 2.0
+    return [item_inner_bbox[0], center_y - target_height / 2.0, item_inner_bbox[2], center_y + target_height / 2.0]
+
+
+def _expand_narrow_single_line_inner_bbox(
+    item_inner_bbox: list[float],
+    *,
+    bbox: list[float],
+    page_body_width_pt: float | None,
+    page_width: float | None,
+) -> list[float]:
+    if len(item_inner_bbox) != 4 or len(bbox) != 4 or not page_body_width_pt or page_body_width_pt <= 0:
+        return item_inner_bbox
+    current_width = max(0.0, item_inner_bbox[2] - item_inner_bbox[0])
+    target_width = page_body_width_pt * BODY_NARROW_SINGLE_LINE_TARGET_WIDTH_RATIO
+    if current_width >= page_body_width_pt * BODY_NARROW_SINGLE_LINE_WIDTH_RATIO or target_width <= current_width:
+        return item_inner_bbox
+
+    nx0 = item_inner_bbox[0]
+    nx1 = nx0 + target_width
+    if page_width and page_width > 0:
+        nx1 = min(nx1, page_width - BODY_NARROW_SINGLE_LINE_PAGE_MARGIN_PT)
+    if nx1 - nx0 <= current_width:
+        return item_inner_bbox
+    return [nx0, item_inner_bbox[1], nx1, item_inner_bbox[3]]
+
+
+def _is_page_aligned_body_single_line(
+    item: dict,
+    *,
+    page_body_lefts_pt: tuple[float, ...],
+) -> bool:
+    bbox = item.get("bbox", [])
+    if len(bbox) != 4 or not page_body_lefts_pt:
+        return False
+    if _is_caption_like(item) or item_block_kind(item) != "text":
+        return False
+    if source_visual_line_count(item) > 1:
+        return False
+    if len("".join(str(item.get("source_text", "")).split())) < BODY_SINGLE_LINE_MIN_CHARS:
+        return False
+    return any(abs(bbox[0] - left) <= BODY_SINGLE_LINE_LEFT_ALIGN_TOLERANCE_PT for left in page_body_lefts_pt)
+
+
 def _collect_page_seed_metrics(
     translated_items: list[dict],
-) -> tuple[float, float, float, float, float, dict[int, bool], dict[int, tuple[float, float]], float | None]:
+) -> tuple[
+    float,
+    float,
+    float,
+    float,
+    float,
+    dict[int, bool],
+    dict[int, tuple[float, float]],
+    float | None,
+    float | None,
+    tuple[float, ...],
+]:
     page_font_size, page_line_pitch, page_line_height, density_baseline = page_baseline_font_size(translated_items)
     text_widths = [bbox_width(item) for item in translated_items if item_block_kind(item) == "text" and not _is_caption_like(item)]
     page_text_width_med = median(text_widths) if text_widths else 0.0
@@ -97,6 +177,17 @@ def _collect_page_seed_metrics(
     page_body_font_size_pt = round(percentile_value(body_base_sizes, BODY_PAGE_FONT_ANCHOR_PERCENTILE), 2) if body_base_sizes else None
     if page_body_font_size_pt is not None and page_font_size > 0:
         page_body_font_size_pt = round(max(page_body_font_size_pt, page_font_size - BODY_PAGE_FONT_FLOOR_DELTA_PT), 2)
+    body_widths = [bbox_width(item) for index, item in enumerate(translated_items) if body_flags.get(index)]
+    page_body_width_pt = median(body_widths) if body_widths else None
+    page_body_lefts_pt = tuple(
+        sorted(
+            {
+                round(item.get("bbox", [])[0], 1)
+                for index, item in enumerate(translated_items)
+                if body_flags.get(index) and len(item.get("bbox", [])) == 4
+            }
+        )
+    )
     return (
         page_font_size,
         page_line_pitch,
@@ -106,6 +197,8 @@ def _collect_page_seed_metrics(
         body_flags,
         base_metrics,
         page_body_font_size_pt,
+        page_body_width_pt,
+        page_body_lefts_pt,
     )
 
 
@@ -124,6 +217,8 @@ def build_block_payloads(
         body_flags,
         base_metrics,
         page_body_font_size_pt,
+        page_body_width_pt,
+        page_body_lefts_pt,
     ) = _collect_page_seed_metrics(translated_items)
     block_payloads: list[dict] = []
 
@@ -142,6 +237,25 @@ def build_block_payloads(
         heavy_dense_small_box = density_ratio >= HEAVY_COMPACT_RATIO and 0 < page_box_area_ratio <= ULTRA_SMALL_PAGE_BOX_RATIO
         block_height = bbox_height(item)
         block_width = bbox_width(item)
+        body_like_single_line = bool(
+            body_flags.get(index, False)
+            or _is_page_aligned_body_single_line(item, page_body_lefts_pt=page_body_lefts_pt)
+        )
+        small_single_line_body = bool(
+            body_like_single_line
+            and page_body_font_size_pt is not None
+            and source_visual_line_count(item) <= 1
+            and page_line_height > 0
+            and block_height > 0
+            and block_height <= page_line_height * BODY_SMALL_SINGLE_LINE_HEIGHT_RATIO
+        )
+        narrow_single_line_body = bool(
+            body_like_single_line
+            and page_body_width_pt is not None
+            and source_visual_line_count(item) <= 1
+            and block_width > 0
+            and block_width <= page_body_width_pt * BODY_NARROW_SINGLE_LINE_WIDTH_RATIO
+        )
         wide_aspect_body_text = bool(
             body_flags.get(index, False)
             and block_height > 0
@@ -149,11 +263,39 @@ def build_block_payloads(
         )
 
         if body_flags.get(index) and page_body_font_size_pt is not None:
-            down_band = 0.34 if heavy_dense_small_box else (0.2 if dense_small_box else 0.06)
-            up_band = 0.18 if dense_small_box else 0.24
+            down_band = (
+                BODY_SMALL_SINGLE_LINE_FONT_DOWN_BAND
+                if small_single_line_body
+                else (0.34 if heavy_dense_small_box else (0.2 if dense_small_box else 0.06))
+            )
+            up_band = BODY_SMALL_SINGLE_LINE_FONT_UP_BAND if small_single_line_body else (0.18 if dense_small_box else 0.24)
             font_size_pt = round(min(max(font_size_pt, page_body_font_size_pt - down_band), page_body_font_size_pt + up_band), 2)
             if wide_aspect_body_text:
                 font_size_pt = round(min(page_body_font_size_pt + up_band, font_size_pt + WIDE_ASPECT_BODY_FONT_BOOST_PT), 2)
+        elif body_like_single_line and page_body_font_size_pt is not None:
+            font_size_pt = round(
+                min(
+                    max(font_size_pt, page_body_font_size_pt - BODY_SMALL_SINGLE_LINE_FONT_DOWN_BAND),
+                    page_body_font_size_pt + BODY_SMALL_SINGLE_LINE_FONT_UP_BAND,
+                ),
+                2,
+            )
+
+        item_inner_bbox = inner_bbox(item)
+        if small_single_line_body:
+            item_inner_bbox = _expand_small_single_line_inner_bbox(
+                item_inner_bbox,
+                bbox=bbox,
+                page_line_pitch=page_line_pitch,
+                page_line_height=page_line_height,
+            )
+        if narrow_single_line_body:
+            item_inner_bbox = _expand_narrow_single_line_inner_bbox(
+                item_inner_bbox,
+                bbox=bbox,
+                page_body_width_pt=page_body_width_pt,
+                page_width=page_width,
+            )
 
         if dense_small_box and not body_flags.get(index):
             font_size_pt = round(font_size_pt * COMPACT_SCALE, 2)
@@ -162,7 +304,8 @@ def build_block_payloads(
         font_size_pt, leading_em = fit_translated_block_metrics(
             {
                 **item,
-                "_is_body_text_candidate": body_flags.get(index, False),
+                "_render_inner_bbox": item_inner_bbox,
+                "_is_body_text_candidate": body_like_single_line,
                 "_page_box_area_ratio": page_box_area_ratio,
                 "_dense_small_box": dense_small_box,
                 "_heavy_dense_small_box": heavy_dense_small_box,
@@ -172,10 +315,10 @@ def build_block_payloads(
             formula_map,
             font_size_pt,
             leading_em,
-            page_body_font_size_pt=page_body_font_size_pt if body_flags.get(index) else None,
+            page_body_font_size_pt=page_body_font_size_pt if body_like_single_line else None,
         )
 
-        if body_flags.get(index):
+        if body_like_single_line:
             leading_em = normalize_leading_em_for_font_size(
                 font_size_pt,
                 leading_em,
@@ -196,7 +339,6 @@ def build_block_payloads(
                 floor_min_leading_em=NON_BODY_LEADING_FLOOR_MIN,
             )
 
-        item_inner_bbox = inner_bbox(item)
         if wide_aspect_body_text:
             leading_em = _relax_wide_aspect_body_leading(
                 item_inner_bbox,
@@ -219,8 +361,8 @@ def build_block_payloads(
                 "font_size_pt": font_size_pt,
                 "leading_em": leading_em,
                 "font_weight": resolve_font_weight(item),
-                "page_body_font_size_pt": page_body_font_size_pt if body_flags.get(index) else None,
-                "is_body": body_flags.get(index, False),
+                "page_body_font_size_pt": page_body_font_size_pt if body_like_single_line else None,
+                "is_body": body_like_single_line,
                 "page_box_area_ratio": page_box_area_ratio,
                 "dense_small_box": dense_small_box,
                 "heavy_dense_small_box": heavy_dense_small_box,

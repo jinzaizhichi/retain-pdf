@@ -205,8 +205,12 @@ def build_book_from_translations(
             build_book_from_translations.last_render_diagnostics = render_diagnostics
             return len(selected_pages)
 
-        if render_mode == "typst":
-            print("typst background render selected", flush=True)
+        if render_mode in {"typst", "typst_visual"}:
+            visual_only_background = render_mode == "typst_visual"
+            if visual_only_background:
+                print("typst visual-only background render selected", flush=True)
+            else:
+                print("typst background render selected", flush=True)
             build_book_typst_background_pdf(
                 source_pdf_path=render_source_pdf_path,
                 output_pdf_path=output_pdf_path,
@@ -215,9 +219,13 @@ def build_book_from_translations(
                 model=model,
                 base_url=base_url,
                 font_family=typst_font_family,
+                redaction_strategy="visual_only" if visual_only_background else None,
             )
             compress_pdf_images_only(output_pdf_path, dpi=pdf_compress_dpi)
-            build_book_from_translations.last_render_diagnostics = {"mode": "typst_background"}
+            build_book_from_translations.last_render_diagnostics = {
+                "mode": "typst_visual_background" if visual_only_background else "typst_background",
+                "redaction_strategy": "visual_only" if visual_only_background else "auto",
+            }
             return len(selected_pages)
 
         overlay_diagnostics = build_book_typst_pdf(

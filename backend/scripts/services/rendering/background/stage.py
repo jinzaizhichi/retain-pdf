@@ -15,6 +15,7 @@ def build_clean_background_pdf(
     source_pdf_path: Path,
     translated_pages: dict[int, list[dict]],
     output_pdf_path: Path,
+    redaction_strategy: str | None = None,
 ) -> Path:
     source_doc = fitz.open(source_pdf_path)
     output_doc = fitz.open()
@@ -32,6 +33,7 @@ def build_clean_background_pdf(
                 translated_pages[page_index],
                 fill_background=None,
                 cover_only=bool(collect_vector_text_rects(page, target_rects)),
+                strategy=redaction_strategy,
             )
         output_pdf_path.parent.mkdir(parents=True, exist_ok=True)
         save_optimized_pdf(output_doc, output_pdf_path)

@@ -84,7 +84,7 @@ def _tighten_body_payloads(
         if pressure_ratio > pressure_trigger and payload["dense_small_box"] and density > body_density_target + 0.04:
             steps = min(3, max(1, ceil((pressure_ratio - pressure_trigger) / 0.26)))
             payload["font_size_pt"] = round(max(body_font_median - 0.34, payload["font_size_pt"] - steps * 0.08), 2)
-            payload["leading_em"] = round(min(BODY_LEADING_MAX, payload["leading_em"] + 0.01 * min(steps, 2)), 2)
+            payload["leading_em"] = round(max(0.54, payload["leading_em"] - 0.01 * min(steps, 2)), 2)
             payload["prefer_typst_fit"] = True
             density = _payload_density(payload)
 

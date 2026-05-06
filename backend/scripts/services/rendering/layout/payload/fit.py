@@ -29,6 +29,13 @@ TYPST_BINARY_COLLISION_OVERFLOW_TRIGGER = 1.02
 TYPST_BINARY_SOURCE_HEIGHT_TRIGGER = 1.01
 
 
+def _fit_inner_bbox(item: dict) -> list[float]:
+    bbox = item.get("_render_inner_bbox")
+    if isinstance(bbox, list) and len(bbox) == 4:
+        return bbox
+    return inner_bbox(item)
+
+
 def fit_translated_block_metrics(
     item: dict,
     protected_text: str,
@@ -38,7 +45,7 @@ def fit_translated_block_metrics(
     page_body_font_size_pt: float | None = None,
 ) -> tuple[float, float]:
     demand = text_demand_units(protected_text, formula_map)
-    box = inner_bbox(item)
+    box = _fit_inner_bbox(item)
     line_step = max(font_size_pt * 1.02, font_size_pt * (1.0 + leading_em))
     length_density_ratio = translation_density_ratio(item, protected_text)
     layout_density = layout_density_ratio(box, protected_text, font_size_pt=font_size_pt, line_step_pt=line_step)
@@ -136,7 +143,7 @@ def fit_block_to_vertical_limit(
     *,
     page_body_font_size_pt: float | None = None,
 ) -> tuple[float, float]:
-    inner = inner_bbox(item)
+    inner = _fit_inner_bbox(item)
     if len(inner) != 4 or max_height_pt <= 0:
         return font_size_pt, leading_em
     estimated_height = estimated_render_height_pt(inner, protected_text, formula_map, font_size_pt, leading_em)
@@ -208,7 +215,7 @@ def resolve_typst_binary_fit(
     adjacent_collision_risk: bool = False,
     adjacent_available_height_pt: float | None = None,
 ) -> tuple[bool, float, float, float]:
-    inner = inner_bbox(item)
+    inner = _fit_inner_bbox(item)
     if len(inner) != 4:
         return False, 0.0, 0.0, 0.0
 

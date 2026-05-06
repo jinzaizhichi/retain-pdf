@@ -13,6 +13,12 @@ if str(REPO_ROOT / "backend" / "scripts") not in sys.path:
 
 from foundation.shared.stage_specs import RENDER_STAGE_SCHEMA_VERSION
 from foundation.shared.stage_specs import TRANSLATE_STAGE_SCHEMA_VERSION
+from runtime.pipeline.book_translation_batching import _is_low_risk_batchable_item
+from runtime.pipeline.book_translation_fast_path import _is_fast_path_keep_origin_item
+from runtime.pipeline.book_translation_fast_path import _plan_item_view
+from services.translation.context.execution_context import context_with_memory_guidance
+from services.translation.llm.shared.control_context import build_translation_control_context
+from services.translation.memory import JobMemoryStore
 
 
 def _job_root_from_arg(value: str) -> Path:
@@ -69,6 +75,145 @@ def _collect_page_records(job_root: Path) -> list[dict]:
             if isinstance(item, dict):
                 records.append(item)
     return records
+
+
+def _memory_store(job_root: Path) -> JobMemoryStore | None:
+    memory_path = job_root / "translated" / "job-memory.json"
+    return JobMemoryStore(memory_path) if memory_path.exists() else None
+
+
+def _compact_text(value: object, limit: int = 500) -> str:
+    compact = " ".join(str(value or "").split())
+    if len(compact) <= limit:
+        return compact
+    return f"{compact[:limit - 3]}..."
+
+
+def _item_matches_filters(
+    item: dict,
+    *,
+    item_id: str,
+    page: int | None,
+    contains: str,
+) -> bool:
+    if item_id and str(item.get("item_id", "") or "") != item_id:
+        return False
+    if page is not None and int(item.get("page_idx", -1)) != page - 1:
+        return False
+    if contains:
+        haystack = "\n".join(
+            str(item.get(key, "") or "")
+            for key in (
+                "source_text",
+                "protected_source_text",
+                "translation_unit_protected_source_text",
+                "translated_text",
+                "protected_translated_text",
+            )
+        )
+        if contains.lower() not in haystack.lower():
+            return False
+    return True
+
+
+def _route_prediction(item: dict) -> dict[str, object]:
+    should_skip, reason = _is_fast_path_keep_origin_item(item)
+    context = build_translation_control_context()
+    batchable = _is_low_risk_batchable_item(
+        item,
+        translation_context=context,
+        plan_item_view_fn=_plan_item_view,
+    )
+    if should_skip:
+        route = "fast_path_keep_origin"
+    elif batchable:
+        route = "batched_plain_candidate"
+    elif item.get("_heavy_formula_split_applied"):
+        route = "single_slow"
+    else:
+        route = "single_fast"
+    return {
+        "route": route,
+        "fast_path_keep_origin": should_skip,
+        "fast_path_reason": reason,
+        "low_risk_batchable": batchable,
+    }
+
+
+def _inspect_item(job_root: Path, item: dict) -> dict[str, object]:
+    memory_store = _memory_store(job_root)
+    memory_guidance = memory_store.summary_for_batch([item]) if memory_store is not None else ""
+    context = context_with_memory_guidance(
+        None,
+        memory_store=memory_store,
+        batch=[item],
+        mode="debug",
+        request_label=f"debug:{item.get('item_id', '')}",
+    )
+    diagnostics = item.get("translation_diagnostics")
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+    return {
+        "item_id": item.get("item_id", ""),
+        "page": int(item.get("page_idx", -1)) + 1,
+        "block_idx": item.get("block_idx"),
+        "bbox": item.get("bbox", []),
+        "block_type": item.get("block_type", ""),
+        "raw_block_type": item.get("raw_block_type", ""),
+        "block_kind": item.get("block_kind", ""),
+        "layout_role": item.get("layout_role", ""),
+        "semantic_role": item.get("semantic_role", ""),
+        "structure_role": item.get("structure_role", ""),
+        "layout_zone": item.get("layout_zone", ""),
+        "math_mode": item.get("math_mode", ""),
+        "continuation_group": item.get("continuation_group", ""),
+        "translation_unit_kind": item.get("translation_unit_kind", ""),
+        "classification_label": item.get("classification_label", ""),
+        "should_translate": item.get("should_translate"),
+        "skip_reason": item.get("skip_reason", ""),
+        "final_status": item.get("final_status", ""),
+        "decision": item.get("decision", ""),
+        "source_preview": _compact_text(
+            item.get("translation_unit_protected_source_text")
+            or item.get("protected_source_text")
+            or item.get("source_text")
+            or ""
+        ),
+        "translated_preview": _compact_text(
+            item.get("protected_translated_text")
+            or item.get("translated_text")
+            or ""
+        ),
+        "route_prediction": _route_prediction(item),
+        "diagnostics_route_path": diagnostics.get("route_path", []),
+        "diagnostics_degradation_reason": diagnostics.get("degradation_reason", ""),
+        "diagnostics_final_status": diagnostics.get("final_status", ""),
+        "memory_guidance": memory_guidance,
+        "merged_guidance": context.merged_guidance,
+    }
+
+
+def inspect_items(
+    job_root: Path,
+    *,
+    item_id: str = "",
+    page: int | None = None,
+    contains: str = "",
+    limit: int = 20,
+) -> int:
+    records = _collect_page_records(job_root)
+    matches = [
+        item
+        for item in records
+        if _item_matches_filters(item, item_id=item_id, page=page, contains=contains)
+    ]
+    print(f"job_root: {job_root}")
+    print(f"matched_items: {len(matches)}")
+    for item in matches[: max(1, limit)]:
+        print(json.dumps(_inspect_item(job_root, item), ensure_ascii=False, indent=2))
+    if len(matches) > limit:
+        print(f"... truncated {len(matches) - limit} more items")
+    return 0
 
 
 def inspect_job(job_root: Path) -> int:
@@ -291,6 +436,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Pass skip_title_translation during retranslate/full.",
     )
+    parser.add_argument("--item-id", default="", help="Inspect a specific translated item id.")
+    parser.add_argument("--page", type=int, default=0, help="Inspect items on a 1-based page number.")
+    parser.add_argument("--contains", default="", help="Inspect items whose source/translated text contains this substring.")
+    parser.add_argument("--limit", type=int, default=20, help="Maximum matching items to print.")
     return parser.parse_args()
 
 
@@ -299,6 +448,14 @@ def main() -> int:
     job_root = _job_root_from_arg(args.job)
     if not job_root.exists():
         raise RuntimeError(f"job root not found: {job_root}")
+    if args.item_id or args.page or args.contains:
+        return inspect_items(
+            job_root,
+            item_id=args.item_id,
+            page=args.page if args.page > 0 else None,
+            contains=args.contains,
+            limit=max(1, args.limit),
+        )
     if args.action == "inspect":
         return inspect_job(job_root)
     if args.action == "retranslate":

@@ -19,8 +19,7 @@ MIN_TERM_HITS_FOR_PROMPT = 1
 MAX_TRANSLATED_TERM_VALUE_CHARS = 12
 MAX_TRANSLATED_TERM_VALUE_CJK = 8
 MAX_TERM_KEY_WORDS_FOR_PROMPT = 4
-NOUNISH_JIEBA_FLAGS = ("n", "nr", "ns", "nt", "nz", "vn", "l", "eng")
-FUNCTION_JIEBA_FLAGS = ("uj", "ul", "p", "d", "u", "x")
+TERM_VALUE_BLOCKLIST_WORDS = {"的", "已", "将", "被", "从", "在", "这", "其"}
 
 TERM_PAIR_PATTERNS = (
     re.compile(r"(?P<zh>[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9·\-]{1,24})（(?:或称|又称|简称)?(?P<en>[A-Za-z][A-Za-z0-9 ._+/\-]{1,48})）"),
@@ -107,34 +106,13 @@ def _is_identity_term(key: str, value: str) -> bool:
     return _clean_term_key(key).lower() == _clean_term_value(value).lower()
 
 
-def _jieba_posseg_cut(text: str) -> list[tuple[str, str]] | None:
-    try:
-        import jieba.posseg as pseg  # type: ignore[import-not-found]
-    except Exception:
-        return None
-    try:
-        return [(str(word), str(flag)) for word, flag in pseg.cut(text)]
-    except Exception:
-        return None
-
-
 def _looks_like_noun_phrase(value: str) -> bool:
     cleaned = _clean_term_value(value)
-    if not cleaned:
+    if not _fallback_looks_like_noun_phrase(cleaned):
         return False
-    tokens = _jieba_posseg_cut(cleaned)
-    if tokens is None:
-        return _fallback_looks_like_noun_phrase(cleaned)
-    meaningful = [(word, flag) for word, flag in tokens if word.strip()]
-    if not meaningful:
+    if any(word in cleaned for word in TERM_VALUE_BLOCKLIST_WORDS):
         return False
-    if any(word in {"的", "已", "将", "被", "从", "在", "这", "其"} or flag.startswith(FUNCTION_JIEBA_FLAGS) for word, flag in meaningful):
-        return False
-    nounish_chars = sum(len(word) for word, flag in meaningful if flag.startswith(NOUNISH_JIEBA_FLAGS))
-    total_chars = sum(len(word) for word, _flag in meaningful)
-    if total_chars <= 0:
-        return False
-    return nounish_chars / total_chars >= 0.45
+    return True
 
 
 def _fallback_looks_like_noun_phrase(value: str) -> bool:

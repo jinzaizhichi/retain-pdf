@@ -1,7 +1,6 @@
 # Generated from pyproject.toml by backend/scripts/devtools/sync_python_requirements.py.
 # Do not edit manually.
 
-jieba==0.42.1
 Pillow==10.4.0
 PyMuPDF==1.26.5
 pikepdf==7.2.0

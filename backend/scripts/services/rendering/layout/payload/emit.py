@@ -10,6 +10,7 @@ def payload_to_render_block(payload: dict) -> RenderBlock:
     fit_to_box, fit_min_font_size_pt, fit_min_leading_em, fit_max_height_pt = resolve_typst_binary_fit(
         {
             **payload["item"],
+            "_render_inner_bbox": payload["inner_bbox"],
             "_is_body_text_candidate": payload["is_body"],
             "_dense_small_box": payload["dense_small_box"],
             "_heavy_dense_small_box": payload["heavy_dense_small_box"],

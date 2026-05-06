@@ -16,6 +16,7 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 from services.rendering.background.stage import build_clean_background_pdf
 from foundation.config import fonts
 from services.rendering.layout.payload.blocks import build_render_blocks
+from services.rendering.layout.payload.body_pipeline import apply_body_payload_pipeline
 from services.rendering.core.models import RenderLayoutBlock
 from services.rendering.core.models import RenderPageSpec
 from services.rendering.layout.render_model import build_render_page_specs
@@ -33,6 +34,7 @@ from services.rendering.typst.compiler import compile_typst_book_background_pdf
 from services.rendering.typst.compiler import compile_typst_overlay_pdf
 from services.rendering.typst.compiler import compile_typst_render_pages_pdf
 from services.rendering.typst.emitter import build_typst_source_from_page_specs
+from services.rendering.typst.source_builder import build_typst_overlay_source
 from services.rendering.typst.page_ops import apply_source_page_overlay
 from services.rendering.typst.sanitize import sanitize_items_for_typst_compile
 
@@ -408,6 +410,49 @@ def test_apply_source_page_overlay_visual_and_text_redacts_text_on_image_page() 
         doc.close()
 
 
+def test_build_clean_background_pdf_visual_only_keeps_hidden_text_layer() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "cleaned.pdf"
+
+        doc = fitz.open()
+        page = doc.new_page(width=300, height=400)
+        page.insert_textbox(
+            fitz.Rect(30, 60, 270, 220),
+            "Intermolecular Heck Coupling with Hindered Alkenes",
+            fontsize=14,
+        )
+        doc.save(source_pdf)
+        doc.close()
+
+        translated_pages = {
+            0: [
+                {
+                    "item_id": "b1",
+                    "bbox": [25.0, 50.0, 275.0, 230.0],
+                    "source_text": "Intermolecular Heck Coupling with Hindered Alkenes",
+                    "translated_text": "羧酸钾导向的受阻烯烃分子间Heck偶联",
+                    "protected_translated_text": "羧酸钾导向的受阻烯烃分子间Heck偶联",
+                    "formula_map": [],
+                }
+            ]
+        }
+
+        build_clean_background_pdf(
+            source_pdf_path=source_pdf,
+            translated_pages=translated_pages,
+            output_pdf_path=output_pdf,
+            redaction_strategy="visual_only",
+        )
+
+        cleaned = fitz.open(output_pdf)
+        try:
+            assert "Intermolecular Heck Coupling" in cleaned[0].get_text("text")
+        finally:
+            cleaned.close()
+
+
 def test_build_render_page_specs_uses_layout_block_protocol() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -459,6 +504,63 @@ def test_build_render_page_specs_uses_layout_block_protocol() -> None:
         assert block.background_rect == [10.0, 20.0, 180.0, 80.0]
         assert 8.4 <= block.font_size_pt <= 11.6
         assert 0.28 <= block.leading_em <= 0.74
+
+
+def test_typst_overlay_fit_respects_python_min_font_and_leading() -> None:
+    translated_items = [
+        {
+            "item_id": "p001-b001",
+            "page_idx": 0,
+            "block_type": "text",
+            "bbox": [10.0, 20.0, 120.0, 42.0],
+            "lines": [{"bbox": [10.0, 20.0, 120.0, 30.0], "spans": [{"type": "text", "content": "source"}]}],
+            "source_text": "A dense source paragraph with enough words to be treated as body text.",
+            "protected_source_text": "A dense source paragraph with enough words to be treated as body text.",
+            "protected_translated_text": "这是一段非常长的中文译文，用来触发渲染拟合，但不能让 Typst 绕过 Python 给出的最小字号和最小行距继续压缩。",
+        }
+    ]
+
+    source = build_typst_overlay_source(200.0, 300.0, translated_items)
+
+    assert "min_size - 1.6pt" not in source
+    assert "fallback_min_size - 1.2pt" not in source
+    assert "min_leading - 0.12em" not in source
+    assert "fallback_min_leading - 0.08em" not in source
+
+
+def test_dense_body_pressure_tightening_does_not_increase_leading() -> None:
+    normal_payload = {
+        "inner_bbox": [10.0, 60.0, 210.0, 150.0],
+        "translated_text": "这是普通正文块，密度较低。",
+        "formula_map": [],
+        "font_size_pt": 10.0,
+        "leading_em": 0.62,
+        "dense_small_box": False,
+        "heavy_dense_small_box": False,
+        "is_body": True,
+        "render_kind": "markdown",
+        "prefer_typst_fit": False,
+        "item": {"source_text": "normal body text with enough words for smoothing"},
+    }
+    payload = {
+        "inner_bbox": [10.0, 10.0, 110.0, 52.0],
+        "translated_text": "这是一个很密集的正文块，译文长度明显偏长，需要收紧而不是增加行距。" * 4,
+        "formula_map": [],
+        "font_size_pt": 10.0,
+        "leading_em": 0.62,
+        "dense_small_box": True,
+        "heavy_dense_small_box": False,
+        "is_body": True,
+        "render_kind": "markdown",
+        "prefer_typst_fit": False,
+        "item": {"source_text": "dense body text with enough words for smoothing"},
+    }
+    baseline_leading = payload["leading_em"]
+
+    apply_body_payload_pipeline([normal_payload, payload], page_text_width_med=100.0)
+
+    assert payload["leading_em"] <= baseline_leading
+    assert payload["prefer_typst_fit"] is True
 
 
 def test_build_render_page_specs_restores_leaked_formula_tokens_before_render() -> None:

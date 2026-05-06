@@ -95,8 +95,11 @@ def resolve_effective_render_mode(
             end_page=sample_stop,
         )
         if not editable:
-            print("auto render mode selected: overlay (non-editable or pseudo-editable scan PDF; white-cover/redaction route)")
-            return "overlay"
+            print(
+                "auto render mode selected: typst_visual "
+                "(non-editable or pseudo-editable scan PDF; visual-only cleaned-background route)"
+            )
+            return "typst_visual"
         if vector_heavy:
             print("auto render mode selected: overlay (editable vector-heavy PDF; cover-only redaction)")
             return "overlay"

@@ -14,10 +14,43 @@ let usingExternalBackend = false;
 let tray = null;
 let isQuitting = false;
 let closeToTrayHintShown = false;
+let desktopLogPath = "";
 
 const DEFAULT_OCR_PROVIDER = "paddle";
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
+
+function resolveDesktopLogPath() {
+  try {
+    return path.join(app.getPath("userData"), "logs", "desktop-main.log");
+  } catch (_error) {
+    return "";
+  }
+}
+
+function appendDesktopLog(message) {
+  const logPath = desktopLogPath || resolveDesktopLogPath();
+  if (!logPath) {
+    return;
+  }
+  desktopLogPath = logPath;
+  try {
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`, "utf8");
+  } catch (_error) {
+    // Startup logging must never block application startup.
+  }
+}
+
+function logDesktop(message) {
+  console.log(message);
+  appendDesktopLog(message);
+}
+
+function logDesktopError(message) {
+  console.error(message);
+  appendDesktopLog(message);
+}
 
 function createDefaultDesktopConfig() {
   return {
@@ -623,6 +656,21 @@ async function startBundledBackend() {
   const apiPort = 41000;
   const simplePort = 42000;
 
+  logDesktop(
+    [
+      "[desktop] starting bundled backend",
+      `platform=${process.platform}`,
+      `packaged=${app.isPackaged}`,
+      `backendRoot=${backendRoot}`,
+      `backendBin=${backendBin}`,
+      `python=${pythonRuntime.command || "<missing>"}`,
+      `pythonHome=${pythonRuntime.bundledHome || "<system>"}`,
+      `scriptsDir=${scriptsDir}`,
+      `typst=${typstBin || "<missing>"}`,
+      `log=${desktopLogPath || resolveDesktopLogPath() || "<unavailable>"}`,
+    ].join(" "),
+  );
+
   if (!fs.existsSync(backendBin)) {
     throw new Error(`missing bundled backend binary: ${backendBin}`);
   }
@@ -720,9 +768,11 @@ async function startBundledBackend() {
   updateSplashProgress(34, "正在准备工作目录", "正在初始化本地数据目录");
 
   const apiPortBusy = await canConnectToPort("127.0.0.1", apiPort);
+  logDesktop(`[desktop] port ${apiPort} busy=${apiPortBusy}`);
   if (apiPortBusy) {
     if (await canReuseExistingBackend(apiPort)) {
       usingExternalBackend = true;
+      logDesktop(`[desktop] reusing existing backend on port ${apiPort}`);
       updateSplashProgress(52, "检测到已有本地服务", "桌面端将直接复用当前后端");
       await waitForPort("127.0.0.1", apiPort, 5000);
       updateSplashProgress(92, "本地服务已就绪", "正在加载主界面");
@@ -734,6 +784,7 @@ async function startBundledBackend() {
   }
 
   const simplePortBusy = await canConnectToPort("127.0.0.1", simplePort);
+  logDesktop(`[desktop] port ${simplePort} busy=${simplePortBusy}`);
   if (simplePortBusy) {
     throw new Error(`端口 ${simplePort} 已被其他进程占用，请先释放后再启动桌面端。`);
   }
@@ -780,6 +831,7 @@ async function startBundledBackend() {
   }
 
   updateSplashProgress(52, "正在启动本地服务", "Rust API 与 Python worker 正在启动");
+  logDesktop(`[desktop] spawning backend: ${backendBin}`);
   backendChild = spawn(backendBin, [], {
     cwd: backendRoot,
     env,
@@ -788,10 +840,14 @@ async function startBundledBackend() {
   });
 
   backendChild.stdout.on("data", (chunk) => {
-    process.stdout.write(`[rust_api] ${chunk}`);
+    const message = `[rust_api] ${chunk}`;
+    process.stdout.write(message);
+    appendDesktopLog(message.trimEnd());
   });
   backendChild.stderr.on("data", (chunk) => {
-    process.stderr.write(`[rust_api] ${chunk}`);
+    const message = `[rust_api] ${chunk}`;
+    process.stderr.write(message);
+    appendDesktopLog(message.trimEnd());
   });
 
   backendChild.once("exit", (code, signal) => {
@@ -800,6 +856,7 @@ async function startBundledBackend() {
       return;
     }
     const detail = `code=${code ?? "null"} signal=${signal ?? "null"}`;
+    logDesktopError(`[desktop] Rust API worker crashed: ${detail}`);
     dialog.showErrorBox("Rust API worker crashed", detail);
   });
 
@@ -813,13 +870,16 @@ async function startBundledBackend() {
     );
   }, 500);
   const backendReadyTimeoutMs = process.platform === "darwin" && app.isPackaged ? 60000 : 30000;
+  logDesktop(`[desktop] waiting for backend port ${apiPort} timeoutMs=${backendReadyTimeoutMs}`);
   await waitForPort("127.0.0.1", apiPort, backendReadyTimeoutMs);
   clearInterval(waitingTimer);
+  logDesktop(`[desktop] backend ready on port ${apiPort}`);
   updateSplashProgress(92, "本地服务已就绪", "正在加载主界面");
 }
 
 function createWindow() {
   const frontendRoot = resolveFrontendRoot();
+  logDesktop(`[desktop] creating main window frontendRoot=${frontendRoot}`);
 
   mainWindow = new BrowserWindow({
     width: 1480,
@@ -837,7 +897,9 @@ function createWindow() {
     },
   });
 
-  mainWindow.loadFile(path.join(frontendRoot, "index.html"));
+  const indexPath = path.join(frontendRoot, "index.html");
+  logDesktop(`[desktop] loading frontend index=${indexPath}`);
+  mainWindow.loadFile(indexPath);
 
   mainWindow.on("close", (event) => {
     if (isQuitting) {
@@ -848,24 +910,23 @@ function createWindow() {
   });
 
   mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
-    console.log(
-      `[desktop][renderer][level=${level}] ${sourceId || "unknown"}:${line || 0} ${message || ""}`,
-    );
+    logDesktop(`[desktop][renderer][level=${level}] ${sourceId || "unknown"}:${line || 0} ${message || ""}`);
   });
 
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
     const detail = `code=${errorCode} url=${validatedURL || "unknown"} error=${errorDescription || "unknown"}`;
-    console.error(`[desktop] renderer load failed: ${detail}`);
+    logDesktopError(`[desktop] renderer load failed: ${detail}`);
     dialog.showErrorBox("RetainPDF 页面加载失败", detail);
   });
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     const detail = `reason=${details?.reason || "unknown"} exitCode=${details?.exitCode ?? "unknown"}`;
-    console.error(`[desktop] renderer process gone: ${detail}`);
+    logDesktopError(`[desktop] renderer process gone: ${detail}`);
     dialog.showErrorBox("RetainPDF 渲染进程异常退出", detail);
   });
 
   mainWindow.webContents.once("did-finish-load", () => {
+    logDesktop("[desktop] frontend loaded; showing main window");
     updateSplashProgress(100, "准备完成", "正在进入主界面");
     mainWindow.show();
     if (splashWindow && !splashWindow.isDestroyed()) {
@@ -896,6 +957,9 @@ function resolveFrontendRoot() {
 }
 
 app.whenReady().then(() => {
+  desktopLogPath = resolveDesktopLogPath();
+  appendDesktopLog("========== RetainPDF desktop startup ==========");
+  logDesktop(`[desktop] app ready version=${app.getVersion()} packaged=${app.isPackaged} userData=${app.getPath("userData")}`);
   closeToTrayHintShown = loadDesktopConfig().closeToTrayHintShown;
   createSplashWindow()
     .then(() => startBundledBackend())
@@ -911,7 +975,9 @@ app.whenReady().then(() => {
       });
     })
     .catch((error) => {
-      dialog.showErrorBox("RetainPDF startup failed", String(error && error.message ? error.message : error));
+      const detail = String(error && error.stack ? error.stack : error && error.message ? error.message : error);
+      logDesktopError(`[desktop] startup failed: ${detail}`);
+      dialog.showErrorBox("RetainPDF startup failed", detail);
       app.quit();
     });
 });
@@ -972,7 +1038,5 @@ ipcMain.on("desktop:renderer-issue", (_event, payload = {}) => {
   const filename = payload?.filename || "";
   const lineno = payload?.lineno || 0;
   const colno = payload?.colno || 0;
-  console.error(
-    `[desktop][renderer-issue] type=${type} file=${filename} line=${lineno} col=${colno} message=${message}`,
-  );
+  logDesktopError(`[desktop][renderer-issue] type=${type} file=${filename} line=${lineno} col=${colno} message=${message}`);
 });

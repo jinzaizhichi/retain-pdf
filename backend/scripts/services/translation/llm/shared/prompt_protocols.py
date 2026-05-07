@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from foundation.shared.prompt_loader import load_prompt
+from foundation.shared.prompt_loader import render_prompt
 from services.translation.context import TranslationItemContext
 
 
@@ -12,19 +13,19 @@ LEGACY_JSON_ONLY_INSTRUCTION_ZH = (
     "返回结果时只输出符合以下结构的合法 JSON：\n"
     '{"translations":[{"item_id":"...","translated_text":"..."}]}'
 )
+DEFAULT_TARGET_LANGUAGE_NAME = "简体中文"
 
 
-def direct_math_guidance() -> str:
-    return (
-        "当前启用 direct_typst 公式直出模式。\n"
-        "请先理解整句语义，再直接输出中文译文。\n"
-        "凡是语义上属于公式、变量、上下标、数学表达式、化学式、物理量符号、带上标或下标的单位与记号，请主动用 `$...$` 包裹。\n"
-        "不要把裸露的 LaTeX 风格数学片段直接留在正文里。\n"
-        "普通正文不要随意放进 `$...$`。\n"
-        "如果 OCR 造成公式存在明显且局部的错误，例如空格错乱、括号缺失、花括号缺失、上下标脱落或命令被截断，你可以按语义做最小修复后再输出，使其可以正常渲染。\n"
-        "不要补写缺失的正文内容，不要扩写原文，不要编造新的科学信息。\n"
-        "不要输出占位符、结构化数据、标签、代码块或解释，只输出最终译文。"
-    )
+def _target_language_name(value: str = "") -> str:
+    return (value or DEFAULT_TARGET_LANGUAGE_NAME).strip() or DEFAULT_TARGET_LANGUAGE_NAME
+
+
+def _prompt_context(*, target_language_name: str = DEFAULT_TARGET_LANGUAGE_NAME) -> dict[str, str]:
+    return {"target_language_name": _target_language_name(target_language_name)}
+
+
+def direct_math_guidance(*, target_language_name: str = DEFAULT_TARGET_LANGUAGE_NAME) -> str:
+    return render_prompt("translation_direct_typst_guidance.txt", **_prompt_context(target_language_name=target_language_name))
 
 
 def build_translation_system_prompt(
@@ -33,11 +34,13 @@ def build_translation_system_prompt(
     mode: str = "fast",
     response_style: str = "tagged",
     include_sci_decision: bool = False,
+    target_language_name: str = DEFAULT_TARGET_LANGUAGE_NAME,
 ) -> str:
-    system_prompt = load_prompt(
+    system_prompt = render_prompt(
         "translation_system_plain_text.txt"
         if response_style == "plain_text"
-        else "translation_system.txt"
+        else "translation_system.txt",
+        **_prompt_context(target_language_name=target_language_name),
     )
     if response_style != "json":
         system_prompt = system_prompt.replace(JSON_ONLY_INSTRUCTION, "")
@@ -53,9 +56,10 @@ def direct_typst_batch_user_prompt(
     batch: list[TranslationItemContext],
     *,
     mode: str,
+    target_language_name: str = DEFAULT_TARGET_LANGUAGE_NAME,
 ) -> str:
     lines: list[str] = [
-        load_prompt("translation_task_plain_text.txt"),
+        render_prompt("translation_task_plain_text.txt", **_prompt_context(target_language_name=target_language_name)),
         "",
         "下面是若干段待翻译正文。",
         "请为每段输出一个 tagged block，除此之外不要输出结构化数据、代码块、解释或额外文字。",
@@ -85,12 +89,13 @@ def direct_typst_single_user_prompt(
     item: TranslationItemContext,
     *,
     mode: str,
+    target_language_name: str = DEFAULT_TARGET_LANGUAGE_NAME,
 ) -> str:
     lines: list[str] = [
-        load_prompt("translation_task_plain_text.txt"),
+        render_prompt("translation_task_plain_text.txt", **_prompt_context(target_language_name=target_language_name)),
         "",
         "下面是一段待翻译正文。",
-        "你只输出最终中文译文正文，不要输出编号、决策字段、结构化数据、标签、代码块或解释。",
+        f"你只输出最终{_target_language_name(target_language_name)}译文正文，不要输出编号、决策字段、结构化数据、标签、代码块或解释。",
         "",
         "原文：",
         item.source_for_prompt(),
@@ -112,12 +117,13 @@ def plain_text_single_user_prompt(
     item: TranslationItemContext,
     *,
     mode: str,
+    target_language_name: str = DEFAULT_TARGET_LANGUAGE_NAME,
 ) -> str:
     lines: list[str] = [
-        load_prompt("translation_task_plain_text.txt"),
+        render_prompt("translation_task_plain_text.txt", **_prompt_context(target_language_name=target_language_name)),
         "",
         "下面是一段待翻译正文。",
-        "只输出这一段的最终中文译文正文，不要输出编号、决策字段、结构化数据、标签、代码块或解释。",
+        f"只输出这一段的最终{_target_language_name(target_language_name)}译文正文，不要输出编号、决策字段、结构化数据、标签、代码块或解释。",
         "",
         "原文：",
         item.source_for_prompt(),
@@ -135,7 +141,11 @@ def plain_text_single_user_prompt(
     return "\n".join(lines).strip()
 
 
-def batch_json_user_prompt(batch: list[TranslationItemContext]) -> str:
+def batch_json_user_prompt(
+    batch: list[TranslationItemContext],
+    *,
+    target_language_name: str = DEFAULT_TARGET_LANGUAGE_NAME,
+) -> str:
     groups: dict[str, dict[str, Any]] = {}
     items_payload = []
     for item in batch:
@@ -147,7 +157,7 @@ def batch_json_user_prompt(batch: list[TranslationItemContext]) -> str:
             group["combined_source_text"].append(item.source_for_context())
         items_payload.append(item_payload)
     user_payload = {
-        "task": load_prompt("translation_task.txt"),
+        "task": render_prompt("translation_task.txt", **_prompt_context(target_language_name=target_language_name)),
         "items": items_payload,
     }
     if groups:

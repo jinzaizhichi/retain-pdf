@@ -389,7 +389,7 @@ def test_apply_redaction_route_auto_uses_safe_text_cleanup_for_formula_item(monk
     ]
 
 
-def test_apply_redaction_route_auto_covers_provided_render_blocks(monkeypatch) -> None:
+def test_apply_redaction_route_auto_covers_explicit_render_blocks(monkeypatch) -> None:
     page = _FakePage()
     rect = fitz.Rect(20, 20, 160, 42)
     valid_items = [

@@ -207,6 +207,7 @@ def _translate_single_item_with_decision(
     mode: str = "fast",
     context: TranslationControlContext | None = None,
 ) -> dict[str, dict[str, str]]:
+    context = _build_context(mode=mode, domain_guidance=domain_guidance, request_label=request_label, context=context)
     diagnostics = TranslationDiagnosticsCollector()
     return _translate_single_item_with_decision_impl(
         item,
@@ -214,8 +215,9 @@ def _translate_single_item_with_decision(
         model=model,
         base_url=base_url,
         request_label=request_label,
-        domain_guidance=(context.merged_guidance if context is not None else domain_guidance),
-        mode=mode,
+        domain_guidance=context.merged_guidance,
+        mode=context.mode,
+        target_language_name=context.target_language_name,
         diagnostics=diagnostics,
     )
 
@@ -230,6 +232,7 @@ def _translate_batch_once(
     mode: str = "fast",
     context: TranslationControlContext | None = None,
 ) -> dict[str, dict[str, str]]:
+    context = _build_context(mode=mode, domain_guidance=domain_guidance, request_label=request_label, context=context)
     diagnostics = TranslationDiagnosticsCollector()
     return _translate_batch_once_impl(
         batch,
@@ -237,8 +240,9 @@ def _translate_batch_once(
         model=model,
         base_url=base_url,
         request_label=request_label,
-        domain_guidance=(context.merged_guidance if context is not None else domain_guidance),
-        mode=context.mode if context is not None else mode,
+        domain_guidance=context.merged_guidance,
+        mode=context.mode,
+        target_language_name=context.target_language_name,
         diagnostics=diagnostics,
     )
 

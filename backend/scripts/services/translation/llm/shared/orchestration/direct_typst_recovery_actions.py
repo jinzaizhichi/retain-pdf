@@ -153,6 +153,7 @@ def try_raw_plain_text(
         request_label=f"{request_label} raw" if request_label else "",
         domain_guidance=context.merged_guidance,
         mode=context.mode,
+        target_language_name=context.target_language_name,
         diagnostics=diagnostics,
         timeout_s=plain_text_timeout_seconds(item, context=context, transport_tail_retry=not allow_transport_tail_defer),
     )

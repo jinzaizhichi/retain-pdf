@@ -42,6 +42,7 @@ def _try_direct_batched_plain(
             request_label=request_label,
             domain_guidance=context.merged_guidance,
             mode=context.mode,
+            target_language_name=context.target_language_name,
             diagnostics=diagnostics,
             timeout_s=context.timeout_policy.batch_plain_text_seconds,
         )

@@ -1410,6 +1410,29 @@ class TranslationFastPathTests(unittest.TestCase):
         self.assertIn(r"\mathrm{Ni(I) / Ni(III)}", messages[1]["content"])
         self.assertNotIn(r"\\mathrm{Ni(I) / Ni(III)}", messages[1]["content"])
 
+    def test_prompt_builder_can_render_non_default_target_language(self):
+        module = _load_module(
+            "services.translation.llm.providers.deepseek.client",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "deepseek_client.py",
+        )
+        messages = module.build_single_item_fallback_messages(
+            {
+                "item_id": "p001-b001",
+                "protected_source_text": "保持术语准确。",
+                "math_mode": "direct_typst",
+                "metadata": {"structure_role": "body"},
+            },
+            mode="sci",
+            response_style="plain_text",
+            target_language_name="英文",
+        )
+        combined_prompt = "\n".join(message["content"] for message in messages)
+
+        self.assertIn("适合论文排版的英文", combined_prompt)
+        self.assertIn("直接输出英文译文", combined_prompt)
+        self.assertIn("最终英文译文正文", combined_prompt)
+        self.assertNotIn("适合论文排版的简体中文", combined_prompt)
+
     def test_formula_english_residue_degrades_to_keep_origin_after_all_fallbacks_fail(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",

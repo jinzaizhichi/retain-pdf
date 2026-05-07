@@ -34,3 +34,29 @@ def test_translation_cache_key_includes_translation_style_hint() -> None:
     )
 
     assert before != after
+
+
+def test_translation_cache_key_includes_target_language() -> None:
+    item = {
+        "item_id": "p001-b001",
+        "translation_unit_protected_source_text": "Default: 0",
+    }
+
+    zh_key = cache_key_for_item(
+        item,
+        model="deepseek-chat",
+        base_url="https://api.deepseek.com/v1",
+        mode="sci",
+        target_lang="zh-CN",
+        target_language_name="简体中文",
+    )
+    en_key = cache_key_for_item(
+        item,
+        model="deepseek-chat",
+        base_url="https://api.deepseek.com/v1",
+        mode="sci",
+        target_lang="en",
+        target_language_name="英文",
+    )
+
+    assert zh_key != en_key

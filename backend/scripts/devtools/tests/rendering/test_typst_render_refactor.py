@@ -36,6 +36,7 @@ from services.rendering.typst.compiler import compile_typst_render_pages_pdf
 from services.rendering.typst.emitter import build_typst_source_from_page_specs
 from services.rendering.typst.source_builder import build_typst_overlay_source
 from services.rendering.typst.page_ops import apply_source_page_overlay
+from services.rendering.typst.page_ops import redaction_items_from_render_blocks
 from services.rendering.typst.sanitize import sanitize_items_for_typst_compile
 
 
@@ -364,6 +365,38 @@ def test_apply_source_page_overlay_uses_cover_only_when_vector_text_detected() -
 
     redact_mock.assert_called_once()
     assert redact_mock.call_args.kwargs["cover_only"] is True
+
+
+def test_redaction_items_from_render_blocks_preserve_source_item_metadata() -> None:
+    translated_items = [
+        {
+            "item_id": "p001-b001",
+            "block_type": "text",
+            "block_kind": "text",
+            "layout_role": "paragraph",
+            "semantic_role": "body",
+            "source_text": "This editable source text should be matched in the PDF text layer.",
+            "bbox": [20.0, 40.0, 180.0, 70.0],
+            "translated_text": "这段可编辑源文本应在 PDF 文字层中匹配。",
+            "protected_translated_text": "这段可编辑源文本应在 PDF 文字层中匹配。",
+            "formula_map": [],
+        }
+    ]
+
+    redaction_items = redaction_items_from_render_blocks(
+        translated_items,
+        page_width=300.0,
+        page_height=400.0,
+    )
+
+    assert len(redaction_items) == 1
+    item = redaction_items[0]
+    assert item["item_id"] == "item-0"
+    assert item["source_item_id"] == "p001-b001"
+    assert item["block_kind"] == "text"
+    assert item["block_type"] == "text"
+    assert item["source_text"] == translated_items[0]["source_text"]
+    assert len(item["bbox"]) == 4
 
 
 def test_redaction_shared_prefers_local_translated_text_over_group_text() -> None:

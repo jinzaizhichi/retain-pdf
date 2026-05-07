@@ -214,10 +214,11 @@ def visual_line_count(item: dict) -> int:
 
 
 def source_visual_line_count(item: dict) -> int:
-    observed = max(1, len(item.get("lines", [])))
-    if is_tall_single_line_glue(item):
-        return observed
-    return visual_line_count(item)
+    line_count = len(item.get("lines", []))
+    if line_count > 0:
+        return line_count
+    explicit_lines = [line for line in str(item.get("source_text", "") or "").splitlines() if line.strip()]
+    return max(1, len(explicit_lines))
 
 
 def is_tall_single_line_glue(

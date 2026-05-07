@@ -11,6 +11,7 @@ from services.translation.llm.placeholder_guard import canonicalize_batch_result
 from services.translation.llm.placeholder_guard import MathDelimiterError
 from services.translation.llm.placeholder_guard import result_entry
 from services.translation.llm.placeholder_guard import validate_batch_result
+from services.translation.llm.validation.errors import EmptyTranslationError
 from services.translation.llm.shared.control_context import build_translation_control_context
 from services.translation.llm.shared.orchestration.direct_typst import translate_direct_typst_plain_text_with_retries
 from services.translation.llm.shared.orchestration.direct_typst_salvage import extract_direct_typst_protocol_text
@@ -75,6 +76,74 @@ def test_repeated_direct_typst_protocol_shell_degrades_to_keep_origin() -> None:
     assert payload["final_status"] == "kept_origin"
     assert diagnostics["degradation_reason"] == "protocol_shell_repeated"
     assert diagnostics["error_trace"] == [{"type": "validation", "code": "PROTOCOL_SHELL"}]
+
+
+def test_repeated_direct_typst_empty_body_uses_sentence_level_fallback() -> None:
+    item = _body_item()
+    item["math_mode"] = "direct_typst"
+
+    def fail_with_empty_translation(*args, **kwargs):
+        raise EmptyTranslationError(item["item_id"])
+
+    def sentence_level_fallback_fn(item, **kwargs):
+        return {
+            item["item_id"]: {
+                "decision": "translate",
+                "translated_text": "示例 4.2：水分子单点能计算的 Q-CHEM 输入。",
+                "final_status": "partially_translated",
+                "translation_diagnostics": {
+                    "route_path": ["block_level", "sentence_level"],
+                    "fallback_to": "sentence_level",
+                },
+            }
+        }
+
+    result = translate_direct_typst_plain_text_with_retries(
+        item,
+        api_key="",
+        model="deepseek-chat",
+        base_url="https://api.deepseek.com/v1",
+        request_label="unit",
+        context=build_translation_control_context(mode="sci"),
+        diagnostics=None,
+        translator=None,
+        translate_plain_fn=fail_with_empty_translation,
+        translate_unstructured_fn=fail_with_empty_translation,
+        sentence_level_fallback_fn=sentence_level_fallback_fn,
+    )
+
+    payload = result[item["item_id"]]
+    assert payload["decision"] == "translate"
+    assert "水分子单点能" in payload["translated_text"]
+
+
+def test_repeated_direct_typst_empty_body_degrades_when_sentence_level_fails() -> None:
+    item = _body_item()
+    item["math_mode"] = "direct_typst"
+
+    def fail_with_empty_translation(*args, **kwargs):
+        raise EmptyTranslationError(item["item_id"])
+
+    result = translate_direct_typst_plain_text_with_retries(
+        item,
+        api_key="",
+        model="deepseek-chat",
+        base_url="https://api.deepseek.com/v1",
+        request_label="unit",
+        context=build_translation_control_context(mode="sci"),
+        diagnostics=None,
+        translator=None,
+        translate_plain_fn=fail_with_empty_translation,
+        translate_unstructured_fn=fail_with_empty_translation,
+        sentence_level_fallback_fn=fail_with_empty_translation,
+    )
+
+    payload = result[item["item_id"]]
+    diagnostics = payload["translation_diagnostics"]
+    assert payload["decision"] == "keep_origin"
+    assert payload["final_status"] == "kept_origin"
+    assert diagnostics["degradation_reason"] == "empty_translation_repeated"
+    assert diagnostics["error_trace"] == [{"type": "validation", "code": "EMPTY_TRANSLATION"}]
 
 
 def test_direct_typst_math_delimiter_failure_uses_llm_repair_before_retry() -> None:

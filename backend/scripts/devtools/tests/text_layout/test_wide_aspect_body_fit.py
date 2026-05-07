@@ -11,6 +11,9 @@ from services.rendering.layout.font_fit import estimate_leading_em
 from services.rendering.layout.font_fit import local_font_size_pt
 from services.rendering.layout.payload.blocks import build_render_blocks
 from services.rendering.layout.payload.block_seed import _relax_wide_aspect_body_leading
+from services.rendering.layout.typography.geometry import inner_bbox
+from services.rendering.layout.typography.measurement import source_visual_line_count
+from services.rendering.layout.typography.measurement import visual_line_count
 
 
 def _sample_item(*, wide_aspect: bool) -> dict:
@@ -84,7 +87,26 @@ class WideAspectBodyFitTests(unittest.TestCase):
 
         self.assertGreaterEqual(font, 10.5)
 
-    def test_small_single_line_body_uses_page_body_font_and_expands_inner_height(self):
+    def test_source_visual_line_count_uses_observed_ocr_lines_not_text_length(self):
+        item = {
+            "block_type": "text",
+            "source_text": (
+                "This is a very long OCR line that would normally wrap by text-length prediction, "
+                "but the source line count should still reflect the observed OCR line geometry only."
+            ),
+            "bbox": [40, 100, 220, 145],
+            "lines": [
+                {
+                    "bbox": [40, 100, 220, 112],
+                    "spans": [{"type": "text", "content": "This is a very long OCR line"}],
+                }
+            ],
+        }
+
+        self.assertEqual(source_visual_line_count(item), 1)
+        self.assertGreater(visual_line_count(item), 1)
+
+    def test_small_single_line_body_uses_original_inner_bbox(self):
         items = [
             _sample_item(wide_aspect=False),
             {
@@ -110,10 +132,9 @@ class WideAspectBodyFitTests(unittest.TestCase):
         blocks = build_render_blocks(items, page_width=612.0, page_height=792.0)
         body_block = next(block for block in blocks if block.block_id == "item-1")
 
-        self.assertGreaterEqual(body_block.font_size_pt, 10.5)
-        self.assertGreaterEqual(body_block.inner_bbox[3] - body_block.inner_bbox[1], 16.0)
+        self.assertEqual(body_block.inner_bbox, inner_bbox(items[1]))
 
-    def test_narrow_single_line_body_expands_inner_width_to_page_body_width(self):
+    def test_narrow_single_line_body_uses_original_inner_bbox(self):
         items = [
             _sample_item(wide_aspect=False),
             {
@@ -160,35 +181,8 @@ class WideAspectBodyFitTests(unittest.TestCase):
         blocks = build_render_blocks(items, page_width=612.0, page_height=792.0)
         narrow_block = next(block for block in blocks if block.block_id == "item-2")
 
-        self.assertGreater(narrow_block.inner_bbox[2] - narrow_block.inner_bbox[0], 360.0)
+        self.assertEqual(narrow_block.inner_bbox, inner_bbox(items[2]))
         self.assertEqual(narrow_block.cover_bbox, [40, 240, 250, 255])
-
-    def test_short_page_aligned_body_line_expands_even_when_source_text_is_short(self):
-        items = [
-            _sample_item(wide_aspect=False),
-            {
-                "item_id": "short-equation-reference",
-                "block_type": "text",
-                "block_kind": "text",
-                "layout_role": "paragraph",
-                "semantic_role": "body",
-                "source_text": "and Eq. (2.18), we find",
-                "bbox": [47.5, 399.5, 155.0, 412.0],
-                "lines": [
-                    {
-                        "bbox": [47.5, 399.5, 155.0, 412.0],
-                        "spans": [{"type": "text", "content": "and Eq. (2.18), we find"}],
-                    }
-                ],
-                "protected_translated_text": "以及方程(2.18)，我们发现",
-            },
-        ]
-
-        blocks = build_render_blocks(items, page_width=612.0, page_height=792.0)
-        short_block = next(block for block in blocks if block.block_id == "item-1")
-
-        self.assertGreater(short_block.inner_bbox[2] - short_block.inner_bbox[0], 200.0)
-        self.assertEqual(short_block.cover_bbox, [47.5, 399.5, 155.0, 412.0])
 
     def test_wide_aspect_body_preserves_more_ocr_line_pitch_signal(self):
         base_item = _sample_item(wide_aspect=False)

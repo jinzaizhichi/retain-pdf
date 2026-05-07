@@ -96,6 +96,7 @@ def translate_direct_typst_plain_text_with_retries(
                 request_label=f"{request_label} req#{attempt}" if request_label else "",
                 domain_guidance=context.merged_guidance,
                 mode=context.mode,
+                target_language_name=context.target_language_name,
                 diagnostics=diagnostics,
                 timeout_s=plain_timeout_s,
             )

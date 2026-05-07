@@ -218,5 +218,32 @@ def handle_raw_validation_failure(
                 degradation_reason="empty_translation_repeated",
                 error_code="EMPTY_TRANSLATION",
             ), last_error
-        raise last_error
+        if sentence_level_fallback_allowed(item):
+            return sentence_level_fallback_or_keep_origin(
+                item,
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                request_label=request_label,
+                context=context,
+                diagnostics=diagnostics,
+                route_path=route_prefix + ["validation", "sentence_level", "keep_origin"],
+                translate_plain=translate_plain,
+                translate_unstructured=translate_unstructured,
+                sentence_level_fallback_fn=sentence_level_fallback_fn,
+                keep_origin_on_failure_fn=lambda fallback_item, *, context, route_path: keep_origin_payload_for_direct_typst_validation_failure(
+                    fallback_item,
+                    context=context,
+                    route_path=route_path,
+                    degradation_reason="empty_translation_repeated",
+                    error_code="EMPTY_TRANSLATION",
+                ),
+            ), last_error
+        return keep_origin_payload_for_direct_typst_validation_failure(
+            item,
+            context=context,
+            route_path=route_prefix + ["keep_origin"],
+            degradation_reason="empty_translation_repeated",
+            error_code="EMPTY_TRANSLATION",
+        ), last_error
     return None, last_error

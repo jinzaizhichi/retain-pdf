@@ -56,6 +56,7 @@ def translate_stable_placeholder_text(
         base_url=base_url,
         request_label=request_label,
         domain_guidance=merged_guidance,
+        target_language_name=context.target_language_name,
         diagnostics=diagnostics,
         timeout_s=plain_text_timeout_seconds(item, context=context),
         http_retry_attempts=single_item_http_retry_attempts(item),

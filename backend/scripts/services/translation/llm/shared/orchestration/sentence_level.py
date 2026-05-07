@@ -52,6 +52,7 @@ def sentence_level_fallback(
                 request_label=f"{request_label} sent#{index + 1}" if request_label else "",
                 domain_guidance=context.merged_guidance,
                 mode=context.mode,
+                target_language_name=context.target_language_name,
                 diagnostics=diagnostics,
                 timeout_s=context.timeout_policy.plain_text_seconds,
             )
@@ -71,6 +72,7 @@ def sentence_level_fallback(
                     request_label=f"{request_label} sent#{index + 1} raw" if request_label else "",
                     domain_guidance=context.merged_guidance,
                     mode=context.mode,
+                    target_language_name=context.target_language_name,
                     diagnostics=diagnostics,
                     timeout_s=context.timeout_policy.plain_text_seconds,
                 )
@@ -91,6 +93,7 @@ def sentence_level_fallback(
                     request_label=f"{request_label} sent#{index + 1} raw" if request_label else "",
                     domain_guidance=context.merged_guidance,
                     mode=context.mode,
+                    target_language_name=context.target_language_name,
                     diagnostics=diagnostics,
                     timeout_s=context.timeout_policy.plain_text_seconds,
                 )

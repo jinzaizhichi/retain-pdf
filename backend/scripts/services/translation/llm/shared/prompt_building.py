@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from foundation.shared.prompt_loader import load_prompt
+from foundation.shared.prompt_loader import render_prompt
 from services.translation.context import TranslationItemContext
 from services.translation.context import build_item_context
 from services.translation.llm.shared.prompt_protocols import batch_json_user_prompt
@@ -28,6 +29,7 @@ def build_messages(
     domain_guidance: str = "",
     mode: str = "fast",
     response_style: str = "tagged",
+    target_language_name: str = "简体中文",
 ) -> list[dict[str, str]]:
     item_contexts = [_item_context(item) for item in batch]
     direct_typst_mode = any(item.math_mode == "direct_typst" for item in item_contexts)
@@ -35,6 +37,7 @@ def build_messages(
         domain_guidance=domain_guidance,
         mode=mode,
         response_style=response_style,
+        target_language_name=target_language_name,
     )
     if response_style == "json":
         system_prompt = (
@@ -47,8 +50,12 @@ def build_messages(
             f"{load_prompt('translation_output_tagged.txt').format(tagged_header='<<<ITEM item_id=ITEM_ID>>>')}"
         )
     if direct_typst_mode:
-        system_prompt = f"{system_prompt}\n\n{_direct_math_guidance()}"
-    user_content = _direct_typst_batch_user_prompt(item_contexts, mode=mode) if direct_typst_mode else batch_json_user_prompt(item_contexts)
+        system_prompt = f"{system_prompt}\n\n{_direct_math_guidance(target_language_name=target_language_name)}"
+    user_content = (
+        _direct_typst_batch_user_prompt(item_contexts, mode=mode, target_language_name=target_language_name)
+        if direct_typst_mode
+        else batch_json_user_prompt(item_contexts, target_language_name=target_language_name)
+    )
     return [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
@@ -61,6 +68,7 @@ def build_single_item_fallback_messages(
     mode: str = "fast",
     structured_decision: bool = False,
     response_style: str = "plain_text",
+    target_language_name: str = "简体中文",
 ) -> list[dict[str, str]]:
     item_context = _item_context(item)
     direct_typst_mode = item_context.math_mode == "direct_typst"
@@ -70,19 +78,20 @@ def build_single_item_fallback_messages(
             mode=mode,
             response_style="json" if response_style == "json" else "tagged",
             include_sci_decision=True,
+            target_language_name=target_language_name,
         )
         if response_style == "json":
             system_prompt = (
                 f"{system_prompt}\n\n"
-                'Return only JSON matching {"decision":"translate","translated_text":"translated text"}. '
-                "Do not include markdown, code fences, or explanations."
+                '只返回符合 {"decision":"translate","translated_text":"translated text"} 的 JSON。'
+                "不要包含 Markdown、代码块或解释说明。"
             )
         user_prompt = (
-            _direct_typst_single_user_prompt(item_context, mode=mode)
+            _direct_typst_single_user_prompt(item_context, mode=mode, target_language_name=target_language_name)
             if direct_typst_mode
             else json.dumps(
                 {
-                    "task": load_prompt("translation_task.txt"),
+                    "task": render_prompt("translation_task.txt", target_language_name=target_language_name),
                     "items": [
                         {
                             "item_id": item_context.item_id,
@@ -107,6 +116,7 @@ def build_single_item_fallback_messages(
         mode=mode,
         response_style="json" if response_style == "json" else "plain_text",
         include_sci_decision=False,
+        target_language_name=target_language_name,
     )
     if response_style == "json":
         fallback_system = (
@@ -119,14 +129,14 @@ def build_single_item_fallback_messages(
             f"{load_prompt('translation_output_plain_text.txt')}"
         )
     if direct_typst_mode:
-        fallback_system = f"{fallback_system}\n{_direct_math_guidance()}"
+        fallback_system = f"{fallback_system}\n{_direct_math_guidance(target_language_name=target_language_name)}"
     user_prompt = (
-        _direct_typst_single_user_prompt(item_context, mode=mode)
+        _direct_typst_single_user_prompt(item_context, mode=mode, target_language_name=target_language_name)
         if direct_typst_mode
         else (
             json.dumps(
                 {
-                    "task": load_prompt("translation_task.txt"),
+                    "task": render_prompt("translation_task.txt", target_language_name=target_language_name),
                     "item": {
                         "item_id": item_context.item_id,
                         "source_text": item_context.source_for_prompt(),
@@ -135,7 +145,7 @@ def build_single_item_fallback_messages(
                 ensure_ascii=False,
             )
             if response_style == "json"
-            else _plain_text_single_user_prompt(item_context, mode=mode)
+            else _plain_text_single_user_prompt(item_context, mode=mode, target_language_name=target_language_name)
         )
     )
     return [

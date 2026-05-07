@@ -46,6 +46,8 @@ def translate_uncached_items_single(
                 base_url=base_url,
                 domain_guidance=context.cache_guidance,
                 mode=context.mode,
+                target_lang=context.target_lang,
+                target_language_name=context.target_language_name,
             )
         merged.update(result)
     return merged, deferred_transport_items
@@ -99,6 +101,8 @@ def retry_deferred_transport_items(
                 base_url=base_url,
                 domain_guidance=tail_context.cache_guidance,
                 mode=tail_context.mode,
+                target_lang=tail_context.target_lang,
+                target_language_name=tail_context.target_language_name,
             )
         merged.update(result)
     return merged

@@ -1,3 +1,3 @@
-Return only JSON matching this shape:
+只返回符合以下结构的 JSON：
 {"translations":[{"item_id":"ITEM_ID","translated_text":"translated text","decision":"translate"}]}.
-Output one object for every requested item_id. Do not include markdown, code fences, or explanations.
+每个请求的 item_id 都必须输出一个对象。不要包含 Markdown、代码块或解释说明。

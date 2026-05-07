@@ -40,18 +40,27 @@ def redaction_items_from_render_blocks(
     page_height: float,
 ) -> list[dict]:
     redaction_items: list[dict] = []
+    source_items_by_index = {index: item for index, item in enumerate(translated_items)}
     for block in build_render_blocks(translated_items, page_width=page_width, page_height=page_height):
         if len(block.cover_bbox) != 4:
             continue
+        source_item: dict = {}
+        if block.block_id.startswith("item-"):
+            raw_index = block.block_id.removeprefix("item-")
+            if raw_index.isdigit():
+                source_item = source_items_by_index.get(int(raw_index), {})
         item = {
+            **source_item,
             "item_id": block.block_id,
-            "block_kind": "render_block",
-            "block_type": "render_block",
-            "source_text": block.plain_text,
+            "source_item_id": source_item.get("item_id"),
+            "block_kind": source_item.get("block_kind") or source_item.get("block_type") or "text",
+            "block_type": source_item.get("block_type") or source_item.get("block_kind") or "text",
+            "source_text": source_item.get("source_text") or source_item.get("protected_source_text") or block.plain_text,
             "translated_text": block.plain_text,
             "protected_translated_text": block.markdown_text,
             "render_protected_text": block.markdown_text,
             "bbox": list(block.cover_bbox),
+            "_render_block_id": block.block_id,
         }
         redaction_items.append(item)
     return redaction_items

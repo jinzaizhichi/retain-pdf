@@ -50,9 +50,14 @@ pub(super) async fn collect_process_execution(
                 if let Some(pid) = child_pid {
                     let _ = terminate_job_process_tree(pid).await;
                 }
-                let stdout_job = stdout_handle.await??;
+                let (stdout_text, stdout_job) = stdout_handle.await??;
+                let stderr_text = stderr_handle.await??;
                 return Ok(ProcessExecution::TimedOut(persist_timeout_failure(
-                    deps, stdout_job,
+                    deps,
+                    stdout_job,
+                    started,
+                    stdout_text,
+                    stderr_text,
                 )?));
             }
         }

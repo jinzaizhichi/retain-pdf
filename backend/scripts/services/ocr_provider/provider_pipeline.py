@@ -7,8 +7,6 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import requests
-
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from foundation.config import layout
@@ -26,6 +24,9 @@ from services.document_schema.provider_adapters.paddle.content_extract import ti
 from services.document_schema.reporting import build_normalization_summary
 from services.document_schema.providers import PROVIDER_PADDLE
 from services.mineru.job_flow import run_mineru_to_job_dir
+from services.network.retry import RetainNetworkError
+from services.network.retry import direct_session
+from services.network.retry import request_with_retry
 from services.ocr_provider.paddle_api import PADDLE_BASE_URL
 from services.ocr_provider.paddle_api import build_optional_payload as build_paddle_optional_payload
 from services.ocr_provider.paddle_api import download_jsonl_result
@@ -52,6 +53,8 @@ from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL
 from services.translation.llm.shared.provider_runtime import get_api_key
 from services.translation.llm.shared.provider_runtime import normalize_base_url
 from services.translation.terms import parse_glossary_json
+
+_SOURCE_DOWNLOAD_SESSION = direct_session(pool_connections=4, pool_maxsize=4)
 
 
 def parse_args() -> argparse.Namespace:
@@ -148,8 +151,18 @@ def _materialize_local_source(args: SimpleNamespace) -> None:
 
 def _download_source_pdf(source_url: str, source_dir: Path) -> Path:
     source_dir.mkdir(parents=True, exist_ok=True)
-    response = requests.get(source_url, timeout=300)
-    response.raise_for_status()
+    try:
+        response = request_with_retry(
+            _SOURCE_DOWNLOAD_SESSION,
+            "get",
+            source_url,
+            timeout=300,
+            attempts=3,
+            backoff_seconds=0.5,
+            label="Source PDF",
+        )
+    except RetainNetworkError as err:
+        raise RuntimeError(f"download source PDF failed: {source_url}: {err}") from err
     file_name = Path(source_url.split("?", 1)[0]).name or "source.pdf"
     if not file_name.lower().endswith(".pdf"):
         file_name = f"{file_name}.pdf"

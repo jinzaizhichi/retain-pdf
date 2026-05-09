@@ -56,6 +56,7 @@ pub struct JobActionsView {
     pub open_job: ActionLinkView,
     pub open_artifacts: ActionLinkView,
     pub cancel: ActionLinkView,
+    pub rerun: ActionLinkView,
     pub download_pdf: ActionLinkView,
     pub open_markdown: ActionLinkView,
     pub open_markdown_raw: ActionLinkView,

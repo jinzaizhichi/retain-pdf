@@ -626,6 +626,8 @@ function buildStatusDetailSnapshot(job, eventsPayload) {
       </article>
     `;
   }).join("");
+  const actions = resolveJobActions(job);
+  const rerunEnabled = Boolean(actions.rerunEnabled && actions.rerun);
 
   return {
     headline: {
@@ -675,6 +677,12 @@ function buildStatusDetailSnapshot(job, eventsPayload) {
       count: events.length,
       emptyText: "暂无事件",
       hasItems: events.length > 0,
+    },
+    rerun: {
+      enabled: rerunEnabled,
+      status: rerunEnabled
+        ? "后端支持从当前任务产物创建恢复任务。"
+        : "当前任务暂不可从断点恢复。",
     },
   };
 }

@@ -124,6 +124,8 @@ def _failure_category_for(*, failure_code: str, failed_stage: str) -> str:
         return "network"
     if failure_code in {"upstream_timeout"}:
         return "timeout"
+    if failure_code in {"upstream_rate_limited"}:
+        return "rate_limit"
     if failure_code in {
         "upstream_bad_request",
         "source_pdf_missing",
@@ -151,6 +153,7 @@ def _suggestion_for(*, failure_code: str, failure_category: str, provider: str) 
         "auth_failed": f"检查 {provider_label} 凭据、模型 API Key 或相关访问令牌是否有效。",
         "dns_resolution_failed": "检查当前机器的 DNS / 网络连通性，确认目标域名可解析后再重试。",
         "upstream_timeout": "检查网络质量、上游服务负载或适当增大超时后再重试。",
+        "upstream_rate_limited": f"{provider_label} 当前限流，请稍后重试或降低并发。",
         "upstream_bad_request": "检查请求参数、输入文件和上游接口约束，修正后再重试。",
         "placeholder_unstable": "检查公式占位符保护链和当前批次输入，必要时缩小批次或切换保守模式。",
         "translation_protocol_shell": "检查翻译提示词与模型返回；该错误通常表示模型输出了 JSON/协议外壳而不是纯译文。",
@@ -167,6 +170,7 @@ def _suggestion_for(*, failure_code: str, failure_category: str, provider: str) 
         "auth": f"检查 {provider_label} 鉴权配置和权限范围。",
         "network": "检查网络、代理和 DNS 配置后再重试。",
         "timeout": "检查上游服务响应时间或增大超时后再试。",
+        "rate_limit": "降低并发、等待限流窗口恢复后再重试。",
         "input": "检查输入内容、文件路径和请求参数。",
         "normalization": "检查 OCR 输出和标准化输入契约。",
         "translation": "检查翻译阶段输入、批次划分和模型返回。",
@@ -210,6 +214,9 @@ def classify_exception(exc: BaseException, *, default_stage: str, provider: str 
     elif any(token in lowered for token in ("readtimeout", "connecttimeout", "timed out")):
         error_type = "upstream_timeout"
         summary = "外部服务请求超时"
+    elif http_status_code == 429 or any(token in lowered for token in ("rate limited", "rate limit", "too many requests", "retry-after")):
+        error_type = "upstream_rate_limited"
+        summary = "外部服务请求被限流"
     elif http_status_code in {401, 403} or any(
         token in lowered
         for token in (

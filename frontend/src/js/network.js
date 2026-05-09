@@ -307,6 +307,17 @@ export async function replayTranslationItem(jobId, itemId, apiPrefix) {
   return unwrapEnvelope(payloadJson);
 }
 
+export async function rerunJob(actionUrl) {
+  if (isMockMode()) {
+    void actionUrl;
+    return {
+      job_id: `mock-rerun-${Date.now()}`,
+      status: "queued",
+    };
+  }
+  return submitJson(actionUrl, {});
+}
+
 export async function fetchJobList(
   apiPrefix,
   {

@@ -11,8 +11,6 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-import requests
-
 from services.document_schema.version import DOCUMENT_SCHEMA_FILE_NAME
 from services.document_schema.version import DOCUMENT_SCHEMA_REPORT_FILE_NAME
 from services.mineru.contracts import MINERU_BUNDLE_FILE_NAME
@@ -20,6 +18,7 @@ from services.mineru.contracts import MINERU_LAYOUT_JSON_FILE_NAME
 from services.mineru.contracts import MINERU_NORMALIZED_DIR_NAME
 from services.mineru.contracts import MINERU_RESULT_FILE_NAME
 from services.mineru.contracts import MINERU_UNPACK_DIR_NAME
+from services.mineru.mineru_api import request_mineru
 from services.pipeline_shared.io import save_json
 from services.pipeline_shared.source_json import resolve_preferred_source_json_path
 from services.pipeline_shared.source_json import resolve_translation_source_json_path
@@ -55,8 +54,7 @@ def build_mineru_artifact_paths(ocr_dir: Path) -> MinerUArtifactPaths:
     )
 
 def download_file(url: str, path: Path, headers: dict[str, str] | None = None) -> None:
-    with requests.get(url, headers=headers, stream=True, timeout=300) as response:
-        response.raise_for_status()
+    with request_mineru("get", url, headers=headers, stream=True, timeout=300) as response:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("wb") as f:
             for chunk in response.iter_content(chunk_size=1024 * 256):

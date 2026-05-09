@@ -6,7 +6,7 @@ use crate::models::view::job::{
 };
 use crate::models::{
     redact_json_value, redact_text, sensitive_values, CreateJobInput, JobArtifactRecord,
-    JobFailureInfo, JobSnapshot, JobStatusKind, WorkflowKind,
+    JobArtifacts, JobFailureInfo, JobSnapshot, JobStatusKind, WorkflowKind,
 };
 use crate::storage_paths::{
     ARTIFACT_KEY_MARKDOWN_RAW, ARTIFACT_KEY_NORMALIZED_DOCUMENT_JSON, ARTIFACT_KEY_TRANSLATED_PDF,
@@ -119,6 +119,8 @@ fn workflow_contract_uses_expected_route_prefixes() {
         assert_eq!(links.self_path, format!("{prefix}/job-contract"));
         assert_eq!(links.events_path, format!("{prefix}/job-contract/events"));
         assert_eq!(actions.open_job.path, format!("{prefix}/job-contract"));
+        assert_eq!(actions.rerun.path, format!("{prefix}/job-contract/rerun"));
+        assert!(!actions.rerun.enabled);
         assert_eq!(
             actions.open_artifacts.path,
             format!("{prefix}/job-contract/artifacts")
@@ -131,6 +133,25 @@ fn workflow_contract_uses_expected_route_prefixes() {
         assert!(!actions.open_markdown.enabled);
         assert_eq!(item.detail_path, format!("{prefix}/job-contract"));
     }
+}
+
+#[test]
+fn job_actions_enable_rerun_for_reusable_checkpoints_only() {
+    let mut translate_job = build_job("job-rerun-ready", WorkflowKind::Translate);
+    translate_job.artifacts = Some(JobArtifacts {
+        source_pdf: Some("jobs/job-rerun-ready/source/input.pdf".to_string()),
+        normalized_document_json: Some("jobs/job-rerun-ready/ocr/document.v1.json".to_string()),
+        ..JobArtifacts::default()
+    });
+    let actions = build_job_actions(&translate_job, "https://api.example", false, false, false);
+    assert!(actions.rerun.enabled);
+    assert_eq!(actions.rerun.method, "POST");
+    assert_eq!(actions.rerun.path, "/api/v1/jobs/job-rerun-ready/rerun");
+
+    let mut ocr_job = build_job("ocr-rerun-disabled", WorkflowKind::Ocr);
+    ocr_job.artifacts = translate_job.artifacts.clone();
+    let actions = build_job_actions(&ocr_job, "https://api.example", false, false, false);
+    assert!(!actions.rerun.enabled);
 }
 
 #[test]

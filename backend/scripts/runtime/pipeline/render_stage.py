@@ -20,6 +20,7 @@ from services.rendering.api.typst_page_renderer import build_book_typst_backgrou
 from services.rendering.api.typst_page_renderer import build_book_typst_pdf
 from services.rendering.api.typst_page_renderer import build_dual_book_pdf
 from services.rendering.api.typst_page_renderer import overlay_translated_pages_on_doc
+from services.rendering.pdf_metadata import copy_toc
 from services.rendering.preprocess.hidden_text_strip import build_hidden_text_stripped_pdf_copy
 from services.rendering.typst.shared import default_typst_temp_root
 
@@ -163,6 +164,7 @@ def build_book_from_translations(
             temp_doc = fitz.open()
             try:
                 temp_doc.insert_pdf(source_doc, from_page=start, to_page=stop)
+                copy_toc(source_doc, temp_doc, start_page=start, end_page=stop)
                 remapped_pages = {
                     page_idx - start: items
                     for page_idx, items in selected_pages.items()

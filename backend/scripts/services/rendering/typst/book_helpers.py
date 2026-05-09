@@ -7,6 +7,7 @@ import fitz
 from foundation.config import fonts
 from services.rendering.api.pdf_overlay import save_optimized_pdf
 from services.rendering.api.render_payloads import prepare_render_payloads_by_page
+from services.rendering.pdf_metadata import copy_toc
 from services.rendering.typst.compiler import compile_typst_book_background_pdf
 from services.rendering.typst.sanitize import sanitize_page_specs_for_typst_book_background
 from services.rendering.typst.shared import default_typst_temp_root
@@ -124,11 +125,21 @@ def build_dual_doc_pages(
         )
 
 
-def save_background_pdf_to_output(background_pdf: Path, output_pdf_path: Path) -> None:
+def save_background_pdf_to_output(
+    background_pdf: Path,
+    output_pdf_path: Path,
+    *,
+    source_pdf_path: Path | None = None,
+) -> None:
     background_doc = fitz.open(background_pdf)
+    source_doc = fitz.open(source_pdf_path) if source_pdf_path else None
     try:
+        if source_doc is not None:
+            copy_toc(source_doc, background_doc)
         save_optimized_pdf(background_doc, output_pdf_path)
     finally:
+        if source_doc is not None:
+            source_doc.close()
         background_doc.close()
 
 

@@ -231,6 +231,72 @@ mod tests {
         assert_eq!(job.error.as_deref(), Some("normalization timeout"));
     }
 
+    #[tokio::test]
+    async fn execute_process_job_preserves_timeout_process_output() {
+        let state = test_state("timeout-output");
+        let mut job = crate::models::JobSnapshot::new(
+            "job-timeout-output".to_string(),
+            CreateJobInput::default(),
+            vec![
+                "python3".to_string(),
+                "-c".to_string(),
+                "import sys, time; print('stdout-before-timeout', flush=True); print('stderr-before-timeout', file=sys.stderr, flush=True); time.sleep(5)".to_string(),
+            ],
+        )
+        .into_runtime();
+        job.request_payload.runtime.job_id = job.job_id.clone();
+        job.request_payload.runtime.timeout_seconds = 1;
+
+        let finished = execute_process_job(
+            ProcessRuntimeDeps::new(
+                state.config.clone(),
+                state.db.clone(),
+                state.canceled_jobs.clone(),
+                state.job_slots.clone(),
+            ),
+            job,
+            &[],
+        )
+        .await
+        .expect("execute process job");
+
+        assert_eq!(finished.status, JobStatusKind::Failed);
+        assert_eq!(finished.stage_detail.as_deref(), Some("provider timeout"));
+        let result = finished.result.as_ref().expect("process result");
+        assert!(!result.success);
+        assert_eq!(result.return_code, -1);
+        assert_eq!(
+            finished
+                .failure
+                .as_ref()
+                .and_then(|failure| failure.failure_code.as_deref()),
+            Some("process_timeout")
+        );
+        assert_eq!(
+            finished
+                .failure
+                .as_ref()
+                .and_then(|failure| failure.failure_category.as_deref()),
+            Some("timeout")
+        );
+        assert!(finished
+            .failure
+            .as_ref()
+            .and_then(|failure| failure.root_cause.as_deref())
+            .is_some_and(|root_cause| root_cause.contains("timeout_seconds=1")));
+        assert!(result.stdout.contains("stdout-before-timeout"));
+        assert!(result.stderr.contains("stderr-before-timeout"));
+        assert!(result.duration_seconds >= 1.0);
+        assert!(finished
+            .log_tail
+            .iter()
+            .any(|line| line.contains("stdout-before-timeout")));
+        assert!(finished
+            .log_tail
+            .iter()
+            .any(|line| line.contains("stderr-before-timeout")));
+    }
+
     #[test]
     fn apply_process_completion_marks_cancel_and_clears_runtime_artifacts() {
         let mut job = build_job();

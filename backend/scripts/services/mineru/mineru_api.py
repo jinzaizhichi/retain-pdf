@@ -1,6 +1,7 @@
 from __future__ import annotations
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -10,11 +11,70 @@ import sys
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from foundation.shared.local_env import get_secret
+from services.network.retry import RetainNetworkError
+from services.network.retry import RetainRateLimitError
+from services.network.retry import direct_session
+from services.network.retry import request_with_retry
 
 
 MINERU_BASE_URL = "https://mineru.net"
 MINERU_TOKEN_ENV = "MINERU_API_TOKEN"
 MINERU_ENV_FILE = "mineru.env"
+MINERU_RETRY_ATTEMPTS_ENV = "RETAIN_MINERU_RETRY_ATTEMPTS"
+MINERU_RETRY_BACKOFF_ENV = "RETAIN_MINERU_RETRY_BACKOFF_SECONDS"
+
+_SESSION: requests.Session | None = None
+
+
+class MinerUNetworkError(RetainNetworkError):
+    pass
+
+
+class MinerURateLimitError(RetainRateLimitError, MinerUNetworkError):
+    pass
+
+
+def _retry_attempts() -> int:
+    raw = os.environ.get(MINERU_RETRY_ATTEMPTS_ENV, "").strip()
+    try:
+        value = int(raw) if raw else 3
+    except ValueError:
+        value = 3
+    return max(1, value)
+
+
+def _retry_backoff_seconds() -> float:
+    raw = os.environ.get(MINERU_RETRY_BACKOFF_ENV, "").strip()
+    try:
+        value = float(raw) if raw else 0.5
+    except ValueError:
+        value = 0.5
+    return max(0.1, value)
+
+
+def _get_session() -> requests.Session:
+    global _SESSION
+    if _SESSION is None:
+        _SESSION = direct_session(pool_connections=8, pool_maxsize=8)
+    return _SESSION
+
+
+def request_mineru(method: str, url: str, *, timeout: int, **kwargs: Any) -> requests.Response:
+    try:
+        return request_with_retry(
+            _get_session(),
+            method,
+            url,
+            timeout=timeout,
+            attempts=_retry_attempts(),
+            backoff_seconds=_retry_backoff_seconds(),
+            label="MinerU",
+            **kwargs,
+        )
+    except RetainRateLimitError as err:
+        raise MinerURateLimitError(str(err)) from err
+    except RetainNetworkError as err:
+        raise MinerUNetworkError(str(err)) from err
 
 
 def build_headers(token: str) -> dict[str, str]:
@@ -26,8 +86,7 @@ def build_headers(token: str) -> dict[str, str]:
 
 
 def post_json(url: str, headers: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
-    response = requests.post(url, headers=headers, json=payload, timeout=120)
-    response.raise_for_status()
+    response = request_mineru("post", url, headers=headers, json=payload, timeout=120)
     data = response.json()
     if data.get("code") != 0:
         raise RuntimeError(f"MinerU API error: {data.get('msg', 'unknown error')}")
@@ -35,8 +94,7 @@ def post_json(url: str, headers: dict[str, str], payload: dict[str, Any]) -> dic
 
 
 def get_json(url: str, headers: dict[str, str]) -> dict[str, Any]:
-    response = requests.get(url, headers=headers, timeout=120)
-    response.raise_for_status()
+    response = request_mineru("get", url, headers=headers, timeout=120)
     data = response.json()
     if data.get("code") != 0:
         raise RuntimeError(f"MinerU API error: {data.get('msg', 'unknown error')}")
@@ -99,8 +157,7 @@ def apply_upload_url(
 
 def upload_file(upload_url: str, file_path: Path) -> None:
     with file_path.open("rb") as f:
-        response = requests.put(upload_url, data=f, timeout=300)
-    response.raise_for_status()
+        request_mineru("put", upload_url, data=f, timeout=300)
 
 
 def query_batch_status(token: str, batch_id: str) -> dict[str, Any]:

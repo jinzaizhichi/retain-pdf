@@ -3,7 +3,11 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 
-import requests
+from services.network.retry import RetainNetworkError
+from services.network.retry import direct_session
+from services.network.retry import request_with_retry
+
+_MARKDOWN_IMAGE_SESSION = direct_session(pool_connections=4, pool_maxsize=4)
 
 
 def job_markdown_dir(job_root: Path) -> Path:
@@ -19,8 +23,18 @@ def decode_paddle_markdown_image(payload: str) -> bytes:
     if not value:
         raise RuntimeError("empty markdown image payload")
     if value.startswith(("http://", "https://")):
-        response = requests.get(value, timeout=300)
-        response.raise_for_status()
+        try:
+            response = request_with_retry(
+                _MARKDOWN_IMAGE_SESSION,
+                "get",
+                value,
+                timeout=300,
+                attempts=3,
+                backoff_seconds=0.5,
+                label="Paddle markdown image",
+            )
+        except RetainNetworkError as err:
+            raise RuntimeError(f"download Paddle markdown image failed: {value}: {err}") from err
         return response.content
     if value.startswith("data:") and "," in value:
         _, encoded = value.split(",", 1)

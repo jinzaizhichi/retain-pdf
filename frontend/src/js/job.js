@@ -162,8 +162,10 @@ export function resolveJobActions(job) {
     || artifactActions.open_markdown_raw?.enabled
     || markdownContract.ready
   );
+  const rerunEnabled = Boolean(actions.rerun?.enabled ?? artifactActions.rerun?.enabled);
   return {
     cancelEnabled: Boolean(actions.cancel?.enabled ?? artifactActions.cancel?.enabled ?? (job.status === "queued" || job.status === "running")),
+    rerunEnabled,
     bundleEnabled,
     pdfEnabled,
     markdownJsonEnabled,
@@ -174,6 +176,15 @@ export function resolveJobActions(job) {
       actions.cancel_url,
       links.cancel_url,
       links.cancel_path,
+    )),
+    rerun: toAbsoluteApiUrl(firstNonEmpty(
+      actions.rerun?.url,
+      artifactActions.rerun?.url,
+      actions.rerun?.path,
+      artifactActions.rerun?.path,
+      actions.rerun_url,
+      links.rerun_url,
+      links.rerun_path,
     )),
     bundle: toAbsoluteApiUrl(firstNonEmpty(
       actions.download_bundle?.url,

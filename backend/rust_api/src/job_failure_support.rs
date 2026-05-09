@@ -73,6 +73,32 @@ pub(super) fn raw_diagnostic_from_text(error: &str, haystack: &str) -> Option<Jo
     })
 }
 
+pub(super) fn raw_diagnostic_from_process_result(job: &JobSnapshot) -> Option<JobRawDiagnostic> {
+    let result = job.result.as_ref()?;
+    let source = if !result.stderr.trim().is_empty() {
+        result.stderr.as_str()
+    } else if !result.stdout.trim().is_empty() {
+        result.stdout.as_str()
+    } else {
+        job.error.as_deref().unwrap_or("")
+    };
+    let traceback = extract_traceback(source);
+    let raw_exception_message = last_non_empty_line(source).or_else(|| {
+        Some(format!(
+            "process exited with code {}",
+            result.return_code
+        ))
+    });
+    Some(JobRawDiagnostic {
+        structured_error_type: None,
+        raw_exception_type: raw_exception_message
+            .as_deref()
+            .and_then(extract_exception_type),
+        raw_exception_message,
+        traceback,
+    })
+}
+
 pub(super) fn extract_traceback(text: &str) -> Option<String> {
     let start = text.find("Traceback (most recent call last):")?;
     Some(text[start..].trim().to_string())

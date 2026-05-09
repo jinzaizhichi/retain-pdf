@@ -51,7 +51,11 @@
         </article>
 
         <article class="detail-card">
-          <h2>失败诊断</h2>
+          <div class="detail-trigger-head">
+            <h2>失败诊断</h2>
+            <button id="detail-rerun-btn" type="button" class="detail-trigger-btn" disabled>从断点恢复/重新运行</button>
+          </div>
+          <p id="detail-rerun-status" class="detail-inline-note">失败后如后端允许，可基于已有产物创建恢复任务。</p>
           <div class="detail-meta-list">
             <div class="detail-meta-row"><span class="label">摘要</span><span id="detail-failure-summary" class="value">-</span></div>
             <div class="detail-meta-row"><span class="label">分类</span><span id="detail-failure-category" class="value">-</span></div>
@@ -66,6 +70,13 @@
         <article class="detail-card">
           <h2>提示 / 错误</h2>
           <pre id="detail-error-box" class="detail-log">-</pre>
+        </article>
+
+        <article class="detail-card detail-card-wide">
+          <h2>失败调试上下文</h2>
+          <div id="detail-failure-debug-context" class="detail-debug-context">
+            <div class="detail-empty">暂无结构化失败上下文</div>
+          </div>
         </article>
 
         <article class="detail-card">

@@ -86,11 +86,20 @@ curl -X POST http://127.0.0.1:41000/api/v1/uploads \
 常见必填：
 
 - `source.upload_id`：`book` / `translate` 常用。
-- `source.artifact_job_id`：`render` 使用。
+- `source.artifact_job_id`：阶段恢复使用。`translate` / `book` 复用 OCR checkpoint；`render` 复用翻译产物。
 - `ocr.provider`：`mineru` 或 `paddle`。
 - `ocr.mineru_token`：MinerU provider 需要。
 - `ocr.paddle_token`：Paddle provider 需要。
 - `translation.base_url` / `translation.api_key` / `translation.model`：需要翻译时使用。
+
+阶段恢复：
+
+- 自动恢复：`POST /api/v1/jobs/{job_id}/rerun`。后端会根据源任务产物创建一个新任务，不覆盖原任务。
+- 自动恢复选择策略：有 `translations_dir + source_pdf` 时创建 `workflow=render`；否则有 `normalized_document_json + source_pdf` 时创建 `workflow=book`；否则返回不可恢复错误。
+- 从已有 OCR 结果继续翻译：提交 `workflow=translate`，并设置 `source.artifact_job_id` 为源任务 ID。源任务需要有 `source_pdf` 和 `normalized_document_json` artifact。
+- 从已有 OCR 结果继续完整翻译并渲染：提交 `workflow=book`，并设置 `source.artifact_job_id` 为源任务 ID。
+- 从已有翻译结果重新渲染：提交 `workflow=render`，并设置 `source.artifact_job_id` 为源任务 ID。源任务需要有 `source_pdf` 和 `translations_dir` artifact。
+- 从 artifact 恢复不会重跑 OCR，因此不要求 OCR provider token；需要翻译的恢复任务仍要求 `translation.base_url` / `translation.api_key` / `translation.model`。
 
 响应重点：
 
@@ -304,13 +313,15 @@ DeepSeek：
 
 这些接口用于开发和排障。前端调试页会读取诊断摘要、单条翻译输入输出和 replay 结果。
 
-## 简便同步接口
+## multipart 异步提交接口
 
 - `POST /api/v1/translate/bundle`
 
 这个接口运行在 simple app，通常是 `42000` 端口；不是 `41000` 完整 API 的路由。
 
-它接受 multipart 表单，支持扁平字段映射，适合脚本一次性上传并等待 ZIP 结果。正式前端主流程仍推荐：
+它接受 multipart 表单，支持扁平字段映射，适合脚本一次性上传 PDF 并创建后台任务。接口返回 `ApiResponse<JobSubmissionView>`，不会等待 Python 完成，也不会同步返回 ZIP。
+
+调用方应读取返回的 `job_id` 后轮询任务详情，成功后通过 actions / artifacts 下载结果。正式前端主流程仍推荐：
 
 1. `POST /api/v1/uploads`
 2. `POST /api/v1/jobs`

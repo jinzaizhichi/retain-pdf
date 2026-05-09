@@ -77,6 +77,15 @@
   font-size: 15px;
 }
 
+.detail-page .detail-trigger-head h2 {
+  margin-bottom: 0;
+}
+
+.detail-page .detail-trigger-head + .detail-inline-note {
+  display: block;
+  margin: 8px 0 12px;
+}
+
 .detail-page .detail-meta-list {
   display: grid;
   gap: 10px;
@@ -150,6 +159,39 @@
   color: var(--ink);
   font-size: 12px;
   line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.detail-page .detail-debug-context {
+  display: grid;
+  gap: 10px;
+}
+
+.detail-page .detail-debug-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 180px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid #ececf1;
+  border-radius: 16px;
+  background: #fbfbfd;
+}
+
+.detail-page .detail-debug-label {
+  font-family: SF Mono, JetBrains Mono, monospace;
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.detail-page .detail-debug-value {
+  margin: 0;
+  font-family: SF Mono, JetBrains Mono, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

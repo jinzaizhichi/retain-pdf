@@ -73,7 +73,6 @@ impl<'a> JobSubmitDeps<'a> {
 #[derive(Clone)]
 pub(crate) struct BundleBuildDeps<'a> {
     pub(crate) submit: JobSubmitDeps<'a>,
-    pub(crate) downloads_lock: &'a Arc<Mutex<()>>,
 }
 
 impl<'a> BundleBuildDeps<'a> {}
@@ -142,21 +141,14 @@ impl<'a> QueryJobsDeps<'a> {
 pub(crate) struct CommandJobsDeps<'a> {
     pub(crate) db: &'a Db,
     pub(crate) submit: JobSubmitDeps<'a>,
-    pub(crate) downloads_lock: &'a Arc<Mutex<()>>,
     pub(crate) control: ControlDeps<'a>,
 }
 
 impl<'a> CommandJobsDeps<'a> {
-    pub(crate) fn new(
-        db: &'a Db,
-        submit: JobSubmitDeps<'a>,
-        downloads_lock: &'a Arc<Mutex<()>>,
-        control: ControlDeps<'a>,
-    ) -> Self {
+    pub(crate) fn new(db: &'a Db, submit: JobSubmitDeps<'a>, control: ControlDeps<'a>) -> Self {
         Self {
             db,
             submit,
-            downloads_lock,
             control,
         }
     }

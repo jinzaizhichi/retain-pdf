@@ -15,7 +15,7 @@ cargo run
 默认监听：
 
 - 完整 API：`http://127.0.0.1:41000`
-- 简便同步 API：`http://127.0.0.1:42000`
+- multipart 异步提交 API：`http://127.0.0.1:42000`
 
 ## 前端
 
@@ -53,7 +53,7 @@ Docker 中 `docker/delivery/docker/auth.local.json` 的 `api_keys` 必须和 `do
 - `RUST_API_PROJECT_ROOT`：项目根目录。
 - `RUST_API_BIND_HOST`：监听地址，默认 `0.0.0.0`。
 - `RUST_API_PORT`：完整 API 端口，默认 `41000`。
-- `RUST_API_SIMPLE_PORT`：简便同步端口，默认 `42000`。
+- `RUST_API_SIMPLE_PORT`：multipart 异步提交端口，默认 `42000`。
 - `RUST_API_DATA_ROOT`：运行时数据根目录。
 - `RUST_API_DATA_DIR`：旧别名，仅在 `RUST_API_DATA_ROOT` 未设置时使用。
 - `RUST_API_SCRIPTS_DIR`：Python 脚本目录。

@@ -5,7 +5,7 @@
 ## 基础规则
 
 - 完整 API 默认端口：`41000`。
-- 简便同步 API 默认端口：`42000`。
+- multipart 异步提交 API 默认端口：`42000`。
 - 健康检查：`GET /health`。
 - 业务前缀：`/api/v1`。
 - 除 `GET /health` 外，业务 API 默认需要 `X-API-Key`。
@@ -66,6 +66,17 @@ runtime: job_id, timeout_seconds
 ```
 
 OCR-only 不走这个 JSON 入口，使用 `POST /api/v1/ocr/jobs`。
+
+阶段恢复约定：
+
+- `POST /api/v1/jobs/{job_id}/rerun`：自动根据源任务已有产物创建新的恢复任务，不覆盖原任务。
+- `workflow=translate` + `source.artifact_job_id`：复用指定任务的 OCR checkpoint，只重跑翻译，不重跑 OCR。
+- `workflow=book` + `source.artifact_job_id`：复用指定任务的 OCR checkpoint，继续翻译并渲染。
+- `workflow=render` + `source.artifact_job_id`：复用指定任务的 `translations_dir`，只重跑渲染。
+
+`rerun` 的自动选择策略：如果源任务有 `translations_dir + source_pdf`，创建 `workflow=render`；否则如果有 `normalized_document_json + source_pdf`，创建 `workflow=book`；否则返回不可恢复错误。
+
+OCR checkpoint 要求源任务已有 `source_pdf` 和 `normalized_document_json` artifact。渲染恢复要求源任务已有 `source_pdf` 和 `translations_dir` artifact。从 artifact 恢复时仍需要 `translation.base_url` / `translation.api_key` / `translation.model`，但不再要求 OCR provider token。
 
 ## 任务详情契约
 
@@ -202,9 +213,11 @@ item 字段：
 
 任务提交时可通过 `translation.glossary_id` 引用命名术语表，也可通过 `translation.glossary_entries` 传 inline 条目。
 
-## 简便同步接口
+## multipart 异步提交接口
 
-`POST /api/v1/translate/bundle` 属于 simple app，通常监听 `42000`。它接受 multipart 扁平字段，适合脚本直接上传 PDF 并等待 ZIP。
+`POST /api/v1/translate/bundle` 属于 simple app，通常监听 `42000`。它接受 multipart 扁平字段，适合脚本直接上传 PDF 并创建后台翻译任务。
+
+该接口现在返回 `ApiResponse<JobSubmissionView>`，不会等待 Python OCR / 翻译 / 渲染完成，也不会同步返回 ZIP。调用方应读取返回的 `job_id`，再轮询任务详情，任务成功后通过 actions / artifacts 下载 ZIP 或 PDF。
 
 正式前端和第三方集成优先使用异步三段式：
 

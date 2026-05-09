@@ -6,6 +6,7 @@ use crate::services::glossaries::resolve_task_glossary_request;
 use crate::services::job_snapshot_factory::require_upload_path;
 use crate::services::job_validation::{
     validate_mineru_upload_limits, validate_ocr_provider_request, validate_provider_credentials,
+    validate_translation_credentials,
 };
 
 use super::context::SnapshotBuildDeps;
@@ -34,6 +35,19 @@ pub(super) fn prepare_full_pipeline_input(
     input: &CreateJobInput,
 ) -> Result<PreparedTranslationUpload, AppError> {
     let input = resolve_task_glossary_request(ctx.db, input)?;
+    if !input.source.artifact_job_id.trim().is_empty() {
+        validate_translation_credentials(&input)?;
+        if ctx.db.get_job(&input.source.artifact_job_id).is_err() {
+            return Err(AppError::not_found(format!(
+                "artifact job not found: {}",
+                input.source.artifact_job_id
+            )));
+        }
+        return Ok(PreparedTranslationUpload {
+            spec: ResolvedJobSpec::from_input(input),
+            upload_path: PathBuf::new(),
+        });
+    }
     let upload = require_translation_upload(ctx, &input)?;
     Ok(PreparedTranslationUpload {
         spec: ResolvedJobSpec::from_input(input),
@@ -46,7 +60,17 @@ pub(super) fn prepare_translate_only_input(
     input: &CreateJobInput,
 ) -> Result<PreparedTranslateOnlyInput, AppError> {
     let input = resolve_task_glossary_request(ctx.db, input)?;
-    let _ = require_translation_upload(ctx, &input)?;
+    if input.source.artifact_job_id.trim().is_empty() {
+        let _ = require_translation_upload(ctx, &input)?;
+    } else if ctx.db.get_job(&input.source.artifact_job_id).is_err() {
+        validate_translation_credentials(&input)?;
+        return Err(AppError::not_found(format!(
+            "artifact job not found: {}",
+            input.source.artifact_job_id
+        )));
+    } else {
+        validate_translation_credentials(&input)?;
+    }
     let mut spec = ResolvedJobSpec::from_input(input);
     spec.workflow = WorkflowKind::Translate;
     Ok(PreparedTranslateOnlyInput { spec })

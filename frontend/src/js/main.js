@@ -50,6 +50,7 @@ import {
   fetchTranslationItem,
   fetchTranslationItems,
   replayTranslationItem,
+  rerunJob,
   submitJobRequest,
   submitJson,
   submitUploadRequest,
@@ -213,6 +214,48 @@ async function checkApiConnectivity() {
   await appActionsFeature?.checkApiConnectivity();
 }
 
+async function openReaderFromButton(button) {
+  const url = `${button?.dataset?.url || ""}`.trim();
+  const disabled = button?.classList?.contains("disabled")
+    || button?.getAttribute?.("aria-disabled") === "true";
+  let jobId = "";
+  if (url) {
+    try {
+      jobId = new URL(url, window.location.href).searchParams.get("job_id")?.trim() || "";
+    } catch (_err) {
+      jobId = "";
+    }
+  }
+  if (!jobId) {
+    jobId = `${state.currentJobId || ""}`.trim();
+  }
+  const feature = await ensureReaderDialogFeature();
+  feature.open({
+    url,
+    jobId,
+    disabled,
+  });
+}
+
+function bindDynamicPrimaryActions() {
+  document.addEventListener("click", (event) => {
+    const detailButton = event.target?.closest?.("#status-detail-btn");
+    if (detailButton) {
+      event.preventDefault();
+      statusDetailFeature?.openStatusDetailDialog("overview");
+      return;
+    }
+
+    const readerButton = event.target?.closest?.("#reader-btn");
+    if (readerButton) {
+      event.preventDefault();
+      void openReaderFromButton(readerButton).catch((error) => {
+        setText("error-box", error.message || String(error));
+      });
+    }
+  });
+}
+
 async function initializePage() {
   const persistedConfig = await loadPersistedConfig();
   const browserStored = persistedConfig.browserConfig || {};
@@ -366,6 +409,9 @@ async function initializePage() {
     fetchTranslationItems,
     fetchTranslationItem,
     replayTranslationItem,
+    rerunJob,
+    startPolling: (jobId) => jobRuntimeFeature?.startPolling(jobId),
+    setText,
   });
   jobRuntimeFeature = mountJobRuntimeFeature({
     state,
@@ -403,34 +449,7 @@ async function initializePage() {
   $("page-range-clear-btn")?.addEventListener("click", () => uploadFeature?.clearPageRanges());
   $("cancel-btn")?.addEventListener("click", () => jobRuntimeFeature?.cancelCurrentJob());
   $("stop-btn")?.addEventListener("click", () => jobRuntimeFeature?.stopPolling());
-  $("reader-btn")?.addEventListener("click", async (event) => {
-    event.preventDefault();
-    const currentTarget = event.currentTarget;
-    const url = `${currentTarget?.dataset?.url || ""}`.trim();
-    const disabled = currentTarget?.classList?.contains("disabled")
-      || currentTarget?.getAttribute?.("aria-disabled") === "true";
-    let jobId = "";
-    if (url) {
-      try {
-        jobId = new URL(url, window.location.href).searchParams.get("job_id")?.trim() || "";
-      } catch (_err) {
-        jobId = "";
-      }
-    }
-    if (!jobId) {
-      jobId = `${state.currentJobId || ""}`.trim();
-    }
-    try {
-      const feature = await ensureReaderDialogFeature();
-      feature.open({
-        url,
-        jobId,
-        disabled,
-      });
-    } catch (error) {
-      setText("error-box", error.message || String(error));
-    }
-  });
+  bindDynamicPrimaryActions();
   $("back-home-btn")?.addEventListener("click", () => jobRuntimeFeature?.returnToHome());
   $("open-output-btn")?.addEventListener("click", handleOpenOutputDir);
   appShellFeature.initializeIdleView();

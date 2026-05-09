@@ -14,7 +14,10 @@ pub fn validate_provider_credentials(input: &CreateJobInput) -> Result<(), AppEr
     let provider_kind = require_supported_provider(input.ocr.provider.trim())
         .map_err(|err| AppError::bad_request(err.to_string()))?;
     validate_provider_token(input, &provider_kind)?;
+    validate_translation_credentials(input)
+}
 
+pub fn validate_translation_credentials(input: &CreateJobInput) -> Result<(), AppError> {
     let base_url = input.translation.base_url.trim();
     if base_url.is_empty() {
         return Err(AppError::bad_request("base_url is required"));
@@ -70,13 +73,7 @@ pub fn validate_mineru_upload_limits(
 ) -> Result<(), AppError> {
     match parse_provider_kind(&input.ocr.provider) {
         OcrProviderKind::Mineru => {
-            validate_upload_limit(
-                upload,
-                "MinerU",
-                MINERU_MAX_BYTES,
-                MINERU_MAX_PAGES,
-                false,
-            )?;
+            validate_upload_limit(upload, "MinerU", MINERU_MAX_BYTES, MINERU_MAX_PAGES, false)?;
         }
         OcrProviderKind::Paddle => {
             validate_upload_limit(
@@ -105,7 +102,11 @@ fn validate_upload_limit(
         upload.bytes >= max_bytes
     };
     if too_large {
-        let relation = if bytes_inclusive { "不超过" } else { "小于" };
+        let relation = if bytes_inclusive {
+            "不超过"
+        } else {
+            "小于"
+        };
         return Err(AppError::bad_request(format!(
             "{provider_name} API 限制：PDF 文件大小必须{relation} {:.0}MB；当前文件为 {:.2}MB",
             max_bytes as f64 / 1024.0 / 1024.0,

@@ -70,3 +70,17 @@ def test_direct_typst_protocol_shell_is_classified_as_translation_not_render():
     assert payload["failed_stage"] == "translation"
     assert payload["failure_category"] == "translation"
     assert payload["failure_code"] == "translation_protocol_shell"
+
+
+def test_rate_limit_errors_are_classified_as_retryable_rate_limit():
+    try:
+        raise RuntimeError("Paddle OCR rate limited after 3 attempts: too many requests retry-after=60")
+    except RuntimeError as exc:
+        failure = classify_exception(exc, default_stage="provider", provider="paddle")
+
+    payload = json.loads(failure.to_json())
+    assert payload["failed_stage"] == "provider"
+    assert payload["failure_code"] == "upstream_rate_limited"
+    assert payload["failure_category"] == "rate_limit"
+    assert payload["retryable"] is True
+    assert "限流" in payload["summary"]

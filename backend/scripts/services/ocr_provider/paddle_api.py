@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from foundation.shared.local_env import get_secret
+from services.network.retry import RetainNetworkError
+from services.network.retry import RetainRateLimitError
+from services.network.retry import direct_session
+from services.network.retry import request_with_retry
 
 
 PADDLE_BASE_URL = "https://paddleocr.aistudio-app.com"
@@ -18,8 +20,15 @@ PADDLE_TOKEN_ENV = "RETAIN_PADDLE_API_TOKEN"
 PADDLE_ENV_FILE = "paddle.env"
 PADDLE_RETRY_ATTEMPTS_ENV = "RETAIN_PADDLE_RETRY_ATTEMPTS"
 PADDLE_RETRY_BACKOFF_ENV = "RETAIN_PADDLE_RETRY_BACKOFF_SECONDS"
-
 _SESSION: requests.Session | None = None
+
+
+class PaddleNetworkError(RetainNetworkError):
+    pass
+
+
+class PaddleRateLimitError(RetainRateLimitError, PaddleNetworkError):
+    pass
 
 
 def get_paddle_token(*, explicit_value: str = "") -> str:
@@ -68,21 +77,7 @@ def _retry_backoff_seconds() -> float:
 
 
 def _build_session() -> requests.Session:
-    session = requests.Session()
-    session.trust_env = False
-    session.proxies.clear()
-    retry = Retry(
-        total=0,
-        connect=0,
-        read=0,
-        redirect=0,
-        status=0,
-        backoff_factor=0,
-    )
-    adapter = HTTPAdapter(max_retries=retry, pool_connections=8, pool_maxsize=8)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    return session
+    return direct_session(pool_connections=8, pool_maxsize=8)
 
 
 def _get_session() -> requests.Session:
@@ -93,22 +88,21 @@ def _get_session() -> requests.Session:
 
 
 def _request_with_retry(method: str, url: str, *, timeout: int, **kwargs: Any) -> requests.Response:
-    attempts = _retry_attempts()
-    backoff_seconds = _retry_backoff_seconds()
-    last_error: Exception | None = None
-    session = _get_session()
-    for attempt in range(1, attempts + 1):
-        try:
-            response = session.request(method, url, timeout=timeout, **kwargs)
-            response.raise_for_status()
-            return response
-        except (requests.Timeout, requests.ConnectionError, requests.RequestException) as err:
-            last_error = err
-            if attempt >= attempts:
-                break
-            time.sleep(backoff_seconds * attempt)
-    assert last_error is not None
-    raise last_error
+    try:
+        return request_with_retry(
+            _get_session(),
+            method,
+            url,
+            timeout=timeout,
+            attempts=_retry_attempts(),
+            backoff_seconds=_retry_backoff_seconds(),
+            label="Paddle OCR",
+            **kwargs,
+        )
+    except RetainRateLimitError as err:
+        raise PaddleRateLimitError(str(err)) from err
+    except RetainNetworkError as err:
+        raise PaddleNetworkError(str(err)) from err
 
 
 def build_optional_payload(model: str) -> dict[str, Any]:

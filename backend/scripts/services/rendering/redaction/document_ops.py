@@ -2,6 +2,7 @@ from pathlib import Path
 
 import fitz
 
+from services.rendering.pdf_metadata import copy_toc
 from services.rendering.redaction.redaction_analysis import page_has_large_background_image
 
 
@@ -56,6 +57,7 @@ def extract_single_page_pdf(source_pdf_path: Path, output_pdf_path: Path, page_i
     source_doc = fitz.open(source_pdf_path)
     output_doc = fitz.open()
     output_doc.insert_pdf(source_doc, from_page=page_idx, to_page=page_idx)
+    copy_toc(source_doc, output_doc, start_page=page_idx, end_page=page_idx)
     strip_page_links(output_doc[0])
     save_optimized_pdf(output_doc, output_pdf_path)
     output_doc.close()

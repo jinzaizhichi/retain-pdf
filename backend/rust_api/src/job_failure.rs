@@ -11,8 +11,9 @@ use self::job_failure_structured::{
 };
 use self::job_failure_support::{
     build_failure, contains_render_failure_signal, extract_upstream_host, first_error_excerpt,
-    infer_failed_stage, provider_name, raw_diagnostic_from_structured, raw_diagnostic_from_text,
-    select_relevant_log_line, unknown_root_cause,
+    infer_failed_stage, provider_name, raw_diagnostic_from_process_result,
+    raw_diagnostic_from_structured, raw_diagnostic_from_text, select_relevant_log_line,
+    unknown_root_cause,
 };
 
 pub const STRUCTURED_FAILURE_LABEL: &str = "structured failure json";
@@ -120,6 +121,31 @@ pub fn classify_job_failure(job: &JobSnapshot) -> Option<JobFailureInfo> {
             ),
             first_error_excerpt(error, &haystack),
             raw_diagnostic.clone(),
+        ));
+    }
+
+    if job
+        .result
+        .as_ref()
+        .is_some_and(|result| !result.success && result.return_code == -1)
+    {
+        let timeout_seconds = job.request_payload.runtime.timeout_seconds;
+        return Some(build_failure(
+            failed_stage,
+            "process_timeout",
+            Some("timeout".to_string()),
+            "Python worker 执行超时",
+            Some(format!(
+                "Python 子进程超过运行时超时阈值后被终止（timeout_seconds={timeout_seconds}）"
+            )),
+            true,
+            extract_upstream_host(&haystack),
+            provider_name(diagnostics),
+            Some("可从断点恢复或重试；若频繁发生，建议降低并发、增大 timeout_seconds，或检查上游网络耗时".to_string()),
+            select_relevant_log_line(job, error, &["timeout", "timed out", "stderr before timeout"]),
+            first_error_excerpt(error, &haystack),
+            raw_diagnostic_from_process_result(job)
+                .or_else(|| raw_diagnostic.clone()),
         ));
     }
 
@@ -281,6 +307,27 @@ pub fn classify_job_failure(job: &JobSnapshot) -> Option<JobFailureInfo> {
             ),
             first_error_excerpt(error, &haystack),
             raw_diagnostic.clone(),
+        ));
+    }
+
+    if let Some(result) = job.result.as_ref().filter(|result| !result.success) {
+        return Some(build_failure(
+            failed_stage,
+            "process_exit_failed",
+            Some(format!("exit_code_{}", result.return_code)),
+            "Python worker 非零退出",
+            Some(format!(
+                "Python 子进程返回非零退出码 {}，但未匹配到更具体的失败分类",
+                result.return_code
+            )),
+            true,
+            extract_upstream_host(&haystack),
+            provider_name(diagnostics),
+            Some("查看 raw_exception_message、traceback 和 log_tail；如果已有中间产物，可尝试从断点恢复".to_string()),
+            select_relevant_log_line(job, error, &[]),
+            first_error_excerpt(error, &haystack),
+            raw_diagnostic_from_process_result(job)
+                .or_else(|| raw_diagnostic.clone()),
         ));
     }
 
@@ -460,5 +507,40 @@ mod tests {
         assert_eq!(failure.stage, "normalization");
         assert_eq!(failure.summary, "源 PDF 缺失");
         assert!(!failure.retryable);
+    }
+
+    #[test]
+    fn classify_job_failure_maps_unknown_process_exit() {
+        let mut job = crate::models::JobSnapshot::new(
+            "job-process-exit".to_string(),
+            CreateJobInput::default(),
+            vec!["python".to_string()],
+        );
+        job.status = crate::models::JobStatusKind::Failed;
+        job.stage = Some("failed".to_string());
+        job.stage_detail = Some("Python worker 执行失败".to_string());
+        job.error = Some("plain worker failure".to_string());
+        job.result = Some(crate::models::ProcessResult {
+            success: false,
+            return_code: 17,
+            duration_seconds: 0.5,
+            command: vec!["python".to_string()],
+            cwd: "/tmp".to_string(),
+            stdout: "".to_string(),
+            stderr: "CustomWorkerError: bad state".to_string(),
+        });
+
+        let failure = classify_job_failure(&job).expect("failure");
+        assert_eq!(failure.category, "process_exit_failed");
+        assert_eq!(failure.failure_code.as_deref(), Some("process_exit_failed"));
+        assert_eq!(failure.failure_category.as_deref(), Some("internal"));
+        assert_eq!(failure.provider_code.as_deref(), Some("exit_code_17"));
+        assert_eq!(
+            failure
+                .raw_diagnostic
+                .as_ref()
+                .and_then(|item| item.raw_exception_type.as_deref()),
+            Some("CustomWorkerError")
+        );
     }
 }

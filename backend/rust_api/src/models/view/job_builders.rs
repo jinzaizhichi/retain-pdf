@@ -62,6 +62,31 @@ fn can_cancel(status: &JobStatusKind) -> bool {
     matches!(status, JobStatusKind::Queued | JobStatusKind::Running)
 }
 
+fn can_rerun(job: &JobSnapshot) -> bool {
+    if matches!(job.workflow, WorkflowKind::Ocr) {
+        return false;
+    }
+    let Some(artifacts) = job.artifacts.as_ref() else {
+        return false;
+    };
+    let has_source_pdf = artifacts
+        .source_pdf
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+    let has_translations = artifacts
+        .translations_dir
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+    let has_normalized = artifacts
+        .normalized_document_json
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+    has_source_pdf && (has_translations || has_normalized)
+}
+
 fn action_link(enabled: bool, method: &str, path: String, base_url: &str) -> ActionLinkView {
     ActionLinkView {
         enabled,
@@ -80,6 +105,7 @@ pub fn build_job_actions(
 ) -> JobActionsView {
     let prefix = job_path_prefix(&job.workflow);
     let cancel_path = format!("{prefix}/{}/cancel", job.job_id);
+    let rerun_path = format!("{prefix}/{}/rerun", job.job_id);
     let pdf_path = format!("{prefix}/{}/pdf", job.job_id);
     let markdown_path = format!("{prefix}/{}/markdown", job.job_id);
     let bundle_path = format!("{prefix}/{}/download", job.job_id);
@@ -89,6 +115,7 @@ pub fn build_job_actions(
         open_job: action_link(true, "GET", self_path, base_url),
         open_artifacts: action_link(true, "GET", artifacts_path, base_url),
         cancel: action_link(can_cancel(&job.status), "POST", cancel_path, base_url),
+        rerun: action_link(can_rerun(job), "POST", rerun_path, base_url),
         download_pdf: action_link(pdf_ready, "GET", pdf_path, base_url),
         open_markdown: action_link(markdown_ready, "GET", markdown_path.clone(), base_url),
         open_markdown_raw: action_link(

@@ -7,6 +7,7 @@ import {
   fetchJobMarkdown,
   fetchJobPayload,
   fetchProtected,
+  rerunJob,
 } from "./network.js";
 import {
   collectMarkdownImageRefs,
@@ -37,6 +38,7 @@ const detailPageState = {
   markdownImageUrls: [],
   eventsPayload: null,
   eventsLoadingPromise: null,
+  rerunActionUrl: "",
 };
 
 function getJobIdFromQuery() {
@@ -58,6 +60,16 @@ function setActionLink(id, url, enabled) {
   el.href = enabled && url ? url : "#";
   el.classList.toggle("disabled", !enabled);
   el.setAttribute("aria-disabled", enabled ? "false" : "true");
+}
+
+function firstJobIdFromPayload(payload) {
+  return firstNonEmptyText(
+    payload?.job_id,
+    payload?.data?.job_id,
+    payload?.job?.job_id,
+    payload?.job?.id,
+    payload?.id,
+  );
 }
 
 function buildReaderPageUrl(jobId) {
@@ -148,6 +160,72 @@ function firstNonEmptyText(...values) {
     }
   }
   return "";
+}
+
+function firstDefinedValue(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && `${value}`.trim() !== "") {
+      return value;
+    }
+  }
+  return "";
+}
+
+function stringifyDebugValue(value) {
+  if (value == null || value === "") {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return `${value}`;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch (_error) {
+    return String(value);
+  }
+}
+
+function renderFailureDebugContext(job) {
+  const container = $("detail-failure-debug-context");
+  if (!container) {
+    return;
+  }
+  const failure = job?.failure || {};
+  const diagnostic = job?.failure_diagnostic || {};
+  const rawDiagnostic = failure?.raw_diagnostic || diagnostic?.raw_diagnostic || {};
+  const logTail = Array.isArray(job?.log_tail) ? job.log_tail.filter(Boolean).slice(-8) : [];
+  const rows = [
+    ["failed_stage", firstDefinedValue(failure.failed_stage, failure.stage, diagnostic.failed_stage, diagnostic.stage, job?.stage)],
+    ["failure_code", firstDefinedValue(failure.failure_code, failure.code, diagnostic.failure_code, diagnostic.code)],
+    ["failure_category", firstDefinedValue(failure.failure_category, failure.category, diagnostic.failure_category, diagnostic.category)],
+    ["error_type", firstDefinedValue(failure.error_type, diagnostic.error_type, diagnostic.type, diagnostic.error_kind)],
+    ["provider", firstDefinedValue(failure.provider, diagnostic.provider)],
+    ["provider_stage", firstDefinedValue(failure.provider_stage, diagnostic.provider_stage)],
+    ["provider_code", firstDefinedValue(failure.provider_code, diagnostic.provider_code)],
+    ["upstream_host", firstDefinedValue(failure.upstream_host, diagnostic.upstream_host)],
+    ["retryable", firstDefinedValue(failure.retryable, diagnostic.retryable)],
+    ["raw_exception_type", firstDefinedValue(failure.raw_exception_type, diagnostic.raw_exception_type, rawDiagnostic.raw_exception_type)],
+    ["raw_exception_message", firstDefinedValue(failure.raw_exception_message, diagnostic.raw_exception_message, rawDiagnostic.raw_exception_message)],
+    ["raw_excerpt", firstDefinedValue(failure.raw_excerpt, diagnostic.raw_excerpt)],
+    ["traceback", firstDefinedValue(failure.traceback, diagnostic.traceback, rawDiagnostic.traceback)],
+    ["log_tail", logTail.length ? logTail.join("\n") : ""],
+  ]
+    .map(([label, value]) => [label, stringifyDebugValue(value)])
+    .filter(([, value]) => value);
+
+  if (!rows.length) {
+    container.innerHTML = '<div class="detail-empty">暂无结构化失败上下文</div>';
+    return;
+  }
+  container.innerHTML = rows.map(([label, value]) => `
+    <div class="detail-debug-row">
+      <div class="detail-debug-label">${escapeHtml(label)}</div>
+      <pre class="detail-debug-value">${escapeHtml(value)}</pre>
+    </div>
+  `).join("");
 }
 
 function numberOrNull(value) {
@@ -702,10 +780,39 @@ function bindEventsLauncher() {
   });
 }
 
+function bindRerunButton() {
+  $("detail-rerun-btn")?.addEventListener("click", async () => {
+    const button = $("detail-rerun-btn");
+    const actionUrl = `${detailPageState.rerunActionUrl || ""}`.trim();
+    if (!button || !actionUrl) {
+      setText("detail-rerun-status", "当前任务暂不可从断点恢复。");
+      return;
+    }
+    button.disabled = true;
+    setText("detail-rerun-status", "正在提交恢复任务...");
+    try {
+      const payload = await rerunJob(actionUrl);
+      const nextJobId = firstJobIdFromPayload(payload);
+      if (!nextJobId) {
+        setText("detail-rerun-status", "恢复任务已提交，但响应中没有 job_id。");
+        return;
+      }
+      setText("detail-rerun-status", `已创建恢复任务 ${nextJobId}，正在跳转...`);
+      window.location.href = buildFrontendPageUrl("./detail.html", {
+        job_id: nextJobId,
+      });
+    } catch (error) {
+      setText("detail-rerun-status", error.message || String(error));
+      button.disabled = false;
+    }
+  });
+}
+
 async function initializePage() {
   bindDetailModals();
   bindStageHistoryLauncher();
   bindEventsLauncher();
+  bindRerunButton();
   bindProtectedDownloadLink("detail-pdf-btn", (jobId) => `${jobId}.pdf`);
   bindProtectedDownloadLink("detail-markdown-raw-btn", (jobId) => `${jobId}.md`);
   bindProtectedDownloadLink("detail-markdown-json-btn", (jobId) => `${jobId}-markdown.json`);
@@ -728,6 +835,7 @@ async function initializePage() {
   detailPageState.manifestPayload = manifestPayload;
   const durations = resolveLiveDurations(job);
   const actions = resolveJobActions(job);
+  detailPageState.rerunActionUrl = actions.rerun;
   renderArtifactsManifest(manifestPayload);
   renderMarkdownContract(job, null);
 
@@ -771,6 +879,17 @@ async function initializePage() {
   setText("detail-failure-suggestion", summarizeRuntimeField(failure.suggestion || failureDiagnostic.suggestion || failure.failure_code));
   setText("detail-failure-last-log-line", summarizeRuntimeField(failureLastLogLine));
   setText("detail-failure-retryable", typeof retryable === "boolean" ? (retryable ? "是" : "否") : "-");
+  renderFailureDebugContext(job);
+  const rerunEnabled = actions.rerunEnabled && !!actions.rerun;
+  if ($("detail-rerun-btn")) {
+    $("detail-rerun-btn").disabled = !rerunEnabled;
+  }
+  setText(
+    "detail-rerun-status",
+    rerunEnabled
+      ? "后端支持从当前任务产物创建恢复任务。"
+      : "当前任务暂不可从断点恢复。",
+  );
   setText("detail-error-box", summarizePublicError(job));
   setEventsStatus("尚未加载");
 

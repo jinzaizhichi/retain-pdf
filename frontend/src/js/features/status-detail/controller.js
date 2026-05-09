@@ -1,5 +1,6 @@
 import { $ } from "../../dom.js";
 import { buildFrontendPageUrl } from "../../config.js";
+import { resolveJobActions } from "../../job.js";
 
 function escapeHtml(value) {
   return `${value ?? ""}`
@@ -154,6 +155,9 @@ export function mountStatusDetailFeature({
   fetchTranslationItems,
   fetchTranslationItem,
   replayTranslationItem,
+  rerunJob,
+  startPolling,
+  setText,
 } = {}) {
   const translationState = {
     jobId: "",
@@ -188,6 +192,54 @@ export function mountStatusDetailFeature({
 
   function getCurrentJobId() {
     return `${state?.currentJobId || ""}`.trim();
+  }
+
+  function firstJobIdFromPayload(payload) {
+    return firstNonEmptyText(
+      payload?.job_id,
+      payload?.data?.job_id,
+      payload?.job?.job_id,
+      payload?.job?.id,
+      payload?.id,
+    );
+  }
+
+  function syncRerunAction(statusText = "") {
+    const job = state?.currentJobSnapshot || null;
+    const actions = job ? resolveJobActions(job) : {};
+    const enabled = Boolean(actions.rerunEnabled && actions.rerun);
+    dialogComponent()?.setRerunAction?.({
+      enabled,
+      status: statusText || (enabled
+        ? "后端支持从当前任务产物创建恢复任务。"
+        : "当前任务暂不可从断点恢复。"),
+    });
+    return actions.rerun || "";
+  }
+
+  async function rerunCurrentJob() {
+    const actionUrl = syncRerunAction("正在提交恢复任务...");
+    const button = $("failure-rerun-btn");
+    if (button) {
+      button.disabled = true;
+    }
+    if (!actionUrl) {
+      syncRerunAction("当前任务暂不可从断点恢复。");
+      return;
+    }
+    try {
+      const payload = await rerunJob(actionUrl);
+      const nextJobId = firstJobIdFromPayload(payload);
+      if (!nextJobId) {
+        syncRerunAction("恢复任务已提交，但响应中没有 job_id。");
+        return;
+      }
+      dialogComponent()?.close?.();
+      setText?.("error-box", `已创建恢复任务 ${nextJobId}，开始轮询。`);
+      startPolling?.(nextJobId);
+    } catch (error) {
+      syncRerunAction(error.message || String(error));
+    }
   }
 
   function activateDetailTab(name = "overview") {
@@ -616,6 +668,9 @@ export function mountStatusDetailFeature({
         });
       });
     });
+    $("failure-rerun-btn")?.addEventListener("click", () => {
+      void rerunCurrentJob();
+    });
   }
 
   return {
@@ -624,5 +679,6 @@ export function mountStatusDetailFeature({
     openStatusDetailDialog,
     buildDetailPageUrl,
     ensureTranslationData,
+    syncRerunAction,
   };
 }

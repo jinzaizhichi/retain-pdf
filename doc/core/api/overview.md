@@ -4,7 +4,7 @@
 
 - `40001`：Docker 交付前端页面。
 - `41000`：Rust 完整 API，包含上传、任务、产物、Provider 校验等接口。
-- `42000`：简便同步 API，主要提供 `POST /api/v1/translate/bundle`。
+- `42000`：multipart 异步提交 API，主要提供 `POST /api/v1/translate/bundle`。
 - `GET /health`：健康检查，不需要 `X-API-Key`。
 - `/api/v1`：业务 API 前缀，需要 `X-API-Key`。
 

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import fitz
 
+from services.rendering.pdf_metadata import copy_toc
 from services.rendering.redaction.document_ops import save_optimized_pdf, strip_page_links
 from services.rendering.redaction.text_draw import apply_translated_items_to_page
 
@@ -32,6 +33,7 @@ def build_single_page_dev_pdf(
     temp_doc = fitz.open()
     source_doc = fitz.open(source_pdf_path)
     temp_doc.insert_pdf(source_doc, from_page=page_idx, to_page=page_idx)
+    copy_toc(source_doc, temp_doc, start_page=page_idx, end_page=page_idx)
     page = temp_doc[0]
     strip_page_links(page)
     apply_translated_items_to_page(page, translated_items, font_path)

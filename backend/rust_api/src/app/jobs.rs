@@ -46,7 +46,7 @@ pub fn build_jobs_facade_from_state(state: &AppState) -> JobsFacade<'_> {
     );
     let replay = ReplayDeps::new(state.config.as_ref(), &state.config.data_root);
     build_jobs_facade(
-        CommandJobsDeps::new(state.db.as_ref(), submit, &state.downloads_lock, control),
+        CommandJobsDeps::new(state.db.as_ref(), submit, control),
         QueryJobsDeps::new(
             state.db.as_ref(),
             state.config.as_ref(),

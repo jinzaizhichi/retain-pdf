@@ -13,6 +13,7 @@ use crate::services::job_launcher::JobLaunchDeps;
 use crate::services::runtime_gateway::JobRuntimeLauncher;
 use crate::AppState;
 
+use super::bundle::create_translation_bundle_job;
 use super::context::{JobSubmitDeps, SnapshotBuildDeps, UploadStoreDeps};
 use super::job_builders::{build_ocr_job_snapshot, build_translation_job_snapshot};
 use super::submit::create_translation_job;
@@ -215,6 +216,28 @@ fn seed_render_source_job(state: &AppState, job_id: &str) {
     state.db.save_job(&job).expect("save source job");
 }
 
+fn seed_ocr_checkpoint_source_job(state: &AppState, job_id: &str) {
+    let source_root = state.config.output_root.join("source-job");
+    let source_pdf = source_root.join("source/input.pdf");
+    let normalized_json = source_root.join("ocr/normalized/document.v1.json");
+    let report_json = source_root.join("ocr/normalized/document.v1.report.json");
+    std::fs::create_dir_all(source_pdf.parent().unwrap()).expect("source dir");
+    std::fs::create_dir_all(normalized_json.parent().unwrap()).expect("normalized dir");
+    std::fs::write(&source_pdf, build_test_pdf_bytes()).expect("write source pdf");
+    std::fs::write(&normalized_json, b"{}").expect("write normalized json");
+    std::fs::write(&report_json, b"{}").expect("write report json");
+
+    let mut input = base_translation_input(WorkflowKind::Ocr);
+    input.runtime.job_id = job_id.to_string();
+    let mut job = JobSnapshot::new(job_id.to_string(), input, vec!["noop".to_string()]);
+    if let Some(artifacts) = job.artifacts.as_mut() {
+        artifacts.source_pdf = Some(source_pdf.to_string_lossy().to_string());
+        artifacts.normalized_document_json = Some(normalized_json.to_string_lossy().to_string());
+        artifacts.normalization_report_json = Some(report_json.to_string_lossy().to_string());
+    }
+    state.db.save_job(&job).expect("save source job");
+}
+
 #[test]
 fn create_translation_job_rejects_missing_upload_id_for_translate_workflow() {
     let state = test_state("translate-missing-upload");
@@ -226,6 +249,24 @@ fn create_translation_job_rejects_missing_upload_id_for_translate_workflow() {
         AppError::BadRequest(message) => assert_eq!(message, "upload_id is required"),
         other => panic!("unexpected error: {other:?}"),
     }
+}
+
+#[test]
+fn create_translation_job_allows_translate_workflow_from_existing_artifact_job() {
+    let state = test_state("translate-artifact-source");
+    seed_ocr_checkpoint_source_job(&state, "ocr-source-job");
+    let mut input = base_translation_input(WorkflowKind::Translate);
+    input.source.artifact_job_id = "ocr-source-job".to_string();
+
+    let job = create_translation_job(&submit_context(&state), &input)
+        .expect("create translate job from artifact source");
+
+    assert_eq!(job.workflow, WorkflowKind::Translate);
+    assert_eq!(job.request_payload.source.artifact_job_id, "ocr-source-job");
+    assert_eq!(
+        job.command,
+        vec!["translate-workflow-pending-ocr".to_string()]
+    );
 }
 
 #[test]
@@ -292,6 +333,42 @@ async fn store_pdf_upload_repairs_bad_xref_pdf() {
     assert_eq!(repaired_doc.get_pages().len(), 1);
 }
 
+#[tokio::test]
+async fn create_translation_bundle_job_returns_queued_job_without_waiting() {
+    let state = test_state("bundle-job-async");
+    let mut input = base_translation_input(WorkflowKind::Book);
+    input.ocr.poll_timeout = 1;
+
+    let job = create_translation_bundle_job(
+        &super::context::BundleBuildDeps {
+            submit: submit_context(&state),
+        },
+        input,
+        UploadedPdfInput {
+            filename: "input.pdf".to_string(),
+            bytes: build_test_pdf_bytes(),
+            developer_mode: false,
+        },
+    )
+    .await
+    .expect("bundle endpoint should create async job");
+
+    assert_eq!(job.workflow, WorkflowKind::Book);
+    assert_eq!(job.status, crate::models::JobStatusKind::Queued);
+    assert!(job.finished_at.is_none());
+    assert!(state
+        .db
+        .get_job(&job.job_id)
+        .expect("persisted job")
+        .finished_at
+        .is_none());
+    assert!(!state
+        .config
+        .downloads_dir
+        .join(format!("{}.zip", job.job_id))
+        .exists());
+}
+
 #[test]
 fn build_translation_job_snapshot_for_full_pipeline_succeeds() {
     let state = test_state("full-pipeline-success");
@@ -309,6 +386,26 @@ fn build_translation_job_snapshot_for_full_pipeline_succeeds() {
         .as_ref()
         .and_then(|a| a.job_root.as_ref())
         .is_some());
+}
+
+#[test]
+fn build_translation_job_snapshot_for_book_succeeds_with_existing_ocr_artifact_job() {
+    let state = test_state("book-artifact-source");
+    seed_ocr_checkpoint_source_job(&state, "ocr-source-job");
+    let mut input = base_translation_input(WorkflowKind::Book);
+    input.source.artifact_job_id = "ocr-source-job".to_string();
+    input.ocr.mineru_token = String::new();
+
+    let job = build_translation_job_snapshot(&snapshot_context(&state), &input)
+        .expect("build book snapshot from artifact source");
+
+    assert_eq!(job.workflow, WorkflowKind::Book);
+    assert_eq!(job.request_payload.source.artifact_job_id, "ocr-source-job");
+    assert_eq!(
+        job.command,
+        vec!["book-workflow-pending-artifacts".to_string()]
+    );
+    assert_eq!(job.stage.as_deref(), Some("queued"));
 }
 
 #[test]

@@ -2559,6 +2559,10 @@
     word-break: break-word;
   }
 
+  .failure-action-row {
+    @apply mb-3 flex flex-wrap items-center gap-3;
+  }
+
   .detail-tab-panel .status-panel {
     min-height: 100%;
   }

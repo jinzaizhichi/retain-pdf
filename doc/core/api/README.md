@@ -16,7 +16,7 @@
 
 - 除 `GET /health` 外，`/api/v1/*` 默认都需要 `X-API-Key`。
 - `POST /api/v1/jobs` 只接受 grouped JSON：`source / ocr / translation / render / runtime`。
-- 旧扁平字段只保留在 multipart 辅助入口，例如 OCR-only 和简便同步接口。
+- 旧扁平字段只保留在 multipart 辅助入口，例如 OCR-only 和 `POST /api/v1/translate/bundle`。
 - 前端状态和下载按钮应优先读取 `actions`、`artifacts`、`artifacts-manifest`，不要只靠 `status` 推断文件是否可用。
 
 ## 实现参考

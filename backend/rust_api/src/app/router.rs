@@ -118,6 +118,7 @@ pub fn build_app(state: AppState) -> Router {
         )
         .route("/api/v1/jobs/:job_id/download", get(jobs::download_bundle))
         .route("/api/v1/jobs/:job_id/cancel", post(jobs::cancel_job))
+        .route("/api/v1/jobs/:job_id/rerun", post(jobs::rerun_job))
         .route(
             "/api/v1/providers/mineru/validate-token",
             post(providers::validate_mineru_token),

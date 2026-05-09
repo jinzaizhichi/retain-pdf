@@ -6,6 +6,7 @@ import fitz
 
 from services.rendering.api.pdf_overlay import redact_translated_text_areas
 from services.rendering.api.pdf_overlay import save_optimized_pdf
+from services.rendering.pdf_metadata import copy_toc
 from services.rendering.redaction.shared import iter_valid_translated_items
 from services.rendering.redaction.vector_text_cleanup import collect_vector_text_rects
 
@@ -21,6 +22,7 @@ def build_clean_background_pdf(
     output_doc = fitz.open()
     try:
         output_doc.insert_pdf(source_doc)
+        copy_toc(source_doc, output_doc)
         for page_index in sorted(translated_pages):
             if not (0 <= page_index < len(output_doc)):
                 continue

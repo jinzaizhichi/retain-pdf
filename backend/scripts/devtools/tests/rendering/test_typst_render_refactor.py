@@ -393,8 +393,9 @@ def test_redaction_items_from_render_blocks_preserve_source_item_metadata() -> N
     item = redaction_items[0]
     assert item["item_id"] == "item-0"
     assert item["source_item_id"] == "p001-b001"
-    assert item["block_kind"] == "text"
-    assert item["block_type"] == "text"
+    assert item["source_block_kind"] == "text"
+    assert item["block_kind"] == "render_block"
+    assert item["block_type"] == "render_block"
     assert item["source_text"] == translated_items[0]["source_text"]
     assert len(item["bbox"]) == 4
 

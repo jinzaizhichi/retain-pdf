@@ -86,6 +86,10 @@ class StatusDetailDialog extends HTMLElement {
                     <h3>失败诊断</h3>
                     <span class="status-panel-note">结构化失败摘要与排查建议</span>
                   </div>
+                  <div class="failure-action-row">
+                    <button id="failure-rerun-btn" type="button" class="button-link secondary" disabled>从断点恢复/重新运行</button>
+                    <span id="failure-rerun-status" class="status-panel-note">失败后如后端允许，可基于已有产物创建恢复任务。</span>
+                  </div>
                   <div class="failure-hero-card">
                     <span class="label">失败摘要</span>
                     <span id="failure-summary" class="info-value">-</span>
@@ -347,16 +351,29 @@ class StatusDetailDialog extends HTMLElement {
     });
   }
 
+  setRerunAction({ enabled = false, status = "" } = {}) {
+    const button = this.querySelector("#failure-rerun-btn");
+    const statusEl = this.querySelector("#failure-rerun-status");
+    if (button) {
+      button.disabled = !enabled;
+    }
+    if (statusEl && status) {
+      statusEl.textContent = status;
+    }
+  }
+
   renderSnapshot({
     headline = {},
     runtime = {},
     failure = {},
     stageHistory = {},
     events = {},
+    rerun = {},
   } = {}) {
     this.setHeadline(headline);
     this.setRuntimeDetails(runtime);
     this.setFailureDetails(failure);
+    this.setRerunAction(rerun);
     this.renderStageHistory(stageHistory);
     this.renderEvents(events);
   }

@@ -17,7 +17,7 @@ pub use download::{
 pub use query::{
     get_job, get_job_artifacts, get_job_artifacts_manifest, get_job_events, get_ocr_job,
     get_ocr_job_artifacts, get_ocr_job_artifacts_manifest, get_ocr_job_events, list_jobs,
-    list_ocr_jobs,
+    list_ocr_jobs, rerun_job,
 };
 pub use translation_debug::{
     get_translation_diagnostics, get_translation_item, list_translation_items,

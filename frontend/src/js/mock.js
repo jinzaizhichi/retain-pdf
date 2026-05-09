@@ -75,6 +75,11 @@ function buildMockJobPayload(scenario = currentMockScenario()) {
         enabled: status === "queued" || status === "running",
         url: "mock://cancel",
       },
+      rerun: {
+        enabled: status === "failed",
+        method: "POST",
+        url: "mock://rerun",
+      },
       open_markdown: {
         enabled: status === "succeeded",
         url: "mock://markdown.json",

@@ -6,12 +6,11 @@ import sys
 import zipfile
 from pathlib import Path
 
-import requests
-
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from foundation.shared.job_dirs import create_job_dirs
 from foundation.shared.local_env import get_secret
+from services.mineru.artifacts import download_file
 from services.mineru.mineru_api import MINERU_ENV_FILE
 from services.mineru.mineru_api import MINERU_TOKEN_ENV
 from services.mineru.mineru_api import apply_upload_url
@@ -56,16 +55,6 @@ def parse_args() -> argparse.Namespace:
 def save_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def download_file(url: str, path: Path, headers: dict[str, str] | None = None) -> None:
-    with requests.get(url, headers=headers, stream=True, timeout=300) as response:
-        response.raise_for_status()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("wb") as f:
-            for chunk in response.iter_content(chunk_size=1024 * 256):
-                if chunk:
-                    f.write(chunk)
 
 
 def unpack_zip(zip_path: Path, dest_dir: Path) -> None:

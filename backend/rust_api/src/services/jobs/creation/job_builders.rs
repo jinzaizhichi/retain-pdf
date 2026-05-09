@@ -30,6 +30,16 @@ fn build_full_pipeline_job_snapshot(
     input: &CreateJobInput,
 ) -> Result<JobSnapshot, AppError> {
     let prepared = prepare_full_pipeline_input(ctx, input)?;
+    if !prepared.spec.source.artifact_job_id.trim().is_empty() {
+        return build_job_snapshot(
+            ctx.config,
+            prepared.spec,
+            JobCommandKind::Deferred {
+                label: "book-workflow-pending-artifacts",
+            },
+            JobInit::translate_default(),
+        );
+    }
     build_job_snapshot(
         ctx.config,
         prepared.spec,

@@ -11,7 +11,7 @@ use axum::Json;
 use super::common::build_jobs_route_deps;
 use super::query_adapter::{
     job_artifact_manifest_response, job_artifacts_response, job_detail_response,
-    job_events_response, list_jobs_response,
+    job_events_response, list_jobs_response, rerun_job_response,
 };
 
 pub async fn list_jobs(
@@ -79,6 +79,14 @@ pub async fn get_job_events(
     job_events_response(build_jobs_route_deps(&state), &job_id, &query, false)
 }
 
+pub async fn rerun_job(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<crate::models::JobSubmissionView>>, AppError> {
+    rerun_job_response(build_jobs_route_deps(&state), &headers, &job_id)
+}
+
 pub async fn get_job_artifacts(
     State(state): State<AppState>,
     AxumPath(job_id): AxumPath<String>,
@@ -109,7 +117,7 @@ mod tests {
 
     use crate::app::{build_app, build_state};
     use crate::config::AppConfig;
-    use crate::models::{CreateJobInput, JobFailureInfo, JobSnapshot, JobStatusKind};
+    use crate::models::{CreateJobInput, JobArtifacts, JobFailureInfo, JobSnapshot, JobStatusKind};
 
     fn test_state(test_name: &str) -> crate::AppState {
         let root = std::env::temp_dir().join(format!(
@@ -163,6 +171,93 @@ mod tests {
                 .expect("read body"),
         )
         .expect("parse json")
+    }
+
+    fn source_job_with_artifacts(job_id: &str, artifacts: JobArtifacts) -> JobSnapshot {
+        let mut input = CreateJobInput::default();
+        input.runtime.job_id = job_id.to_string();
+        input.translation.api_key = "sk-rerun-test".to_string();
+        input.translation.model = "deepseek-v4-flash".to_string();
+        input.translation.base_url = "https://api.deepseek.com/v1".to_string();
+        let mut job = JobSnapshot::new(job_id.to_string(), input, vec!["python".to_string()]);
+        job.artifacts = Some(artifacts);
+        job
+    }
+
+    #[tokio::test]
+    async fn rerun_route_prefers_render_when_translations_are_available() {
+        let state = test_state("rerun-render");
+        let source_job = source_job_with_artifacts(
+            "job-rerun-render-source",
+            JobArtifacts {
+                source_pdf: Some("jobs/source/source/input.pdf".to_string()),
+                normalized_document_json: Some("jobs/source/ocr/document.v1.json".to_string()),
+                translations_dir: Some("jobs/source/translated".to_string()),
+                ..JobArtifacts::default()
+            },
+        );
+        state.db.save_job(&source_job).expect("save source job");
+
+        let response = build_app(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/jobs/job-rerun-render-source/rerun")
+                    .header("X-API-Key", "test-key")
+                    .body(Body::empty())
+                    .expect("rerun request"),
+            )
+            .await
+            .expect("rerun response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = read_json(response).await;
+        assert_eq!(payload["data"]["workflow"], "render");
+        let rerun_job_id = payload["data"]["job_id"].as_str().expect("job id");
+        let rerun_job = state.db.get_job(rerun_job_id).expect("rerun job");
+        assert_eq!(rerun_job.workflow, crate::models::WorkflowKind::Render);
+        assert_eq!(
+            rerun_job.request_payload.source.artifact_job_id,
+            "job-rerun-render-source"
+        );
+        assert!(rerun_job.request_payload.runtime.job_id.is_empty());
+    }
+
+    #[tokio::test]
+    async fn rerun_route_uses_book_when_only_ocr_checkpoint_is_available() {
+        let state = test_state("rerun-book");
+        let source_job = source_job_with_artifacts(
+            "job-rerun-book-source",
+            JobArtifacts {
+                source_pdf: Some("jobs/source/source/input.pdf".to_string()),
+                normalized_document_json: Some("jobs/source/ocr/document.v1.json".to_string()),
+                ..JobArtifacts::default()
+            },
+        );
+        state.db.save_job(&source_job).expect("save source job");
+
+        let response = build_app(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/jobs/job-rerun-book-source/rerun")
+                    .header("X-API-Key", "test-key")
+                    .body(Body::empty())
+                    .expect("rerun request"),
+            )
+            .await
+            .expect("rerun response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = read_json(response).await;
+        assert_eq!(payload["data"]["workflow"], "book");
+        let rerun_job_id = payload["data"]["job_id"].as_str().expect("job id");
+        let rerun_job = state.db.get_job(rerun_job_id).expect("rerun job");
+        assert_eq!(rerun_job.workflow, crate::models::WorkflowKind::Book);
+        assert_eq!(
+            rerun_job.request_payload.source.artifact_job_id,
+            "job-rerun-book-source"
+        );
     }
 
     #[tokio::test]

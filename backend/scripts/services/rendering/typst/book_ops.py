@@ -9,6 +9,7 @@ from foundation.config import fonts
 from services.rendering.api.pdf_overlay import save_optimized_pdf
 from services.rendering.api.pdf_overlay import strip_page_links
 from services.rendering.background.stage import build_clean_background_pdf
+from services.rendering.pdf_metadata import copy_toc
 from services.rendering.typst.book_helpers import build_dual_doc_pages
 from services.rendering.typst.book_helpers import collect_background_page_specs
 from services.rendering.typst.book_helpers import prepare_background_work_dir
@@ -27,6 +28,7 @@ def _build_overlay_base_doc(source_pdf_path: Path) -> fitz.Document:
     output_doc = fitz.open()
     try:
         output_doc.insert_pdf(source_doc)
+        copy_toc(source_doc, output_doc)
     finally:
         source_doc.close()
     return output_doc
@@ -101,6 +103,7 @@ def build_single_page_typst_pdf(
     source_doc = fitz.open(source_pdf_path)
     temp_doc = fitz.open()
     temp_doc.insert_pdf(source_doc, from_page=page_idx, to_page=page_idx)
+    copy_toc(source_doc, temp_doc, start_page=page_idx, end_page=page_idx)
     page = temp_doc[0]
     strip_page_links(page)
     overlay_translated_items_on_page(
@@ -218,6 +221,7 @@ def build_dual_book_pdf(
             start_page=start_page,
             end_page=end_page,
         )
+        copy_toc(source_doc, dual_doc, start_page=start_page, end_page=end_page)
         save_optimized_pdf(dual_doc, output_pdf_path)
     finally:
         dual_doc.close()
@@ -260,4 +264,4 @@ def build_book_typst_background_pdf(
         font_paths=font_paths,
         work_dir=work_dir,
     )
-    save_background_pdf_to_output(background_pdf, output_pdf_path)
+    save_background_pdf_to_output(background_pdf, output_pdf_path, source_pdf_path=source_pdf_path)

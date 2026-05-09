@@ -76,6 +76,16 @@ pub async fn cancel_job_response(
     ))
 }
 
+pub fn rerun_job_response(
+    deps: JobsRouteDeps<'_>,
+    headers: &HeaderMap,
+    job_id: &str,
+) -> Result<Json<ApiResponse<crate::models::JobSubmissionView>>, AppError> {
+    Ok(ok_json(
+        jobs_facade(deps).rerun_submission(headers, job_id)?,
+    ))
+}
+
 pub fn translation_diagnostics_response(
     deps: JobsRouteDeps<'_>,
     job_id: &str,

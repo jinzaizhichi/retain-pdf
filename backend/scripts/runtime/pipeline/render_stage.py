@@ -22,6 +22,8 @@ from services.rendering.api.typst_page_renderer import build_dual_book_pdf
 from services.rendering.api.typst_page_renderer import overlay_translated_pages_on_doc
 from services.rendering.pdf_metadata import copy_toc
 from services.rendering.preprocess.hidden_text_strip import build_hidden_text_stripped_pdf_copy
+from services.pipeline_shared.events import emit_stage_progress
+from services.pipeline_shared.events import emit_stage_transition
 from services.rendering.typst.shared import default_typst_temp_root
 
 
@@ -329,6 +331,30 @@ def run_render_stage(
         end_page=end_page,
         translated_pages_map=auto_pages_map,
     )
+    if auto_pages_map is not None:
+        selected_pages = select_translated_pages(
+            auto_pages_map,
+            start_page=max(0, start_page),
+            end_page=max(auto_pages_map) if end_page < 0 else end_page,
+        )
+    else:
+        selected_pages = load_translated_pages(
+            render_inputs.translations_dir,
+            manifest_path=render_inputs.translation_manifest_path,
+        )
+        selected_pages = select_translated_pages(
+            selected_pages,
+            start_page=max(0, start_page),
+            end_page=max(selected_pages) if end_page < 0 else end_page,
+        )
+    render_total = len(selected_pages)
+    emit_stage_transition(
+        stage="rendering",
+        message="开始渲染翻译 PDF",
+        progress_current=0,
+        progress_total=render_total,
+        payload={"effective_render_mode": effective_render_mode},
+    )
     pages_rendered = build_book_from_translations(
         source_pdf_path=render_inputs.source_pdf_path,
         output_pdf_path=output_pdf_path,
@@ -344,6 +370,13 @@ def run_render_stage(
         base_url=base_url,
         typst_font_family=typst_font_family,
         pdf_compress_dpi=pdf_compress_dpi,
+    )
+    emit_stage_progress(
+        stage="rendering",
+        message="渲染页面完成",
+        progress_current=pages_rendered,
+        progress_total=render_total or pages_rendered,
+        payload={"effective_render_mode": effective_render_mode},
     )
     return {
         "output_pdf_path": output_pdf_path,

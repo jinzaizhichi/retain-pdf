@@ -25,7 +25,7 @@ class StatusDetailDialog extends HTMLElement {
               <button id="detail-tab-overview" type="button" class="detail-tab is-active" data-tab="overview" role="tab" aria-selected="true">概览</button>
               <button id="detail-tab-failure" type="button" class="detail-tab" data-tab="failure" role="tab" aria-selected="false">失败</button>
               <button id="detail-tab-events" type="button" class="detail-tab" data-tab="events" role="tab" aria-selected="false">事件</button>
-              <button id="detail-tab-translation" type="button" class="detail-tab" data-tab="translation" role="tab" aria-selected="false">翻译调试</button>
+              <button id="detail-tab-translation" type="button" class="detail-tab detail-tab-advanced" data-tab="translation" role="tab" aria-selected="false">高级诊断</button>
             </div>
 
             <div class="detail-tab-panels">

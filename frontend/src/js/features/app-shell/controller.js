@@ -97,7 +97,6 @@ export function mountAppShellFeature({
     setText("job-summary", summarizeStatus("idle"));
     setText("job-stage-detail", "-");
     setText("query-job-duration", "-");
-    setText("diagnostic-box", "-");
     setText("runtime-current-stage", "-");
     setText("runtime-stage-elapsed", "-");
     setText("runtime-total-elapsed", "-");

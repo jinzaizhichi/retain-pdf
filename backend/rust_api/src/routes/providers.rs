@@ -48,6 +48,29 @@ pub struct DeepSeekTokenValidationRequest {
     pub base_url: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct DeepSeekBalanceInfoView {
+    pub currency: String,
+    pub total_balance: String,
+    pub granted_balance: String,
+    pub topped_up_balance: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DeepSeekBalanceView {
+    pub ok: bool,
+    pub status: &'static str,
+    pub summary: String,
+    pub retryable: bool,
+    pub is_available: bool,
+    pub balance_infos: Vec<DeepSeekBalanceInfoView>,
+    pub provider_code: Option<String>,
+    pub provider_message: Option<String>,
+    pub trace_id: Option<String>,
+    pub base_url: String,
+    pub checked_at: String,
+}
+
 pub async fn validate_mineru_token(
     Json(payload): Json<MineruTokenValidationRequest>,
 ) -> Result<Json<ApiResponse<MineruTokenValidationView>>, AppError> {
@@ -150,12 +173,60 @@ pub async fn validate_deepseek_token(
     Ok(Json(ApiResponse::ok(view)))
 }
 
+pub async fn query_deepseek_balance(
+    Json(payload): Json<DeepSeekTokenValidationRequest>,
+) -> Result<Json<ApiResponse<DeepSeekBalanceView>>, AppError> {
+    let api_key = payload.api_key.trim();
+    if api_key.is_empty() {
+        return Err(AppError::bad_request("api_key is required"));
+    }
+
+    let base_url = normalize_deepseek_base_url(&payload.base_url);
+    let checked_at = now_iso();
+    let Some(balance_url) = deepseek_balance_url(&base_url) else {
+        return Ok(Json(ApiResponse::ok(DeepSeekBalanceView {
+            ok: false,
+            status: "unsupported_provider",
+            summary: "余额查询仅支持 DeepSeek 官方 API".to_string(),
+            retryable: false,
+            is_available: false,
+            balance_infos: vec![],
+            provider_code: None,
+            provider_message: Some(format!("base_url={base_url}")),
+            trace_id: None,
+            base_url,
+            checked_at,
+        })));
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|err| AppError::internal(format!("build deepseek balance client failed: {err}")))?;
+    let response = client.get(balance_url).bearer_auth(api_key).send().await;
+    let view = match response {
+        Ok(resp) => classify_deepseek_balance_response(resp, base_url.clone(), checked_at).await,
+        Err(err) => classify_deepseek_balance_transport_error(err, base_url.clone(), checked_at),
+    };
+
+    Ok(Json(ApiResponse::ok(view)))
+}
+
 fn normalize_deepseek_base_url(raw: &str) -> String {
     let trimmed = raw.trim().trim_end_matches('/');
     if trimmed.is_empty() {
         "https://api.deepseek.com/v1".to_string()
     } else {
         trimmed.to_string()
+    }
+}
+
+fn deepseek_balance_url(base_url: &str) -> Option<&'static str> {
+    let trimmed = base_url.trim();
+    if trimmed.is_empty() || trimmed.contains("api.deepseek.com") {
+        Some("https://api.deepseek.com/user/balance")
+    } else {
+        None
     }
 }
 
@@ -283,6 +354,151 @@ fn summarize_deepseek_error_payload(body_text: &str) -> Option<String> {
         None
     } else {
         Some(trimmed.to_string())
+    }
+}
+
+async fn classify_deepseek_balance_response(
+    response: reqwest::Response,
+    base_url: String,
+    checked_at: String,
+) -> DeepSeekBalanceView {
+    let status_code = response.status();
+    let trace_id = response
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string());
+    let body_text = response.text().await.unwrap_or_default();
+
+    if status_code.is_success() {
+        let parsed: Value = serde_json::from_str(&body_text).unwrap_or(Value::Null);
+        let is_available = parsed
+            .get("is_available")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        let balance_infos = parsed
+            .get("balance_infos")
+            .and_then(|value| value.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .map(deepseek_balance_info_from_value)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let summary = summarize_deepseek_balance(is_available, &balance_infos);
+        return DeepSeekBalanceView {
+            ok: is_available,
+            status: if is_available { "available" } else { "insufficient_balance" },
+            summary,
+            retryable: false,
+            is_available,
+            balance_infos,
+            provider_code: Some(status_code.as_u16().to_string()),
+            provider_message: None,
+            trace_id,
+            base_url,
+            checked_at,
+        };
+    }
+
+    let status = if status_code == reqwest::StatusCode::UNAUTHORIZED
+        || status_code == reqwest::StatusCode::FORBIDDEN
+    {
+        "unauthorized"
+    } else if status_code == reqwest::StatusCode::PAYMENT_REQUIRED {
+        "insufficient_balance"
+    } else if status_code.is_server_error() {
+        "network_error"
+    } else {
+        "provider_error"
+    };
+    let summary = match status {
+        "unauthorized" => "DeepSeek API Key 无效".to_string(),
+        "insufficient_balance" => "DeepSeek 余额不足".to_string(),
+        "network_error" => "DeepSeek 余额查询失败".to_string(),
+        _ => format!("DeepSeek 余额接口返回 {}", status_code.as_u16()),
+    };
+
+    DeepSeekBalanceView {
+        ok: false,
+        status,
+        summary,
+        retryable: status == "network_error",
+        is_available: false,
+        balance_infos: vec![],
+        provider_code: Some(status_code.as_u16().to_string()),
+        provider_message: summarize_deepseek_error_payload(&body_text),
+        trace_id,
+        base_url,
+        checked_at,
+    }
+}
+
+fn classify_deepseek_balance_transport_error(
+    err: reqwest::Error,
+    base_url: String,
+    checked_at: String,
+) -> DeepSeekBalanceView {
+    DeepSeekBalanceView {
+        ok: false,
+        status: "network_error",
+        summary: "DeepSeek 余额查询失败".to_string(),
+        retryable: true,
+        is_available: false,
+        balance_infos: vec![],
+        provider_code: None,
+        provider_message: Some(err.to_string()),
+        trace_id: None,
+        base_url,
+        checked_at,
+    }
+}
+
+fn deepseek_balance_info_from_value(value: &Value) -> DeepSeekBalanceInfoView {
+    DeepSeekBalanceInfoView {
+        currency: json_string_field(value, "currency"),
+        total_balance: json_string_field(value, "total_balance"),
+        granted_balance: json_string_field(value, "granted_balance"),
+        topped_up_balance: json_string_field(value, "topped_up_balance"),
+    }
+}
+
+fn json_string_field(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(|field| field.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn summarize_deepseek_balance(
+    is_available: bool,
+    balance_infos: &[DeepSeekBalanceInfoView],
+) -> String {
+    if balance_infos.is_empty() {
+        return if is_available {
+            "DeepSeek 余额可用".to_string()
+        } else {
+            "DeepSeek 余额不足".to_string()
+        };
+    }
+    let parts = balance_infos
+        .iter()
+        .filter(|item| !item.currency.is_empty())
+        .map(|item| format!("{} {}", item.currency, item.total_balance))
+        .collect::<Vec<_>>();
+    if parts.is_empty() {
+        return if is_available {
+            "DeepSeek 余额可用".to_string()
+        } else {
+            "DeepSeek 余额不足".to_string()
+        };
+    }
+    if is_available {
+        format!("DeepSeek 余额可用：{}", parts.join("，"))
+    } else {
+        format!("DeepSeek 余额不足：{}", parts.join("，"))
     }
 }
 

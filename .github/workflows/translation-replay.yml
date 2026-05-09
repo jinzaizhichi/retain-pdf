@@ -1,33 +1,6 @@
 name: Translation Replay
 
 "on":
-  pull_request:
-    paths:
-      - ".github/workflows/translation-replay.yml"
-      - "backend/scripts/devtools/promptfoo/**"
-      - "backend/scripts/devtools/sync_python_requirements.py"
-      - "backend/scripts/devtools/replay_translation_item.py"
-      - "backend/scripts/devtools/tests/translation/**"
-      - "backend/scripts/services/translation/**"
-      - "backend/scripts/foundation/**"
-      - "pyproject.toml"
-      - "docker/requirements-app.txt"
-      - "docker/requirements-test.txt"
-  push:
-    branches:
-      - main
-      - master
-    paths:
-      - ".github/workflows/translation-replay.yml"
-      - "backend/scripts/devtools/promptfoo/**"
-      - "backend/scripts/devtools/sync_python_requirements.py"
-      - "backend/scripts/devtools/replay_translation_item.py"
-      - "backend/scripts/devtools/tests/translation/**"
-      - "backend/scripts/services/translation/**"
-      - "backend/scripts/foundation/**"
-      - "pyproject.toml"
-      - "docker/requirements-app.txt"
-      - "docker/requirements-test.txt"
   workflow_dispatch: {}
 
 concurrency:

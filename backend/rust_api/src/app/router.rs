@@ -131,6 +131,10 @@ pub fn build_app(state: AppState) -> Router {
             "/api/v1/providers/deepseek/validate-token",
             post(providers::validate_deepseek_token),
         )
+        .route(
+            "/api/v1/providers/deepseek/balance",
+            post(providers::query_deepseek_balance),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_api_key,

@@ -13,7 +13,12 @@ class JobStatusCard extends HTMLElement {
 
       <div class="status-ring-shell">
         <div class="status-focus-card">
-          <div id="status-stage-icon" class="status-stage-icon" aria-hidden="true"></div>
+          <div id="status-stage-flow" class="status-stage-flow" aria-label="任务流程">
+            <span class="status-stage-step" data-stage-key="ocr">OCR</span>
+            <span class="status-stage-step" data-stage-key="translate">翻译</span>
+            <span class="status-stage-step" data-stage-key="render">渲染</span>
+            <span class="status-stage-step" data-stage-key="done">完成</span>
+          </div>
           <div id="status-ring-label" class="status-ring-label">等待中</div>
           <div id="status-ring-value" class="status-ring-value">准备中</div>
           <div id="status-ring-elapsed" class="status-ring-elapsed">0秒</div>
@@ -40,19 +45,29 @@ class JobStatusCard extends HTMLElement {
     `;
   }
 
-  setStagePresentation({ label = "等待中", value = "准备中", iconMarkup = "" } = {}) {
+  setStagePresentation({ label = "等待中", value = "准备中", stageKey = "" } = {}) {
     const labelEl = this.querySelector("#status-ring-label");
     const valueEl = this.querySelector("#status-ring-value");
-    const iconEl = this.querySelector("#status-stage-icon");
+    this.setStageFlow(stageKey);
     if (labelEl) {
       labelEl.textContent = label;
     }
     if (valueEl) {
       valueEl.textContent = value;
     }
-    if (iconEl) {
-      iconEl.innerHTML = iconMarkup;
-    }
+  }
+
+  setStageFlow(stageKey = "") {
+    const flowOrder = ["ocr", "translate", "render", "done"];
+    const normalized = `${stageKey || ""}`.trim();
+    const activeIndex = flowOrder.indexOf(normalized);
+    this.querySelectorAll(".status-stage-step").forEach((step) => {
+      const stepIndex = flowOrder.indexOf(step.dataset.stageKey || "");
+      const isDone = activeIndex >= 0 && stepIndex >= 0 && stepIndex < activeIndex;
+      const isActive = activeIndex >= 0 && stepIndex === activeIndex;
+      step.classList.toggle("is-done", isDone);
+      step.classList.toggle("is-active", isActive);
+    });
   }
 
   syncPrimaryActions({ pdfReady = false, readerReady = false } = {}) {
@@ -75,7 +90,7 @@ class JobStatusCard extends HTMLElement {
     }
   }
 
-  setProgress({ current = NaN, total = NaN, fallbackText = "-", percent = NaN } = {}) {
+  setProgress({ current = NaN, total = NaN, fallbackText = "-", percent = NaN, progressText = "" } = {}) {
     const bar = this.querySelector("#job-progress-bar");
     const text = this.querySelector("#job-progress-text");
     if (!bar || !text) {
@@ -90,7 +105,7 @@ class JobStatusCard extends HTMLElement {
     const computedPercent = (current / total) * 100;
     const safePercent = Math.max(0, Math.min(100, Number.isFinite(percent) ? percent : computedPercent));
     bar.style.width = `${safePercent}%`;
-    text.textContent = `${current} / ${total} (${safePercent.toFixed(0)}%)`;
+    text.textContent = progressText || `${current} / ${total} (${safePercent.toFixed(0)}%)`;
   }
 
   setCancelEnabled(enabled) {
@@ -107,24 +122,26 @@ class JobStatusCard extends HTMLElement {
   renderSnapshot({
     label = "等待中",
     value = "准备中",
-    iconMarkup = "",
+    stageKey = "",
     elapsed = "-",
     progressCurrent = NaN,
     progressTotal = NaN,
     progressFallbackText = "-",
     progressPercent = NaN,
+    progressText = "",
     pdfReady = false,
     readerReady = false,
     cancelEnabled = false,
     backHomeVisible = false,
   } = {}) {
-    this.setStagePresentation({ label, value, iconMarkup });
+    this.setStagePresentation({ label, value, stageKey });
     this.setElapsed(elapsed);
     this.setProgress({
       current: progressCurrent,
       total: progressTotal,
       fallbackText: progressFallbackText,
       percent: progressPercent,
+      progressText,
     });
     this.syncPrimaryActions({ pdfReady, readerReady });
     this.setCancelEnabled(cancelEnabled);

@@ -1,7 +1,17 @@
 import { resolveJobMarkdownContract, toAbsoluteApiUrl } from "./job-artifacts.js";
-import { summarizeStageDetail, summarizeStageLabel } from "./job-status-summary.js";
+import {
+  summarizeStageDetail,
+  summarizeStageKey,
+  summarizeStageLabel,
+  summarizeStageProgressText,
+} from "./job-status-summary.js";
 
-export { summarizeStageDetail, summarizeStageLabel } from "./job-status-summary.js";
+export {
+  summarizeStageDetail,
+  summarizeStageKey,
+  summarizeStageLabel,
+  summarizeStageProgressText,
+} from "./job-status-summary.js";
 
 function numberOrNull(value) {
   const num = Number(value);

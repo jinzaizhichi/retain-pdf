@@ -20,6 +20,7 @@ export function mountBrowserCredentialsFeature({
   checkApiConnectivity,
   validateOcrToken,
   validateDeepSeekToken,
+  queryDeepSeekBalance,
   onCredentialStateChange,
 }) {
   function credentialDialog() {
@@ -40,7 +41,7 @@ export function mountBrowserCredentialsFeature({
     const subtitle = $("browser-credentials-subtitle");
     if (subtitle) {
       const text = setupMode
-        ? "请先填写 OCR Provider 凭证和 DeepSeek Key。完成后桌面端会直接启动本地服务。"
+        ? "填写 OCR Token 和 DeepSeek Key，检测通过后保存。"
         : "";
       subtitle.textContent = text;
       subtitle.classList.toggle("hidden", !text);
@@ -92,12 +93,8 @@ export function mountBrowserCredentialsFeature({
       return;
     }
     const apiSelect = $("browser-ocr-provider-select");
-    const taskSelect = $("browser-task-ocr-provider-select");
     if (apiSelect) {
       apiSelect.value = activeProvider;
-    }
-    if (taskSelect) {
-      taskSelect.value = activeProvider;
     }
     dialog.querySelectorAll("[data-ocr-provider-panel]").forEach((panel) => {
       const active = panel.dataset.ocrProviderPanel === activeProvider;
@@ -129,6 +126,30 @@ export function mountBrowserCredentialsFeature({
     el.classList.toggle("hidden", !content);
     el.classList.toggle("is-valid", tone === "valid");
     el.classList.toggle("is-error", tone === "error");
+  }
+
+  function setDeepSeekAccountStatus(summary = "", tone = "", checkedAt = "") {
+    const box = $("browser-deepseek-account-status");
+    const summaryEl = $("browser-deepseek-account-summary");
+    const timeEl = $("browser-deepseek-account-time");
+    const content = `${summary || ""}`.trim();
+    if (!box || !summaryEl || !timeEl) {
+      return;
+    }
+    box.classList.toggle("hidden", !content);
+    box.classList.toggle("is-valid", tone === "valid");
+    box.classList.toggle("is-error", tone === "error");
+    summaryEl.textContent = content || "未检测";
+    timeEl.textContent = checkedAt ? `检测时间 ${checkedAt}` : "-";
+  }
+
+  function currentTimeLabel() {
+    return new Date().toLocaleTimeString("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
   }
 
   function resetOcrValidationCache() {
@@ -220,6 +241,38 @@ export function mountBrowserCredentialsFeature({
     }
   }
 
+  function summarizeDeepSeekBalance(result) {
+    const infos = Array.isArray(result?.balance_infos) ? result.balance_infos : [];
+    const parts = infos
+      .filter((item) => item && item.currency && item.total_balance)
+      .map((item) => `${item.currency} ${item.total_balance}`);
+    if (parts.length > 0) {
+      return `余额 ${parts.join("，")}`;
+    }
+    if (result?.is_available) {
+      return "余额可用";
+    }
+    return "余额不足";
+  }
+
+  async function runDeepSeekBalanceCheck(apiKey) {
+    const modelApiKey = `${apiKey || ""}`.trim();
+    if (!modelApiKey) {
+      return { ok: false, status: "missing_key" };
+    }
+    if (!queryDeepSeekBalance) {
+      return { ok: false, status: "unsupported" };
+    }
+    try {
+      return await queryDeepSeekBalance(API_PREFIX, {
+        api_key: modelApiKey,
+        base_url: defaultModelBaseUrl(),
+      });
+    } catch (_err) {
+      return { ok: false, status: "network_error" };
+    }
+  }
+
   function browserCredentialElements() {
     return {
       dialog: $("browser-credentials-dialog"),
@@ -255,6 +308,7 @@ export function mountBrowserCredentialsFeature({
     setOcrValidationMessage("", "", "mineru");
     setOcrValidationMessage("", "", "paddle");
     setDeepSeekValidationMessage("", "");
+    setDeepSeekAccountStatus("", "");
     setDialogStatus("", "");
   }
 
@@ -403,7 +457,33 @@ export function mountBrowserCredentialsFeature({
 
   async function handleBrowserDeepSeekValidate() {
     const { apiKeyInput } = browserCredentialElements();
-    await runDeepSeekConnectivityCheck(apiKeyInput?.value || "", { showResult: true });
+    setDeepSeekValidationMessage("正在检测 DeepSeek 和余额…");
+    const result = await runDeepSeekConnectivityCheck(apiKeyInput?.value || "", { showResult: false });
+    if (result.ok) {
+      const balance = await runDeepSeekBalanceCheck(apiKeyInput?.value || "");
+      if (balance.status === "unsupported_provider") {
+        setDeepSeekValidationMessage("DeepSeek 可用", "valid");
+        setDeepSeekAccountStatus("接口可用，当前 provider 不支持余额查询", "valid", currentTimeLabel());
+        return;
+      }
+      if (balance.status === "network_error") {
+        setDeepSeekValidationMessage("DeepSeek 可用，余额查询失败", "valid");
+        setDeepSeekAccountStatus("接口可用，余额查询失败", "valid", currentTimeLabel());
+        return;
+      }
+      const balanceSummary = summarizeDeepSeekBalance(balance);
+      setDeepSeekValidationMessage(
+        `DeepSeek 可用，${balanceSummary}`,
+        balance.is_available ? "valid" : "error",
+      );
+      setDeepSeekAccountStatus(balanceSummary, balance.is_available ? "valid" : "error", currentTimeLabel());
+      return;
+    }
+    setDeepSeekValidationMessage(
+      result.summary || TRANSLATION_PROVIDER_DEFINITION.validationNetworkMessage,
+      "error",
+    );
+    setDeepSeekAccountStatus(result.summary || "接口不可用", "error", currentTimeLabel());
   }
 
   async function handleBrowserCredentialSave() {
@@ -456,6 +536,18 @@ export function mountBrowserCredentialsFeature({
   $("browser-deepseek-validate-btn")?.addEventListener("click", handleBrowserDeepSeekValidate);
   $("browser-credentials-save-btn")?.addEventListener("click", handleBrowserCredentialSave);
   $("credentials-btn")?.addEventListener("click", openBrowserCredentialsDialog);
+  credentialDialog()?.querySelectorAll("[data-toggle-secret]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const input = $(button.dataset.toggleSecret || "");
+      if (!input) {
+        return;
+      }
+      const showing = input.type === "text";
+      input.type = showing ? "password" : "text";
+      button.classList.toggle("is-revealed", !showing);
+      button.setAttribute("aria-pressed", !showing ? "true" : "false");
+    });
+  });
   document.addEventListener("retainpdf:open-browser-credentials", (event) => {
     openBrowserCredentialsDialog(event?.detail || {});
   });
@@ -465,11 +557,6 @@ export function mountBrowserCredentialsFeature({
     });
   });
   $("browser-ocr-provider-select")?.addEventListener("change", (event) => {
-    const provider = normalizeOcrProvider(event.currentTarget?.value);
-    $("ocr_provider").value = provider;
-    syncOcrProviderControls(provider);
-  });
-  $("browser-task-ocr-provider-select")?.addEventListener("change", (event) => {
     const provider = normalizeOcrProvider(event.currentTarget?.value);
     $("ocr_provider").value = provider;
     syncOcrProviderControls(provider);

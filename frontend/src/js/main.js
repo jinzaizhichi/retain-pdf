@@ -1,5 +1,4 @@
 import { $ } from "./dom.js";
-import * as pdfjsLib from "../../vendor/pdfjs-dist/build/pdf.mjs";
 import {
   apiBase,
   applyKeyInputs,
@@ -54,6 +53,7 @@ import {
   submitJobRequest,
   submitJson,
   submitUploadRequest,
+  queryDeepSeekBalance,
   validateDeepSeekToken,
   validatePaddleToken,
   validateMineruToken,
@@ -85,12 +85,9 @@ import {
 const WORKFLOW_BOOK = "book";
 const WORKFLOW_TRANSLATE = "translate";
 const WORKFLOW_RENDER = "render";
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  "../../vendor/pdfjs-dist/build/pdf.worker.mjs",
-  import.meta.url,
-).toString();
 const PDFJS_CMAP_URL = new URL("../../vendor/pdfjs-dist/cmaps/", import.meta.url).toString();
 const PDFJS_STANDARD_FONT_DATA_URL = new URL("../../vendor/pdfjs-dist/standard_fonts/", import.meta.url).toString();
+const PDFJS_WORKER_URL = new URL("../../vendor/pdfjs-dist/build/pdf.worker.mjs", import.meta.url).toString();
 let browserCredentialsFeature = null;
 let developerFeature = null;
 let artifactDownloadsFeature = null;
@@ -103,6 +100,7 @@ let readerDialogFeaturePromise = null;
 let statusDetailFeature = null;
 let uploadFeature = null;
 let workflowFeature = null;
+let pdfjsPromise = null;
 
 function normalizeWorkflow(value) {
   const workflow = `${value || ""}`.trim();
@@ -155,6 +153,21 @@ async function ensureReaderDialogFeature() {
   return readerDialogFeaturePromise;
 }
 
+async function loadPdfjs() {
+  if (!pdfjsPromise) {
+    pdfjsPromise = import("../../vendor/pdfjs-dist/build/pdf.mjs")
+      .then((module) => {
+        module.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
+        return module;
+      })
+      .catch((error) => {
+        pdfjsPromise = null;
+        throw error;
+      });
+  }
+  return pdfjsPromise;
+}
+
 function setText(id, value) {
   const el = $(id);
   if (el) {
@@ -180,6 +193,7 @@ async function countPdfPages(file) {
   if (!file) {
     return 0;
   }
+  const pdfjsLib = await loadPdfjs();
   const doc = await pdfjsLib.getDocument({
     data: await file.arrayBuffer(),
     cMapUrl: PDFJS_CMAP_URL,
@@ -371,6 +385,7 @@ async function initializePage() {
       });
     },
     validateDeepSeekToken,
+    queryDeepSeekBalance,
     onCredentialStateChange: () => workflowFeature?.applyWorkflowMode(),
   });
   artifactDownloadsFeature = mountArtifactDownloadsFeature({
@@ -438,6 +453,10 @@ async function initializePage() {
   statusDetailFeature.bindEvents();
   appShellFeature.bindChrome();
   $("file")?.addEventListener("change", handleFileSelected);
+  $("credential-gate-action")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    document.dispatchEvent(new CustomEvent("retainpdf:open-browser-credentials"));
+  });
   $("ocr_provider")?.addEventListener("input", saveBrowserStoredConfig);
   $("mineru_token")?.addEventListener("input", saveBrowserStoredConfig);
   $("paddle_token")?.addEventListener("input", saveBrowserStoredConfig);

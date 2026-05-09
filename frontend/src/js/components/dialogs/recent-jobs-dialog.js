@@ -14,7 +14,7 @@ class RecentJobsDialog extends HTMLElement {
             </div>
             <button id="query-dialog-close-btn" type="submit" class="dialog-close-btn" aria-label="关闭">×</button>
           </div>
-          <div class="recent-jobs-sidebar-body advanced-content">
+          <div class="recent-jobs-sidebar-body">
             <div class="recent-jobs-toolbar">
               <input id="recent-jobs-date" type="date" aria-label="选择日期" />
               <button id="refresh-jobs-btn" class="secondary" type="button">刷新列表</button>
@@ -24,16 +24,6 @@ class RecentJobsDialog extends HTMLElement {
             <div id="recent-jobs-list" class="recent-jobs-list hidden"></div>
             <div class="recent-jobs-more-row">
               <button id="load-more-jobs-btn" class="secondary hidden" type="button">更多</button>
-            </div>
-
-            <div class="top-gap">
-              <div class="label">提示 / 错误</div>
-              <pre id="error-box" class="log error-box">-</pre>
-            </div>
-
-            <div class="top-gap">
-              <div class="label">失败诊断</div>
-              <pre id="diagnostic-box" class="log">-</pre>
             </div>
           </div>
         </form>

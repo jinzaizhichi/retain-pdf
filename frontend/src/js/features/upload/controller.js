@@ -215,7 +215,7 @@ export function mountUploadFeature({
       state.uploadedBytes = Number(payload.bytes || file.size || 0);
       $("file")?.closest(".upload-tile")?.classList.toggle("is-ready", !!state.uploadId);
       $("file")?.closest(".upload-tile")?.classList.remove("is-uploading");
-      setText("upload-status", `上传完成: ${state.uploadedFileName} | ${state.uploadedPageCount} 页 | ${(state.uploadedBytes / 1024 / 1024).toFixed(2)} MB`);
+      setText("upload-status", "上传完成，可以开始任务。");
       $("upload-status")?.classList.remove("hidden");
       clearFileInputValue();
       refreshSubmitControls();

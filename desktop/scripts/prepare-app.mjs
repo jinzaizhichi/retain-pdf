@@ -774,34 +774,34 @@ if (!frontendOnly) {
       throw new Error(`Missing bundled font asset: ${expectedPath}`);
     }
   }
+
+  const manifest = {
+    generatedAt: new Date().toISOString(),
+    version: releaseVersion,
+    targetPlatform,
+    targetPlatformName,
+    rustApiBinaryBundled: fs.existsSync(path.join(outputBackendRoot, "bin", rustApiBinary.fileName)),
+    rustApiBinaryName: rustApiBinary.fileName,
+    pythonBundled,
+    bundledPythonExecutable: bundledPythonDiagnostics ? path.relative(outputBackendRoot, bundledPythonDiagnostics.pythonCommand) : null,
+    bundledPythonHome: bundledPythonDiagnostics && bundledPythonDiagnostics.pythonHome
+      ? path.relative(outputBackendRoot, bundledPythonDiagnostics.pythonHome)
+      : null,
+    bundledPythonSitePackages: bundledPythonDiagnostics
+      ? bundledPythonDiagnostics.sitePackages.map((entry) => path.relative(outputBackendRoot, entry))
+      : [],
+    bundledPythonImportPaths: bundledPythonDiagnostics
+      ? bundledPythonDiagnostics.importPaths.map((entry) => path.relative(outputBackendRoot, entry))
+      : [],
+    bundledPythonImportCheck: bundledPythonDiagnostics ? bundledPythonDiagnostics.importCheck : null,
+    typstBundled: fs.existsSync(path.join(outputBackendRoot, "typst")),
+    typstPackagesBundled: fs.existsSync(path.join(outputBackendRoot, "typst-packages")),
+    bundledFonts: fs.readdirSync(bundledFontsRoot).sort(),
+  };
+
+  fs.writeFileSync(
+    path.join(outputBackendRoot, "bundle-manifest.json"),
+    JSON.stringify(manifest, null, 2),
+    "utf8",
+  );
 }
-
-const manifest = {
-  generatedAt: new Date().toISOString(),
-  version: releaseVersion,
-  targetPlatform,
-  targetPlatformName,
-  rustApiBinaryBundled: fs.existsSync(path.join(outputBackendRoot, "bin", rustApiBinary.fileName)),
-  rustApiBinaryName: rustApiBinary.fileName,
-  pythonBundled,
-  bundledPythonExecutable: bundledPythonDiagnostics ? path.relative(outputBackendRoot, bundledPythonDiagnostics.pythonCommand) : null,
-  bundledPythonHome: bundledPythonDiagnostics && bundledPythonDiagnostics.pythonHome
-    ? path.relative(outputBackendRoot, bundledPythonDiagnostics.pythonHome)
-    : null,
-  bundledPythonSitePackages: bundledPythonDiagnostics
-    ? bundledPythonDiagnostics.sitePackages.map((entry) => path.relative(outputBackendRoot, entry))
-    : [],
-  bundledPythonImportPaths: bundledPythonDiagnostics
-    ? bundledPythonDiagnostics.importPaths.map((entry) => path.relative(outputBackendRoot, entry))
-    : [],
-  bundledPythonImportCheck: bundledPythonDiagnostics ? bundledPythonDiagnostics.importCheck : null,
-  typstBundled: fs.existsSync(path.join(outputBackendRoot, "typst")),
-  typstPackagesBundled: fs.existsSync(path.join(outputBackendRoot, "typst-packages")),
-  bundledFonts: fs.readdirSync(bundledFontsRoot).sort(),
-};
-
-fs.writeFileSync(
-  path.join(outputBackendRoot, "bundle-manifest.json"),
-  JSON.stringify(manifest, null, 2),
-  "utf8",
-);

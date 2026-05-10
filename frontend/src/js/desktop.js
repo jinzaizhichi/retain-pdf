@@ -83,7 +83,11 @@ export async function saveDesktopConfig(mineruToken, modelApiKey, afterSave, ext
   state.desktopConfigured = !!persisted.firstRunCompleted;
   if (state.desktopConfigured) {
     closeSetupDialog();
-    $("error-box").textContent = "-";
+    const errorBox = $("error-box") || $("error-box-inline");
+    if (errorBox) {
+      errorBox.textContent = "-";
+      errorBox.classList?.add("hidden");
+    }
   }
   if (callback) {
     try {

@@ -52,6 +52,161 @@ OCR_PROVIDER_COMPAT_SYMBOLS = (
 )
 TRANSLATE_ONLY_ENTRYPOINT = SCRIPTS_ROOT / "services" / "translation" / "translate_only_pipeline.py"
 FROM_OCR_ENTRYPOINT = SCRIPTS_ROOT / "services" / "translation" / "from_ocr_pipeline.py"
+TRANSLATION_ALLOWED_ROOT_DIRS = {
+    "batching",
+    "classification",
+    "context",
+    "continuation",
+    "diagnostics",
+    "fast_path",
+    "llm",
+    "memory",
+    "ocr",
+    "orchestration",
+    "payload",
+    "policy",
+    "postprocess",
+    "results",
+    "terms",
+    "workflow",
+}
+TRANSLATION_ALLOWED_ROOT_FILES = {
+    "__init__.py",
+    "from_ocr_pipeline.py",
+    "item_reader.py",
+    "README.md",
+    "session_context.py",
+    "translate_only_pipeline.py",
+}
+TRANSLATION_LAYER_IMPORT_RULES: dict[str, tuple[str, ...]] = {
+    "workflow": (
+        "services.translation.workflow",
+        "services.translation.batching",
+        "services.translation.classification",
+        "services.translation.context",
+        "services.translation.continuation",
+        "services.translation.diagnostics",
+        "services.translation.fast_path",
+        "services.translation.llm",
+        "services.translation.memory",
+        "services.translation.ocr",
+        "services.translation.orchestration",
+        "services.translation.payload",
+        "services.translation.policy",
+        "services.translation.postprocess",
+        "services.translation.results",
+        "services.translation.terms",
+    ),
+    "batching": (
+        "services.translation.batching",
+        "services.translation.context",
+        "services.translation.fast_path",
+        "services.translation.llm",
+        "services.translation.memory",
+        "services.translation.payload",
+        "services.translation.results",
+        "services.translation.workflow.batch_runner",
+        "services.translation.workflow.workers",
+    ),
+    "results": (
+        "services.translation.results",
+        "services.translation.memory",
+        "services.translation.payload",
+        "services.translation.workflow.pages",
+    ),
+    "fast_path": (
+        "services.translation.fast_path",
+        "services.translation.item_reader",
+        "services.translation.llm",
+        "services.translation.policy",
+    ),
+    "llm": (
+        "services.translation.llm",
+        "services.translation.context",
+        "services.translation.diagnostics",
+        "services.translation.memory",
+        "services.translation.payload",
+        "services.translation.policy",
+        "services.translation.terms",
+    ),
+    "policy": (
+        "services.translation.policy",
+        # Historical policy modules still inspect OCR contracts and LLM domain hints.
+        # T17-T18 will narrow this to decision-only inputs.
+        "services.translation.classification",
+        "services.translation.context",
+        "services.translation.llm.domain_context",
+        "services.translation.llm.shared.provider_runtime",
+        "services.translation.ocr",
+        "services.translation.payload",
+    ),
+    "payload": (
+        "services.translation.payload",
+        # Payload still applies historical policy/classification mutations while T23 is pending.
+        "services.translation.classification",
+        "services.translation.continuation",
+        "services.translation.ocr",
+        "services.translation.policy",
+        "services.translation.terms",
+    ),
+    "memory": (
+        "services.translation.memory",
+        "services.translation.terms",
+    ),
+    "context": (
+        "services.translation.context",
+        "services.translation.llm.shared.control_context",
+        "services.translation.llm.style_hints",
+    ),
+    "ocr": (
+        "services.translation.ocr",
+    ),
+    "orchestration": (
+        "services.translation.orchestration",
+        "services.translation.context",
+        "services.translation.continuation",
+        "services.translation.ocr",
+        "services.translation.payload",
+    ),
+    "continuation": (
+        "services.translation.continuation",
+        "services.translation.context",
+        # Continuation review currently asks LLM for borderline cases.
+        "services.translation.llm",
+    ),
+    "classification": (
+        "services.translation.classification",
+        "services.translation.context",
+        "services.translation.llm",
+        "services.translation.ocr",
+        "services.translation.policy",
+    ),
+    "terms": (
+        "services.translation.terms",
+    ),
+    "diagnostics": (
+        "services.translation.diagnostics",
+        "services.translation.payload",
+    ),
+    "postprocess": (
+        "services.translation.postprocess",
+        "services.translation.llm",
+    ),
+}
+TRANSLATION_LAYER_IMPORT_EXCEPTIONS: dict[Path, tuple[str, ...]] = {
+    # Transitional orchestration code still constructs concrete payload records.
+    Path("orchestration/document_orchestrator.py"): (
+        "services.translation.policy",
+    ),
+    # Current llm orchestration still bridges workflow-ish retry behavior until T04-T10 migrate runtime flow.
+    Path("llm/shared/orchestration/fallbacks.py"): (
+        "services.translation.postprocess",
+    ),
+}
+TRANSLATION_SHARED_COMPAT_IMPORTS = (
+    "services.translation.item_reader",
+    "services.translation.session_context",
+)
 TRANSLATION_STAGE_PIPELINE = PIPELINE_ROOT / "translation_stage.py"
 RENDER_STAGE_PIPELINE = PIPELINE_ROOT / "render_stage.py"
 RENDER_EXECUTION_PIPELINE = PIPELINE_ROOT / "render_execution.py"
@@ -221,6 +376,17 @@ def rendering_layer_for(path: Path) -> str | None:
         return None
     first = parts[0]
     return first if first in RENDERING_ALLOWED_ROOT_DIRS else None
+
+
+def translation_layer_for(path: Path) -> str | None:
+    try:
+        parts = path.relative_to(TRANSLATION_ROOT).parts
+    except ValueError:
+        return None
+    if not parts:
+        return None
+    first = parts[0]
+    return first if first in TRANSLATION_ALLOWED_ROOT_DIRS else None
 
 
 def module_allowed(module: str, allowed_prefixes: tuple[str, ...]) -> bool:
@@ -646,6 +812,101 @@ def check_translation_rendering_separation(errors: list[str]) -> None:
             )
 
 
+def check_translation_internal_boundaries(errors: list[str]) -> None:
+    for path in TRANSLATION_ROOT.iterdir():
+        if path.name == "__pycache__":
+            continue
+        if path.is_dir() and path.name not in TRANSLATION_ALLOWED_ROOT_DIRS:
+            errors.append(
+                f"services/translation/{path.name}: unexpected translation root directory; update architecture rules or move it into a named layer"
+            )
+        if path.is_file() and path.name not in TRANSLATION_ALLOWED_ROOT_FILES:
+            errors.append(
+                f"services/translation/{path.name}: unexpected translation root file; place new code inside workflow/llm/policy/context/memory/payload/etc."
+            )
+
+    forbidden_runtime_imports = (
+        "from runtime.pipeline",
+        "import runtime.pipeline",
+    )
+    for path in scan_py_files(TRANSLATION_ROOT):
+        if path in {TRANSLATE_ONLY_ENTRYPOINT, FROM_OCR_ENTRYPOINT}:
+            continue
+        if translation_layer_for(path) == "workflow":
+            continue
+        text = read_text(path)
+        rel_path = rel(path)
+        for item in forbidden_runtime_imports:
+            if item in text:
+                errors.append(
+                    f"{rel_path}: translation internals must not import runtime.pipeline directly"
+                )
+                break
+
+    for path in scan_py_files(TRANSLATION_ROOT / "llm" / "providers"):
+        text = read_text(path)
+        rel_path = rel(path)
+        forbidden = (
+            "from services.translation.workflow",
+            "import services.translation.workflow",
+            "from services.translation.policy",
+            "import services.translation.policy",
+            "from services.rendering",
+            "import services.rendering",
+            "from runtime.pipeline",
+            "import runtime.pipeline",
+        )
+        for item in forbidden:
+            if item in text:
+                errors.append(
+                    f"{rel_path}: provider modules must stay transport-only and must not import workflow/policy/runtime"
+                )
+                break
+
+    for path in scan_py_files(TRANSLATION_ROOT / "payload"):
+        text = read_text(path)
+        rel_path = rel(path)
+        forbidden = (
+            "from services.translation.llm",
+            "import services.translation.llm",
+            "from services.translation.workflow",
+            "import services.translation.workflow",
+            "from services.translation.batching",
+            "import services.translation.batching",
+            "from services.translation.fast_path",
+            "import services.translation.fast_path",
+            "from services.translation.results",
+            "import services.translation.results",
+            "from services.translation.memory",
+            "import services.translation.memory",
+            "from runtime.pipeline",
+            "import runtime.pipeline",
+        )
+        for item in forbidden:
+            if item in text:
+                errors.append(
+                    f"{rel_path}: payload layer must remain data construction/application only and must not import execution/cache/provider layers"
+                )
+                break
+
+    for path in scan_py_files(TRANSLATION_ROOT):
+        layer = translation_layer_for(path)
+        if layer is None:
+            continue
+        allowed_prefixes = TRANSLATION_LAYER_IMPORT_RULES[layer]
+        exception_prefixes = TRANSLATION_LAYER_IMPORT_EXCEPTIONS.get(path.relative_to(TRANSLATION_ROOT), ())
+        for module in imported_modules(path):
+            if not module.startswith("services.translation."):
+                continue
+            if module_allowed(module, TRANSLATION_SHARED_COMPAT_IMPORTS):
+                continue
+            if module_allowed(module, allowed_prefixes) or module_allowed(module, exception_prefixes):
+                continue
+            errors.append(
+                f"{rel(path)}: translation layer '{layer}' must not import '{module}' directly"
+            )
+
+
 def main() -> int:
     errors: list[str] = []
     check_pipeline_provider_leaks(errors)
@@ -658,6 +919,7 @@ def main() -> int:
     check_render_pipeline_facade_boundary(errors)
     check_rendering_internal_boundaries(errors)
     check_translation_rendering_separation(errors)
+    check_translation_internal_boundaries(errors)
     if errors:
         print("pipeline architecture check failed:", file=sys.stderr)
         for item in errors:

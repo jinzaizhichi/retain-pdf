@@ -18,3 +18,4 @@ class RenderExecutionContext:
     base_url: str = ""
     typst_font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY
     pdf_compress_dpi: int = runtime.DEFAULT_PDF_COMPRESS_DPI
+    source_image_compressed: bool = False

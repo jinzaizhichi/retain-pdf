@@ -6,20 +6,16 @@ from services.rendering.source.cleanup.analysis import collect_page_math_protect
 from services.rendering.source.cleanup.analysis import collect_page_non_math_span_heights
 from services.rendering.source.cleanup.analysis import item_has_removable_text
 from services.rendering.source.cleanup.analysis import item_removable_text_rects
-from services.rendering.source.cleanup.analysis import page_drawing_count
 from services.rendering.source.cleanup.analysis import page_has_intrusive_math_protection
-from services.rendering.source.cleanup.analysis import page_has_large_background_image
-from services.rendering.source.cleanup.analysis import page_is_vector_heavy_count
-from services.rendering.source.cleanup.analysis import page_should_use_cover_only_count
 from services.rendering.source.cleanup.fill import draw_flat_white_covers
 from services.rendering.source.cleanup.fill import draw_white_covers
 from services.rendering.source.cleanup.ops import cover_rects_from_valid_items
 from services.rendering.source.cleanup.ops import merge_rects
 from services.rendering.source.cleanup.ops import new_redaction_diagnostics
 from services.rendering.source.cleanup.ops import remove_text_under_rects
+from services.rendering.source.cleanup.route_selection import select_redaction_route
 from services.rendering.source.cleanup.shared import iter_valid_translated_items
 from services.rendering.source.cleanup.standard import apply_standard_redaction
-from services.rendering.source.cleanup.strategy import resolve_redaction_route
 from services.rendering.source.cleanup.text_layer import apply_image_page_redaction
 from services.rendering.source.cleanup.text_layer import apply_vector_heavy_redaction
 from services.rendering.source.cleanup.visual_cover import apply_visual_redaction
@@ -112,15 +108,21 @@ def apply_redaction_route(
     strategy: str | None = None,
     plan: RedactionPlan | None = None,
 ) -> dict[str, object]:
-    resolved_route = resolve_redaction_route(strategy, cover_only=cover_only)
-    if resolved_route == "auto":
+    decision = select_redaction_route(
+        page,
+        fill_background=fill_background,
+        cover_only=cover_only,
+        strategy=strategy,
+        plan=plan,
+    )
+    if decision.execution == "auto":
         return apply_auto_redaction(
             page,
             valid_items,
             flat_cover=cover_only,
         )
 
-    if resolved_route == "visual_cover":
+    if decision.execution == "visual_cover":
         return apply_visual_redaction(
             page,
             valid_items,
@@ -129,7 +131,7 @@ def apply_redaction_route(
             route="visual_cover",
         )
 
-    if resolved_route == "visual_cover_and_remove_text":
+    if decision.execution == "visual_cover_and_remove_text":
         return apply_visual_redaction(
             page,
             valid_items,
@@ -138,12 +140,10 @@ def apply_redaction_route(
             route="visual_cover_and_remove_text",
         )
 
-    image_page = plan.image_page if plan is not None else page_has_large_background_image(page)
-    if image_page:
+    if decision.execution == "image_page_redaction":
         return apply_image_page_redaction(page, valid_items)
 
-    drawing_count = plan.drawing_count if plan is not None else page_drawing_count(page)
-    if fill_background is None and page_should_use_cover_only_count(drawing_count):
+    if decision.execution == "cover_only_count":
         cover_rects = cover_rects_from_valid_items(valid_items)
         draw_flat_white_covers(page, cover_rects)
         remove_text_under_rects(page, cover_rects)
@@ -154,7 +154,7 @@ def apply_redaction_route(
         diagnostics["strategy"] = "text_layer_only"
         return diagnostics
 
-    if fill_background is None and page_is_vector_heavy_count(drawing_count):
+    if decision.execution == "vector_heavy_redaction":
         return apply_vector_heavy_redaction(page, valid_items)
 
     return apply_standard_redaction(page, valid_items, fill_background=fill_background, plan=plan)

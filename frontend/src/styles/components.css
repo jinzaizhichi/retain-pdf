@@ -16,6 +16,14 @@
     width: 100%;
   }
 
+  .app-shell.processing-mode,
+  .app-shell.result-mode {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    width: 100%;
+  }
+
   .topbar {
     @apply flex flex-row items-center justify-between gap-3;
     width: 100%;

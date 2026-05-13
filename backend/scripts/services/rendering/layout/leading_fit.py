@@ -10,25 +10,25 @@ from services.rendering.layout.typography.measurement import occupied_ratio_x
 from services.rendering.layout.typography.measurement import source_compactness_score
 
 
-DEFAULT_LEADING_EM = 0.40
-BODY_LEADING_MIN = 0.54
-BODY_LEADING_MAX = 0.78
+DEFAULT_LEADING_EM = 0.48
+BODY_LEADING_MIN = 0.44
+BODY_LEADING_MAX = 0.68
 NON_BODY_LEADING_MIN = 0.26
-NON_BODY_LEADING_MAX = 0.72
+NON_BODY_LEADING_MAX = 0.56
 BODY_LEADING_SIZE_ADJUST = 0.62
 NON_BODY_LEADING_SIZE_ADJUST = 0.78
-LEADING_TIGHTEN_PT_LIMIT = 1.6
-BODY_LEADING_FLOOR_MIN = 0.46
-NON_BODY_LEADING_FLOOR_MIN = 0.22
+BODY_LEADING_FLOOR_MIN = 0.44
+NON_BODY_LEADING_FLOOR_MIN = 0.26
 BODY_LEADING_TIGHTEN_PER_PT = 0.12
 NON_BODY_LEADING_TIGHTEN_PER_PT = 0.07
 BODY_LEADING_TIGHTEN_RATIO_PER_PT = 0.12
 NON_BODY_LEADING_TIGHTEN_RATIO_PER_PT = 0.04
 HIGH_DENSITY_LEADING_RATIO = 0.9
 FORMULA_LEADING_RATIO = 0.92
-BODY_ZH_TARGET_BASE = 0.66
-BODY_ZH_TARGET_MIN = 0.61
-BODY_COMPACT_LEADING_TIGHTEN_MAX = 0.06
+BODY_ZH_TARGET_BASE = 0.56
+BODY_ZH_TARGET_MIN = 0.50
+BODY_NORMAL_LEADING_MIN = 0.52
+BODY_COMPACT_LEADING_TIGHTEN_MAX = 0.015
 WIDE_ASPECT_OCR_LEADING_WEIGHT = 0.5
 WIDE_ASPECT_ZH_LEADING_WEIGHT = 0.5
 WIDE_ASPECT_COMPACT_LEADING_TIGHTEN_MAX = 0.025
@@ -48,18 +48,8 @@ def normalize_leading_em_for_font_size(
         return round(clamp(leading_em, min_leading_em, max_leading_em), 2)
     reference = reference_font_size_pt if reference_font_size_pt > 0 else fonts.DEFAULT_FONT_SIZE
     floor_min = floor_min_leading_em if floor_min_leading_em is not None else min_leading_em
-    if font_size_pt <= reference:
-        return round(clamp(leading_em, min_leading_em, max_leading_em), 2)
-
-    size_delta_pt = clamp(font_size_pt - reference, 0.0, LEADING_TIGHTEN_PT_LIMIT)
-    tighten_per_pt = BODY_LEADING_TIGHTEN_PER_PT if min_leading_em >= BODY_LEADING_MIN else NON_BODY_LEADING_TIGHTEN_PER_PT
-    tighten_ratio_per_pt = (
-        BODY_LEADING_TIGHTEN_RATIO_PER_PT if min_leading_em >= BODY_LEADING_MIN else NON_BODY_LEADING_TIGHTEN_RATIO_PER_PT
-    )
-    dynamic_min = max(floor_min, min_leading_em - size_delta_pt * tighten_per_pt * strength)
-    dynamic_max = max(dynamic_min + 0.08, max_leading_em - size_delta_pt * (tighten_per_pt + 0.03) * strength)
-    adjusted = leading_em * (1.0 - size_delta_pt * tighten_ratio_per_pt * strength)
-    return round(clamp(adjusted, dynamic_min, dynamic_max), 2)
+    del font_size_pt, reference, strength
+    return round(clamp(leading_em, max(floor_min, min_leading_em), max_leading_em), 2)
 
 
 def estimate_leading_em(item: dict, page_line_pitch: float, font_size_pt: float) -> float:
@@ -83,6 +73,8 @@ def estimate_leading_em(item: dict, page_line_pitch: float, font_size_pt: float)
         if compactness > 0:
             tighten_max = WIDE_ASPECT_COMPACT_LEADING_TIGHTEN_MAX if wide_aspect_body_text else BODY_COMPACT_LEADING_TIGHTEN_MAX
             base *= 1.0 - min(tighten_max, compactness * 0.07)
+        if not wide_aspect_body_text:
+            base = max(base, BODY_NORMAL_LEADING_MIN * layout.BODY_LEADING_FACTOR)
         if density_ratio_x >= 0.86:
             base = max(base, BODY_LEADING_MIN / HIGH_DENSITY_LEADING_RATIO)
         if formula_weight >= 0.08:

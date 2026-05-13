@@ -18,7 +18,7 @@ def run_translation_execution_plan(
     plan: TranslationExecutionPlan,
 ) -> dict:
     # Import lazily to keep services.translation.workflow importable without pulling runtime.pipeline.
-    from runtime.pipeline.book_translation_flow import translate_book_with_global_continuations
+    from services.translation.workflow.book_flow import translate_book_with_global_continuations
 
     glossary_entries = request.glossary_entries or []
     with translation_run_diagnostics_scope(plan.run_diagnostics):

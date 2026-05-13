@@ -39,6 +39,9 @@ from services.rendering.output.typst.source_page_overlay import apply_source_pag
 from services.rendering.source.background.redaction_items import redaction_items_from_layout_blocks
 from services.rendering.output.typst.source_page_overlay import redaction_items_from_render_blocks
 from services.rendering.output.typst.sanitize import sanitize_items_for_typst_compile
+from services.rendering.workflow.context import RenderExecutionContext
+from services.rendering.workflow.modes import _compress_final_pdf_if_needed
+from services.rendering.source.preparation.bbox_text_strip import build_bbox_text_stripped_pdf_copy
 
 
 def _page_spec(background_pdf_path: Path | None = None) -> RenderPageSpec:
@@ -658,6 +661,27 @@ def test_typst_overlay_uses_filled_text_blocks_instead_of_cover_rects() -> None:
     assert "fill: rgb(255, 255, 255)" in source
 
 
+def test_typst_overlay_text_blocks_use_fit_without_clipping() -> None:
+    translated_items = [
+        {
+            "item_id": "p001-b001",
+            "page_idx": 0,
+            "block_type": "text",
+            "bbox": [10.0, 20.0, 120.0, 42.0],
+            "translated_text": "这是一段很长的文字，用来确认渲染时不会越出 OCR 框覆盖下方内容。",
+            "protected_translated_text": "这是一段很长的文字，用来确认渲染时不会越出 OCR 框覆盖下方内容。",
+            "formula_map": [],
+        }
+    ]
+
+    source = build_typst_overlay_source(200.0, 300.0, translated_items, include_cover_rect=True)
+
+    assert "clip: true" not in source
+    assert "pdftr_fit_markdown" in source
+    assert "emergency_min_size = calc.max(4.2pt" in source
+    assert "emergency_min_leading = calc.max(0.20em" in source
+
+
 def test_dense_body_pressure_tightening_does_not_increase_leading() -> None:
     normal_payload = {
         "inner_bbox": [10.0, 60.0, 210.0, 150.0],
@@ -849,6 +873,43 @@ def test_build_render_page_specs_uses_cover_bbox_gap_for_tight_stacked_blocks() 
     assert upper.fit_max_height_pt < upper_height
     assert upper.fit_max_height_pt >= upper_height - 8.0
     assert lower.content_rect[1] == 109.7
+
+
+def test_build_render_blocks_uses_vertical_fit_for_tight_stacked_overlay_blocks() -> None:
+    items = [
+        {
+            "item_id": "p001-b001",
+            "page_idx": 0,
+            "block_type": "text",
+            "bbox": [20.0, 40.0, 210.0, 110.0],
+            "lines": [{"text": "raw"}],
+            "source_text": "upper",
+            "protected_source_text": "upper",
+            "protected_translated_text": (
+                "这是一段会在渲染时变得明显更长的中文正文，用来模拟上方块在原始 OCR 框已经"
+                "贴到下方块时，仍然需要继续压缩高度避免覆盖下一块。"
+            ),
+        },
+        {
+            "item_id": "p001-b002",
+            "page_idx": 0,
+            "block_type": "text",
+            "bbox": [20.0, 109.7, 210.0, 152.0],
+            "lines": [{"text": "raw"}],
+            "source_text": "lower",
+            "protected_source_text": "lower",
+            "protected_translated_text": "下方块",
+        },
+    ]
+
+    blocks = build_render_blocks(items, page_width=240.0, page_height=320.0)
+
+    upper, lower = blocks
+    expected_limit = lower.inner_bbox[1] - upper.inner_bbox[1] - 0.9
+    assert upper.fit_to_box is True
+    assert upper.fit_max_height_pt <= expected_limit
+    assert upper.fit_min_font_size_pt <= upper.font_size_pt
+    assert upper.fit_min_leading_em <= upper.leading_em
 
 
 def test_background_render_resilient_compile_sanitizes_on_failure() -> None:
@@ -1223,3 +1284,115 @@ def test_prepare_render_payloads_splits_single_kind_continuation_group_members()
     assert first + second != first
     assert "激发谱的每个模式" in first
     assert not second.startswith("$来表征")
+
+
+def test_final_pdf_compression_skips_when_source_already_compressed() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        context = RenderExecutionContext(
+            output_pdf_path=Path(tmp) / "out.pdf",
+            start_page=0,
+            end_page=0,
+            source_image_compressed=True,
+        )
+
+        with mock.patch("services.rendering.workflow.modes.compress_pdf_images_only") as compress_mock:
+            compressed = _compress_final_pdf_if_needed(context, mode="overlay")
+
+    assert compressed is False
+    compress_mock.assert_not_called()
+
+
+def test_final_pdf_compression_runs_when_source_not_compressed() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        context = RenderExecutionContext(
+            output_pdf_path=Path(tmp) / "out.pdf",
+            start_page=0,
+            end_page=0,
+            source_image_compressed=False,
+        )
+
+        with mock.patch("services.rendering.workflow.modes.compress_pdf_images_only", return_value=True) as compress_mock:
+            compressed = _compress_final_pdf_if_needed(context, mode="overlay")
+
+    assert compressed is True
+    compress_mock.assert_called_once_with(context.output_pdf_path, dpi=context.pdf_compress_dpi)
+
+
+def test_bbox_text_strip_removes_text_inside_bbox_without_redaction_bloat() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "stripped.pdf"
+        doc = fitz.open()
+        page = doc.new_page(width=200, height=200)
+        page.insert_text((20, 40), "inside text", fontsize=12)
+        page.insert_text((20, 140), "outside text", fontsize=12)
+        doc.save(source_pdf)
+        doc.close()
+
+        result = build_bbox_text_stripped_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            translated_pages={
+                0: [
+                    {
+                        "block_kind": "text",
+                        "bbox": [10.0, 20.0, 140.0, 55.0],
+                        "protected_translated_text": "译文",
+                    }
+                ]
+            },
+        )
+
+        assert result.changed is True
+        assert result.text_show_ops_removed >= 1
+
+        stripped = fitz.open(output_pdf)
+        try:
+            text = stripped[0].get_text()
+        finally:
+            stripped.close()
+        assert "inside text" not in text
+        assert "outside text" in text
+
+
+def test_bbox_text_strip_skips_formula_blocks() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "stripped.pdf"
+        doc = fitz.open()
+        page = doc.new_page(width=240, height=180)
+        page.insert_text((30, 50), "body text", fontsize=12)
+        page.insert_text((80, 90), "I/I0 = A1 + A2", fontsize=12)
+        doc.save(source_pdf)
+        doc.close()
+
+        result = build_bbox_text_stripped_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            translated_pages={
+                0: [
+                    {
+                        "block_kind": "text",
+                        "bbox": [20.0, 30.0, 130.0, 65.0],
+                        "protected_translated_text": "正文",
+                    },
+                    {
+                        "block_kind": "formula",
+                        "bbox": [70.0, 70.0, 190.0, 105.0],
+                        "protected_translated_text": "",
+                    },
+                ]
+            },
+        )
+
+        assert result.changed is True
+
+        stripped = fitz.open(output_pdf)
+        try:
+            text = stripped[0].get_text()
+        finally:
+            stripped.close()
+        assert "body text" not in text
+        assert "I/I0 = A1 + A2" in text

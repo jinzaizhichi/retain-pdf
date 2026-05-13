@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""Compatibility facade for older placeholder/validation imports.
+
+New validation code should import from ``services.translation.llm.result_validator``
+and ``services.translation.llm.validation.*`` directly. This module remains as a
+stable shim for existing tests, tools, and older orchestration paths.
+"""
+
 from services.translation.diagnostics import TranslationDiagnosticsCollector
 from services.translation.llm.placeholder_diagnostics import log_placeholder_failure
 from services.translation.llm.placeholder_transform import has_formula_placeholders

@@ -31,7 +31,7 @@
 
 - `providers/`
   只放 provider 专属 API 适配、请求/响应处理、provider 默认值。
-  不应该承载跨 provider 的重试编排、公共结构化解析规则。
+  不应该承载跨 provider 的重试编排、公共结构化解析规则、页面级 workflow、policy 决策、memory 状态和渲染/落盘。
 - `shared/`
   只放跨 provider 共用能力，例如控制上下文、缓存、结构化 schema 与解析器。
 - `shared/prompt_building.py`
@@ -40,6 +40,8 @@
   是 shared 层访问当前激活 provider 的稳定适配口。
 - `shared/provider_registry.py`
   放 provider runtime 定义、provider family/default model/base url 和 transport/translation 能力装配。
+- `shared/provider_protocol.py`
+  放 provider runtime 的协议类型和 capability 描述。Provider 新增能力时先扩这里，再让 registry 装配。
 - `shared/orchestration/`
   只放跨 provider 的翻译编排、fallback、segment routing。
   这里应优先依赖 `shared/provider_runtime.py`，不要直接 import `providers/deepseek/*`。
@@ -112,7 +114,7 @@
 - `providers/<provider>/`
   只关心 provider 专属 transport、默认值和 provider 自己的翻译细节
 - `shared/provider_registry.py`
-  把 provider 专属能力装配成 `TranslationProviderRuntime`
+  把 provider 专属能力装配成 `TranslationProviderRuntimeProtocol`
 - `shared/provider_runtime.py`
   暴露“当前 active provider”的稳定别名给业务层和 orchestration 层
 - 业务层
@@ -154,7 +156,7 @@
 ## 后续约定
 
 - 新增 provider 时，优先在 `providers/<provider>/` 下新增实现
-- 新增 provider 时，同时在 `shared/provider_registry.py` 注册 runtime
+- 新增 provider 时，同时在 `shared/provider_protocol.py` 声明能力，在 `shared/provider_registry.py` 注册 runtime
 - 公共能力优先放 `shared/`
 - 顶层 `llm/` 只保留稳定聚合入口与少量顶层公共模块，不继续堆 provider 特例
 - 业务代码默认经由 `shared/provider_runtime.py` 访问默认模型、base_url、api_key 解析和通用 chat transport

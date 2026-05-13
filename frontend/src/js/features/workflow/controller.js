@@ -43,6 +43,15 @@ export function mountWorkflowFeature({
     DEFAULT_MODE,
     DEFAULT_RULE_PROFILE,
     DEFAULT_RENDER_MODE,
+    DEFAULT_TYPST_FONT_FAMILY,
+    DEFAULT_PDF_COMPRESS_DPI,
+    DEFAULT_TRANSLATED_PDF_NAME,
+    DEFAULT_BODY_FONT_SIZE_FACTOR,
+    DEFAULT_BODY_LEADING_FACTOR,
+    DEFAULT_INNER_BBOX_SHRINK_X,
+    DEFAULT_INNER_BBOX_SHRINK_Y,
+    DEFAULT_INNER_BBOX_DENSE_SHRINK_X,
+    DEFAULT_INNER_BBOX_DENSE_SHRINK_Y,
     WORKFLOW_BOOK,
     WORKFLOW_TRANSLATE,
     WORKFLOW_RENDER,
@@ -52,6 +61,18 @@ export function mountWorkflowFeature({
   let applyWorkflowModeRef = null;
   const hasAppliedPageRange = () => workflowNeedsUpload() && `${state.appliedPageRange || ""}`.trim().length > 0;
 
+  function positiveInteger(value, fallback) {
+    const fallbackNumber = Number(fallback);
+    const normalizedFallback = Number.isFinite(fallbackNumber) && fallbackNumber > 0
+      ? Math.floor(fallbackNumber)
+      : 1;
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) {
+      return normalizedFallback;
+    }
+    return Math.floor(number);
+  }
+
   function developerConfigWithDefaults() {
     const saved = state.developerConfig || {};
     return {
@@ -60,11 +81,11 @@ export function mountWorkflowFeature({
       mathMode: normalizeMathMode(saved.mathMode),
       model: saved.model || defaultModelName(),
       baseUrl: saved.baseUrl || defaultModelBaseUrl(),
-      workers: Number(saved.workers || DEFAULT_WORKERS),
-      batchSize: Number(saved.batchSize || DEFAULT_BATCH_SIZE),
-      classifyBatchSize: Number(saved.classifyBatchSize || DEFAULT_CLASSIFY_BATCH_SIZE),
-      compileWorkers: Number(saved.compileWorkers || DEFAULT_COMPILE_WORKERS),
-      timeoutSeconds: Number(saved.timeoutSeconds || DEFAULT_TIMEOUT_SECONDS),
+      workers: positiveInteger(saved.workers, DEFAULT_WORKERS),
+      batchSize: positiveInteger(saved.batchSize, DEFAULT_BATCH_SIZE),
+      classifyBatchSize: positiveInteger(saved.classifyBatchSize, DEFAULT_CLASSIFY_BATCH_SIZE),
+      compileWorkers: positiveInteger(saved.compileWorkers, DEFAULT_COMPILE_WORKERS),
+      timeoutSeconds: positiveInteger(saved.timeoutSeconds, DEFAULT_TIMEOUT_SECONDS),
       translateTitles: saved.translateTitles !== false,
     };
   }
@@ -217,6 +238,7 @@ export function mountWorkflowFeature({
       timeoutSeconds: values.timeoutSeconds,
       translateTitles: currentConfig.translateTitles,
     };
+    setDeveloperDialogValues(developerConfigWithDefaults());
     void saveDeveloperStoredConfig(state.developerConfig);
     applyWorkflowMode();
     closeDeveloperDialog();
@@ -274,6 +296,15 @@ export function mountWorkflowFeature({
     return {
       render_mode: DEFAULT_RENDER_MODE,
       compile_workers: developerConfig.compileWorkers,
+      typst_font_family: DEFAULT_TYPST_FONT_FAMILY,
+      pdf_compress_dpi: DEFAULT_PDF_COMPRESS_DPI,
+      translated_pdf_name: DEFAULT_TRANSLATED_PDF_NAME,
+      body_font_size_factor: DEFAULT_BODY_FONT_SIZE_FACTOR,
+      body_leading_factor: DEFAULT_BODY_LEADING_FACTOR,
+      inner_bbox_shrink_x: DEFAULT_INNER_BBOX_SHRINK_X,
+      inner_bbox_shrink_y: DEFAULT_INNER_BBOX_SHRINK_Y,
+      inner_bbox_dense_shrink_x: DEFAULT_INNER_BBOX_DENSE_SHRINK_X,
+      inner_bbox_dense_shrink_y: DEFAULT_INNER_BBOX_DENSE_SHRINK_Y,
     };
   }
 

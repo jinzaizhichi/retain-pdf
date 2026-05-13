@@ -10,6 +10,7 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 from services.translation.memory import JobMemory
 from services.translation.memory import JobMemoryStore
 from services.translation.memory import update_job_memory_from_batch
+from services.translation.memory.candidates import extract_scored_term_candidates
 
 
 def test_job_memory_extracts_translated_term_pairs_and_prompt_summary(tmp_path) -> None:
@@ -120,3 +121,17 @@ def test_job_memory_store_summary_for_batch_only_returns_relevant_terms(tmp_path
 
     assert "DFTB => 密度泛函紧束缚" in summary
     assert "SCF =>" not in summary
+
+
+def test_term_candidate_extraction_exposes_scores_without_breaking_tuple_api() -> None:
+    candidates = extract_scored_term_candidates(
+        "Color centers are also called F-centers.",
+        "色心（F-centers）也被称为 F-centers。",
+    )
+
+    assert candidates
+    explicit = candidates[0]
+    assert explicit.key == "F-centers"
+    assert explicit.value == "色心"
+    assert explicit.source == "explicit_pair"
+    assert explicit.score >= 1.0

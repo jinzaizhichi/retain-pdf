@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
-
-import requests
 
 from services.translation.llm.providers.deepseek.client import DEFAULT_API_KEY_ENV as DEEPSEEK_DEFAULT_API_KEY_ENV
 from services.translation.llm.providers.deepseek.client import DEFAULT_BASE_URL as DEEPSEEK_DEFAULT_BASE_URL
@@ -23,18 +20,18 @@ from services.translation.llm.providers.deepseek.translation_client import (
 )
 from services.translation.llm.providers.deepseek.translation_client import translate_single_item_tagged_text as deepseek_translate_single_item_tagged_text
 from services.translation.llm.providers.deepseek.translation_client import translate_single_item_with_decision as deepseek_translate_single_item_with_decision
-
-
-TransportRequestFn = Callable[..., str]
-TranslateBatchFn = Callable[..., dict[str, dict[str, str]]]
-TranslateSingleFn = Callable[..., dict[str, dict[str, str]]]
-ParseTranslationPayloadFn = Callable[[str], dict[str, dict[str, str]]]
-GetApiKeyFn = Callable[..., str]
-NormalizeBaseUrlFn = Callable[[str], str]
-TransportErrorFn = Callable[[Exception], bool]
-HeadersBuilderFn = Callable[[str], dict[str, str]]
-ChatCompletionsUrlFn = Callable[[str], str]
-SessionFactoryFn = Callable[[], requests.Session]
+from services.translation.llm.shared.provider_protocol import ChatCompletionsUrlFn
+from services.translation.llm.shared.provider_protocol import GetApiKeyFn
+from services.translation.llm.shared.provider_protocol import HeadersBuilderFn
+from services.translation.llm.shared.provider_protocol import NormalizeBaseUrlFn
+from services.translation.llm.shared.provider_protocol import ParseTranslationPayloadFn
+from services.translation.llm.shared.provider_protocol import SessionFactoryFn
+from services.translation.llm.shared.provider_protocol import TranslationProviderCapabilities
+from services.translation.llm.shared.provider_protocol import TranslationProviderRuntimeProtocol
+from services.translation.llm.shared.provider_protocol import TranslateBatchFn
+from services.translation.llm.shared.provider_protocol import TranslateSingleFn
+from services.translation.llm.shared.provider_protocol import TransportErrorFn
+from services.translation.llm.shared.provider_protocol import TransportRequestFn
 
 
 @dataclass(frozen=True)
@@ -44,6 +41,7 @@ class TranslationProviderRuntime:
     default_api_key_env: str
     default_model: str
     default_base_url: str
+    capabilities: TranslationProviderCapabilities
     build_headers: HeadersBuilderFn
     chat_completions_url: ChatCompletionsUrlFn
     get_api_key: GetApiKeyFn
@@ -65,6 +63,7 @@ DEEPSEEK_RUNTIME = TranslationProviderRuntime(
     default_api_key_env=DEEPSEEK_DEFAULT_API_KEY_ENV,
     default_model=DEEPSEEK_DEFAULT_MODEL,
     default_base_url=DEEPSEEK_DEFAULT_BASE_URL,
+    capabilities=TranslationProviderCapabilities(),
     build_headers=deepseek_build_headers,
     chat_completions_url=deepseek_chat_completions_url,
     get_api_key=deepseek_get_api_key,
@@ -81,12 +80,14 @@ DEEPSEEK_RUNTIME = TranslationProviderRuntime(
 )
 
 
-def resolve_active_provider_runtime() -> TranslationProviderRuntime:
+def resolve_active_provider_runtime() -> TranslationProviderRuntimeProtocol:
     return DEEPSEEK_RUNTIME
 
 
 __all__ = [
     "DEEPSEEK_RUNTIME",
     "TranslationProviderRuntime",
+    "TranslationProviderCapabilities",
+    "TranslationProviderRuntimeProtocol",
     "resolve_active_provider_runtime",
 ]

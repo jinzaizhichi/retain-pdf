@@ -5,6 +5,7 @@ from pathlib import Path
 from services.pipeline_shared.io import save_json
 
 from .aggregator import TranslationRunDiagnostics
+from .item_summary import normalized_item_diagnostics
 from .models import FinalStatus
 
 
@@ -92,8 +93,7 @@ def aggregate_payload_diagnostics(translated_pages_map: dict[int, list[dict]]) -
                 and not has_translation_artifact
             ):
                 final_status = item_final_status
-            payload.setdefault("item_id", item.get("item_id", ""))
-            payload.setdefault("page_idx", page_idx)
+            payload = normalized_item_diagnostics(item, payload, page_idx=page_idx)
             final_status = final_status or FinalStatus.TRANSLATED.value
             payload["final_status"] = final_status
             status_summary[final_status] = status_summary.get(final_status, 0) + 1

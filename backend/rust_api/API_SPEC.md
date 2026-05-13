@@ -336,14 +336,14 @@ Canonical JSON request:
     "render_mode": "auto",
     "compile_workers": 0,
     "typst_font_family": "Source Han Serif SC",
-    "pdf_compress_dpi": 200,
+    "pdf_compress_dpi": 0,
     "translated_pdf_name": "",
     "body_font_size_factor": 0.95,
     "body_leading_factor": 1.08,
-    "inner_bbox_shrink_x": 0.035,
-    "inner_bbox_shrink_y": 0.04,
-    "inner_bbox_dense_shrink_x": 0.025,
-    "inner_bbox_dense_shrink_y": 0.03
+    "inner_bbox_shrink_x": 0.0,
+    "inner_bbox_shrink_y": 0.0,
+    "inner_bbox_dense_shrink_x": 0.0,
+    "inner_bbox_dense_shrink_y": 0.0
   },
   "runtime": {
     "job_id": "",

@@ -13,10 +13,10 @@ if str(REPO_ROOT / "backend" / "scripts") not in sys.path:
 
 from foundation.shared.stage_specs import RENDER_STAGE_SCHEMA_VERSION
 from foundation.shared.stage_specs import TRANSLATE_STAGE_SCHEMA_VERSION
-from runtime.pipeline.book_translation_batching import _is_low_risk_batchable_item
-from runtime.pipeline.book_translation_fast_path import _is_fast_path_keep_origin_item
-from runtime.pipeline.book_translation_fast_path import _plan_item_view
+from services.translation.batching.batching import _is_low_risk_batchable_item
 from services.translation.context.execution_context import context_with_memory_guidance
+from services.translation.fast_path.keep_origin import _is_fast_path_keep_origin_item
+from services.translation.fast_path.keep_origin import _plan_item_view
 from services.translation.llm.shared.control_context import build_translation_control_context
 from services.translation.memory import JobMemoryStore
 

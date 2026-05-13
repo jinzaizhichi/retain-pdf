@@ -44,7 +44,10 @@ class StatusDetailDialog extends HTMLElement {
 
   open(tabName = "overview") {
     this.activateTab(tabName);
-    this.dialogElement()?.showModal();
+    const dialog = this.dialogElement();
+    if (dialog && !dialog.open) {
+      dialog.showModal();
+    }
   }
 
   close() {

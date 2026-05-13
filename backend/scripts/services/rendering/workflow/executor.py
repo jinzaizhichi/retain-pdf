@@ -33,6 +33,8 @@ def execute_render_plan(
         source_pdf_path=render_plan.render_inputs.source_pdf_path,
         output_pdf_path=output_pdf_path,
         pdf_compress_dpi=pdf_compress_dpi,
+        translated_pages=render_plan.selected_pages,
+        strip_hidden_text=render_plan.effective_render_mode != "overlay",
         start_page=start,
         end_page=stop,
     )
@@ -47,6 +49,7 @@ def execute_render_plan(
         base_url=base_url,
         typst_font_family=typst_font_family,
         pdf_compress_dpi=pdf_compress_dpi,
+        source_image_compressed=render_source_pdf.image_compressed,
     )
     render_diagnostics: dict[str, object] = {}
     try:

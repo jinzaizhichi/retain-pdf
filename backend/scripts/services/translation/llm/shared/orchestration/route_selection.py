@@ -27,13 +27,16 @@ def select_single_item_route(item: dict, *, context: TranslationControlContext) 
             prefer_tagged_placeholder_first=False,
         )
     split_reason = ""
-    if not item.get("_heavy_formula_split_applied"):
+    heavy_formula_split_applied = bool(item.get("_heavy_formula_split_applied"))
+    if not heavy_formula_split_applied:
         split_reason = heavy_formula_split_reason(item, context=context)
     return SingleItemRoute(
         direct_typst=is_direct_math_mode(item),
         heavy_formula_split_reason=split_reason,
         formula_segment_route=formula_segment_translation_route(item, policy=context.segmentation_policy),
         prefer_tagged_placeholder_first=(
+            not heavy_formula_split_applied
+            and
             has_formula_placeholders(item)
             and should_prefer_tagged_placeholder_first(
                 item,

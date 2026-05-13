@@ -32,7 +32,10 @@ export function openStatusDetailDialogView(tabName = "overview") {
     return true;
   }
   activateDetailTabView(tabName);
-  $("status-detail-dialog")?.showModal();
+  const dialog = $("status-detail-dialog");
+  if (dialog && !dialog.open) {
+    dialog.showModal();
+  }
   return false;
 }
 
@@ -176,7 +179,14 @@ export function bindStatusDetailEvents({
   renderTranslationReplay,
   renderTextBlock,
 }) {
-  $("status-detail-btn")?.addEventListener("click", () => openStatusDetailDialog("overview"));
+  document.addEventListener("click", (event) => {
+    const button = event.target?.closest?.("#status-detail-btn");
+    if (!button) {
+      return;
+    }
+    event.preventDefault();
+    openStatusDetailDialog("overview");
+  });
   document.querySelectorAll(".detail-tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       activateDetailTab(tab.dataset.tab || "overview");

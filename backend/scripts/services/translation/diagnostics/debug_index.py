@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from services.pipeline_shared.io import save_json
+from services.translation.diagnostics.item_summary import preview_text
+from services.translation.diagnostics.item_summary import raw_excerpt_from_diagnostics
 from services.translation.item_reader import item_block_kind
 from services.translation.item_reader import item_layout_role
 from services.translation.item_reader import item_semantic_role
@@ -11,13 +13,6 @@ from services.translation.item_reader import item_structure_role
 
 TRANSLATION_DEBUG_INDEX_SCHEMA = "translation_debug_index_v1"
 TRANSLATION_DEBUG_INDEX_SCHEMA_VERSION = 1
-
-
-def _preview_text(text: str, *, limit: int = 220) -> str:
-    compact = " ".join(str(text or "").split()).strip()
-    if len(compact) <= limit:
-        return compact
-    return compact[: limit - 1].rstrip() + "…"
 
 
 def build_translation_debug_index(translated_pages_map: dict[int, list[dict]]) -> dict[str, object]:
@@ -60,11 +55,15 @@ def build_translation_debug_index(translated_pages_map: dict[int, list[dict]]) -
                         or diagnostics.get("final_status", "")
                         or ""
                     ),
-                    "source_preview": _preview_text(str(item.get("source_text", "") or "")),
-                    "translated_preview": _preview_text(str(item.get("translated_text", "") or "")),
+                    "source_preview": preview_text(str(item.get("source_text", "") or "")),
+                    "translated_preview": preview_text(str(item.get("translated_text", "") or "")),
                     "route_path": route_path,
                     "fallback_to": str(diagnostics.get("fallback_to", "") or ""),
                     "degradation_reason": str(diagnostics.get("degradation_reason", "") or ""),
+                    "provider": str(diagnostics.get("provider", "") or diagnostics.get("provider_family", "") or ""),
+                    "prompt_mode": str(diagnostics.get("prompt_mode", "") or item.get("math_mode", "") or ""),
+                    "request_label": str(diagnostics.get("request_label", "") or ""),
+                    "raw_excerpt": raw_excerpt_from_diagnostics(diagnostics),
                     "error_types": error_types,
                 }
             )

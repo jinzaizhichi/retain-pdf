@@ -5,6 +5,7 @@ from pathlib import Path
 import fitz
 
 from services.rendering.legacy.pdf_compress import compress_pdf_images_only
+from services.rendering.document.pdf_ops import save_fast_pdf
 from services.rendering.document.pdf_ops import save_optimized_pdf
 from services.rendering.output.typst.book_renderer import build_book_typst_background_pdf
 from services.rendering.output.typst.book_renderer import build_book_typst_pdf
@@ -13,6 +14,20 @@ from services.rendering.output.typst.overlay_ops import overlay_translated_pages
 from services.rendering.workflow.context import RenderExecutionContext
 from services.rendering.document.metadata import copy_toc
 from services.rendering.output.typst.shared import default_typst_temp_root
+
+
+def _compress_final_pdf_if_needed(context: RenderExecutionContext, *, mode: str) -> bool:
+    if context.source_image_compressed:
+        print(
+            f"final image-only compress: skipped for {mode} because render source was already compressed",
+            flush=True,
+        )
+        return False
+    return compress_pdf_images_only(context.output_pdf_path, dpi=context.pdf_compress_dpi)
+
+
+def _should_fast_save(context: RenderExecutionContext) -> bool:
+    return context.source_image_compressed or context.pdf_compress_dpi <= 0
 
 
 def run_dual_render(
@@ -33,9 +48,10 @@ def run_dual_render(
         base_url=context.base_url,
         font_family=context.typst_font_family,
         cover_only=False,
+        fast_save=_should_fast_save(context),
     )
-    compress_pdf_images_only(context.output_pdf_path, dpi=context.pdf_compress_dpi)
-    return len(translated_pages), {"mode": "dual"}
+    final_compressed = _compress_final_pdf_if_needed(context, mode="dual")
+    return len(translated_pages), {"mode": "dual", "final_image_compressed": final_compressed}
 
 
 def run_selected_pages_overlay_render(
@@ -65,12 +81,17 @@ def run_selected_pages_overlay_render(
             temp_root=default_typst_temp_root(context.output_pdf_path),
             cover_only=False,
         )
-        save_optimized_pdf(temp_doc, context.output_pdf_path)
+        if _should_fast_save(context):
+            save_fast_pdf(temp_doc, context.output_pdf_path)
+        else:
+            save_optimized_pdf(temp_doc, context.output_pdf_path)
     finally:
         temp_doc.close()
         source_doc.close()
-    compress_pdf_images_only(context.output_pdf_path, dpi=context.pdf_compress_dpi)
-    return context.end_page - context.start_page + 1, dict(overlay_diagnostics)
+    final_compressed = _compress_final_pdf_if_needed(context, mode="selected_pages_overlay")
+    diagnostics = dict(overlay_diagnostics)
+    diagnostics["final_image_compressed"] = final_compressed
+    return context.end_page - context.start_page + 1, diagnostics
 
 
 def run_overlay_render(
@@ -89,9 +110,12 @@ def run_overlay_render(
         base_url=context.base_url,
         font_family=context.typst_font_family,
         cover_only=False,
+        fast_save=_should_fast_save(context),
     )
-    compress_pdf_images_only(context.output_pdf_path, dpi=context.pdf_compress_dpi)
-    return len(translated_pages), dict(overlay_diagnostics)
+    final_compressed = _compress_final_pdf_if_needed(context, mode="overlay")
+    diagnostics = dict(overlay_diagnostics)
+    diagnostics["final_image_compressed"] = final_compressed
+    return len(translated_pages), diagnostics
 
 
 def run_background_typst_render(
@@ -115,5 +139,6 @@ def run_background_typst_render(
         font_family=context.typst_font_family,
         redaction_strategy="visual_cover" if visual_only_background else None,
     )
-    compress_pdf_images_only(context.output_pdf_path, dpi=context.pdf_compress_dpi)
-    return len(translated_pages), {"mode": "typst_visual" if visual_only_background else "typst"}
+    mode = "typst_visual" if visual_only_background else "typst"
+    final_compressed = _compress_final_pdf_if_needed(context, mode=mode)
+    return len(translated_pages), {"mode": mode, "final_image_compressed": final_compressed}

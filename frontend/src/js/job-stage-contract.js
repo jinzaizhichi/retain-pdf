@@ -1,7 +1,6 @@
 export const JOB_STAGE_GROUPS = Object.freeze({
   queued: Object.freeze(["queued", "pending"]),
   ocr: Object.freeze([
-    "startup",
     "running",
     "ocr_submitting",
     "ocr_upload",
@@ -10,7 +9,6 @@ export const JOB_STAGE_GROUPS = Object.freeze({
     "mineru_processing",
     "ocr_result_ready",
     "normalizing",
-    "render_prepare",
   ]),
   translate: Object.freeze([
     "translation_prepare",
@@ -37,11 +35,21 @@ export function normalizedStageValue(value = "") {
   return `${value || ""}`.trim().toLowerCase();
 }
 
-export function stageGroupForRawStage(rawStage = "", status = "") {
+export function stageGroupForRawStage(rawStage = "", status = "", workflow = "") {
   const raw = normalizedStageValue(rawStage);
   const normalizedStatus = normalizedStageValue(status);
+  const normalizedWorkflow = normalizedStageValue(workflow);
   if (normalizedStatus === "succeeded" && JOB_STAGE_GROUPS.done.some((item) => raw.includes(item))) {
     return "done";
+  }
+  if (raw === "startup") {
+    if (normalizedWorkflow === "render") {
+      return "render";
+    }
+    if (normalizedWorkflow === "translate") {
+      return "translate";
+    }
+    return "ocr";
   }
   for (const key of USER_STAGE_KEYS) {
     if (JOB_STAGE_GROUPS[key]?.some((item) => raw.includes(item))) {

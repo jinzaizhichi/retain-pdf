@@ -7,6 +7,7 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 
 from services.translation.llm.shared.cache import cache_key_for_item
+from services.translation.llm.shared import cache
 
 
 def test_translation_cache_key_includes_translation_style_hint() -> None:
@@ -60,3 +61,26 @@ def test_translation_cache_key_includes_target_language() -> None:
     )
 
     assert zh_key != en_key
+
+
+def test_translation_cache_key_includes_policy_version(monkeypatch) -> None:
+    item = {
+        "item_id": "p001-b001",
+        "translation_unit_protected_source_text": "Default: 0",
+    }
+
+    before = cache.cache_key_for_item(
+        item,
+        model="deepseek-v4-flash",
+        base_url="https://api.deepseek.com/v1",
+        mode="sci",
+    )
+    monkeypatch.setattr(cache, "TRANSLATION_POLICY_VERSION", "policy-test-version")
+    after = cache.cache_key_for_item(
+        item,
+        model="deepseek-v4-flash",
+        base_url="https://api.deepseek.com/v1",
+        mode="sci",
+    )
+
+    assert before != after

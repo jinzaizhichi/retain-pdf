@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import fitz
 
 from services.rendering.source.cleanup.analysis import collect_page_drawing_rects
-from services.rendering.source.cleanup.analysis import page_drawing_count
 from services.rendering.source.cleanup.analysis import page_has_large_background_image
 from services.rendering.source.cleanup.analysis import page_is_vector_heavy_count
 from services.rendering.source.cleanup.analysis import page_should_use_cover_only
@@ -33,7 +32,7 @@ def build_redaction_plan(page: fitz.Page, translated_items: list[dict]) -> Redac
         valid_items=valid_items,
         image_page=image_page,
         drawing_rects=drawing_rects,
-        drawing_count=page_drawing_count(page),
+        drawing_count=len(drawing_rects),
     )
 
 

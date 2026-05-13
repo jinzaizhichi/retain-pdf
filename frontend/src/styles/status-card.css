@@ -352,4 +352,42 @@
       height: 308px;
     }
   }
+
+  @media (max-height: 620px) {
+    .status-card {
+      min-height: min(448px, calc(100vh - 48px));
+      height: min(448px, calc(100vh - 48px));
+      padding-top: 12px;
+      padding-bottom: 12px;
+    }
+
+    .status-focus-card {
+      min-height: 238px;
+      height: 238px;
+      padding: 10px 14px 8px;
+      gap: 5px;
+    }
+
+    .status-stage-animation {
+      height: 84px;
+    }
+
+    .status-stage-lottie {
+      width: 180px;
+      height: 96px;
+    }
+
+    .status-ring-elapsed {
+      min-height: 28px;
+    }
+
+    .status-progress-block {
+      min-height: 30px;
+      gap: 5px;
+    }
+
+    .status-card-footer {
+      min-height: 30px;
+    }
+  }
 }

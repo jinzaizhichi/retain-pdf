@@ -44,7 +44,7 @@ export function mountJobRuntimeFeature({
     const job = normalizeJobPayload(payload);
     const terminal = isTerminalStatus(job.status);
     if (isTerminalStatus(job.status)) {
-      stopPolling();
+      stopPolling(state);
     }
     if (shouldRefreshSecondary(state.currentJobEventsFetchedAt, JOB_EVENTS_REFRESH_MS, terminal || !cachedEvents)) {
       void fetchAllJobEvents({ fetchJobEvents, apiPrefix, jobId })
@@ -79,13 +79,23 @@ export function mountJobRuntimeFeature({
   }
 
   function startPolling(jobId) {
-    stopPolling();
+    stopPolling(state);
     state.currentJobId = jobId;
     resetJobSecondaryState(state);
     if (!state.currentJobStartedAt) {
       state.currentJobStartedAt = new Date().toISOString();
     }
-    setWorkflowSections({ job_id: jobId, status: "queued" });
+    const placeholderJob = {
+      job_id: jobId,
+      status: "queued",
+      stage: "queued",
+      current_stage: "queued",
+      stage_detail: "正在读取任务状态...",
+      created_at: state.currentJobStartedAt,
+      started_at: state.currentJobStartedAt,
+    };
+    setWorkflowSections(placeholderJob);
+    renderJob(placeholderJob);
     fetchJob(jobId).catch((err) => {
       setText("error-box", err.message);
     });

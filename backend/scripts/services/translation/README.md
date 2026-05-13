@@ -93,29 +93,52 @@ Rust API 对应暴露了：
 - `GET /api/v1/jobs/{job_id}/translation/items/{item_id}`
 - `POST /api/v1/jobs/{job_id}/translation/items/{item_id}/replay`
 
-## 子目录
+## 子目录与边界
 
-- `ocr/`
-  OCR JSON 读取和数据抽取。主线优先读取 `normalized_document_v1`，raw provider JSON 只在入口处先经过 adapter、defaults 和 schema 校验，再进入这里。
-- `orchestration/`
-  布局区、continuation、translation unit 元数据。
-- `classification/`
-  `precise` 模式下的可疑块分类。
-- `continuation/`
-  段落连续性判断、candidate pair 导出和审阅。
-- `diagnostics/`
-  结构化翻译诊断模型，承接 placeholder 异常、窗口降级和 keep-origin 降级事件。
-- `policy/`
-  翻译策略配置和显式契约消费。默认主链不再靠本地规则二次猜 OCR 语义。
-- `llm/`
-  模型请求、缓存、重试、placeholder 守护、分段路由和控制上下文。
-  新人先读 `llm/README.md`，里面单独说明了 provider 层、shared 层、编排层、兼容 shim 和关键调用链。
-- `payload/`
-  payload 协议、公式占位、翻译 JSON 读写。
-- `terms/`
-  术语表归一化、提示词注入和术语命中统计。
-- `workflow/`
-  单页翻译流程入口。
+一级目录按稳定职责划分。新代码优先放入这些目录，不要在根目录继续增加大文件。
+
+| 目录 | 职责 | 不该做的事 |
+| --- | --- | --- |
+| `workflow/` | 翻译流程编排：加载输入、建立执行计划、调度 batch、写出结果和 summary。 | 不直接拼 provider HTTP payload；不写具体 policy 规则。 |
+| `llm/` | LLM provider、prompt 协议、缓存、响应解析、重试和校验入口。 | 不读取 OCR 文件；不决定页面级 workflow。 |
+| `policy/` | 是否翻译、保留原文、技术块 hint、正文过滤等策略决策。 | 不调用 provider；不落盘翻译结果。 |
+| `context/` | 前后文窗口、执行上下文、跨页/跨块上下文模型。 | 不做网络请求；不直接改 payload。 |
+| `memory/` | job 级术语/缩写/稳定翻译记忆的提取、过滤、摘要。 | 不阻塞 provider 主调用路径；不做强制替换。 |
+| `payload/` | translation payload 协议、模板同步、公式保护、结果回填数据结构。 | 不直接选择 provider；不读取 provider raw OCR。 |
+| `ocr/` | 从 `document.v1.json` 读取统一 OCR 中间层并抽取候选块。 | 不理解 Paddle/MinerU raw 字段。 |
+| `orchestration/` | translation unit、zone、文档级编排辅助。 | 不直接发送 LLM 请求。 |
+| `continuation/` | 同页/跨页段落连续性候选、规则和审阅状态。 | 不写最终译文。 |
+| `classification/` | `precise` 模式下的可疑块分类。 | 不替代默认 `document.v1` policy。 |
+| `terms/` | 术语表归一化、提示词注入和术语命中统计。 | 不做翻译后硬替换。 |
+| `diagnostics/` | 结构化诊断、debug index、失败路径记录。 | 不承担业务决策。 |
+| `postprocess/` | 翻译后轻量修复和乱码恢复。 | 不重新调用完整翻译流程。 |
+
+### 依赖方向
+
+推荐依赖方向：
+
+```text
+workflow
+  -> ocr / orchestration / continuation / policy / context / memory / payload / terms / llm / diagnostics / postprocess
+llm
+  -> context / terms / diagnostics / payload / policy
+policy
+  -> context / payload
+payload
+  -> continuation / policy
+diagnostics
+  -> payload
+```
+
+禁止方向：
+
+- `llm/providers/**` 不应 import `workflow`、`runtime.pipeline`、`rendering`。
+- `policy/**` 不应 import `llm/providers` 或 `runtime.pipeline`。
+- `payload/**` 不应 import `llm/providers`、`workflow`、`rendering`。
+- `memory/**` 不应 import `llm/providers`、`workflow`、`rendering`。
+- `translation/**` 整体不应 import `services.rendering`。
+
+这些规则由 `backend/scripts/devtools/check_pipeline_architecture.py` 逐步收紧。当前先卡住新增越界依赖，历史兼容入口会分批迁移。
 
 ## 主要流程
 

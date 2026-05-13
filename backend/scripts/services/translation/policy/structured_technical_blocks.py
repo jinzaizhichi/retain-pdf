@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import re
 
+from services.translation.policy.hints import TranslationPolicyHint
+from services.translation.policy.hints import apply_policy_hints
+
 
 FIELD_LABEL_RE = re.compile(r"(?:^|\s*[•\-]\s+)([A-Za-z][A-Za-z0-9 _./-]{1,40})\s*:")
 SHORT_LITERAL_VALUE_RE = re.compile(
@@ -15,6 +18,8 @@ SHORT_LITERAL_VALUE_RE = re.compile(
     r")$",
     re.I,
 )
+MAX_STRUCTURED_BLOCK_CHARS = 1200
+MIN_MULTI_FIELD_LABELS = 2
 
 
 def _normalized_text(item: dict) -> str:
@@ -30,19 +35,32 @@ def _field_labels(text: str) -> list[str]:
     return labels
 
 
+def _single_field_value(text: str) -> str:
+    if ":" not in text:
+        return ""
+    return text.split(":", 1)[1].strip()
+
+
+def _is_short_literal_value(text: str) -> bool:
+    return bool(SHORT_LITERAL_VALUE_RE.fullmatch(text.strip()))
+
+
+def _is_structured_field_block(text: str) -> bool:
+    labels = _field_labels(text)
+    if len(labels) >= MIN_MULTI_FIELD_LABELS:
+        return True
+    if len(labels) != 1:
+        return False
+    # A single field is only structural when its value is clearly a literal.
+    # Prose such as "Note: This option controls..." must stay normal text.
+    return _is_short_literal_value(_single_field_value(text))
+
+
 def looks_like_structured_technical_block(item: dict) -> bool:
     text = _normalized_text(item)
-    if not text or len(text) > 1200:
+    if not text or len(text) > MAX_STRUCTURED_BLOCK_CHARS:
         return False
-    labels = _field_labels(text)
-    if len(labels) >= 2:
-        return True
-    if len(labels) == 1:
-        tail = text.split(":", 1)[1].strip() if ":" in text else ""
-        # Single-field rows are only treated as structural when the value is
-        # clearly a short literal, not prose. This avoids broad code/prose guesses.
-        return bool(SHORT_LITERAL_VALUE_RE.fullmatch(tail))
-    return False
+    return _is_structured_field_block(text)
 
 
 def structured_technical_style_hint(item: dict) -> str:
@@ -59,25 +77,34 @@ def structured_technical_style_hint(item: dict) -> str:
     )
 
 
-def apply_structured_technical_context(payload: list[dict]) -> int:
-    annotated = 0
+def collect_structured_technical_hints(payload: list[dict]) -> list[TranslationPolicyHint]:
+    hints: list[TranslationPolicyHint] = []
     for item in payload:
         hint = structured_technical_style_hint(item)
         if not hint:
             continue
-        existing = str(item.get("translation_style_hint", "") or "").strip()
-        item["translation_style_hint"] = f"{existing}\n{hint}".strip() if existing else hint
-        item["translation_structure_kind"] = "structured_technical_block"
-        metadata = dict(item.get("metadata", {}) or {})
-        metadata["translation_structure_kind"] = "structured_technical_block"
-        metadata["translation_style_hint"] = item["translation_style_hint"]
-        item["metadata"] = metadata
-        annotated += 1
-    return annotated
+        item_id = str(item.get("item_id", "") or "")
+        if not item_id:
+            continue
+        hints.append(
+            TranslationPolicyHint(
+                item_id=item_id,
+                structure_kind="structured_technical_block",
+                style_hint=hint,
+            )
+        )
+    return hints
+
+
+def apply_structured_technical_context(payload: list[dict]) -> int:
+    """Compatibility wrapper; new policy flow should collect hints first."""
+
+    return apply_policy_hints(payload, collect_structured_technical_hints(payload))
 
 
 __all__ = [
     "apply_structured_technical_context",
+    "collect_structured_technical_hints",
     "looks_like_structured_technical_block",
     "structured_technical_style_hint",
 ]

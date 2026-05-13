@@ -58,7 +58,9 @@ def _looks_like_large_black_text_cluster(drawing: dict) -> bool:
 def collect_vector_text_rects(page: fitz.Page, target_rects: list[fitz.Rect]) -> list[fitz.Rect]:
     rects: list[fitz.Rect] = []
     try:
-        drawings = page.get_drawings()
+        drawings = page.get_drawings() if "get_drawings" in getattr(page, "__dict__", {}) else (
+            page.get_cdrawings() if hasattr(page, "get_cdrawings") else page.get_drawings()
+        )
     except Exception:
         return rects
 

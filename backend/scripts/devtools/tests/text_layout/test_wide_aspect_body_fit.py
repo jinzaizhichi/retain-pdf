@@ -9,8 +9,12 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 from services.rendering.layout.font_fit import estimate_font_size_pt
 from services.rendering.layout.font_fit import estimate_leading_em
 from services.rendering.layout.font_fit import local_font_size_pt
+from services.rendering.layout.font_fit import normalize_leading_em_for_font_size
+from services.rendering.layout.font_fit import BODY_LEADING_MAX
+from services.rendering.layout.font_fit import BODY_LEADING_MIN
 from services.rendering.layout.payload.blocks import build_render_blocks
 from services.rendering.layout.payload.block_seed import _relax_wide_aspect_body_leading
+from services.rendering.layout.payload.fit import fit_translated_block_metrics
 from services.rendering.layout.typography.measurement import source_visual_line_count
 from services.rendering.layout.typography.measurement import visual_line_count
 
@@ -224,7 +228,43 @@ class WideAspectBodyFitTests(unittest.TestCase):
         wide_leading = estimate_leading_em(wide_item, 14.0, 10.8)
 
         self.assertLessEqual(wide_leading, base_leading)
-        self.assertGreaterEqual(wide_leading, 0.54)
+        self.assertGreaterEqual(wide_leading, 0.34)
+
+    def test_large_body_font_does_not_force_tight_leading(self):
+        leading = normalize_leading_em_for_font_size(
+            11.8,
+            0.52,
+            reference_font_size_pt=10.6,
+            min_leading_em=BODY_LEADING_MIN,
+            max_leading_em=BODY_LEADING_MAX,
+            strength=1.0,
+        )
+
+        self.assertGreaterEqual(leading, 0.52)
+
+    def test_dense_body_fit_prefers_font_shrink_over_cramped_leading(self):
+        item = {
+            "block_type": "text",
+            "source_text": "Dense body paragraph.",
+            "bbox": [40, 100, 220, 148],
+            "_render_inner_bbox": [40, 100, 220, 148],
+            "_is_body_text_candidate": True,
+            "_dense_small_box": True,
+            "_heavy_dense_small_box": False,
+        }
+        text = "这是一个非常密集的正文段落，需要在有限高度内优先缩小字号，而不是把行距压得过低。" * 4
+
+        font_size, leading = fit_translated_block_metrics(
+            item,
+            text,
+            [],
+            10.8,
+            0.58,
+            page_body_font_size_pt=10.8,
+        )
+
+        self.assertLess(font_size, 10.4)
+        self.assertGreaterEqual(leading, 0.54)
 
     def test_wide_aspect_body_relaxes_leading_when_vertical_slack_exists(self):
         text = (
@@ -237,9 +277,9 @@ class WideAspectBodyFitTests(unittest.TestCase):
             text,
             [],
             11.32,
-            0.60,
+            0.42,
         )
-        self.assertGreater(relaxed, 0.60)
+        self.assertGreater(relaxed, 0.42)
 
     def test_wide_aspect_body_keeps_leading_when_height_is_tight(self):
         text = (
@@ -252,9 +292,9 @@ class WideAspectBodyFitTests(unittest.TestCase):
             text,
             [],
             11.32,
-            0.60,
+            0.42,
         )
-        self.assertEqual(relaxed, 0.60)
+        self.assertLessEqual(relaxed, 0.46)
 
 
 if __name__ == "__main__":

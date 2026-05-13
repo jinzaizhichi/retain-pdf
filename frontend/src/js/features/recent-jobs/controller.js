@@ -179,11 +179,13 @@ export function mountRecentJobsFeature({ fetchJobList, apiPrefix, startPolling }
         reset,
         hasMore,
         onSelect(jobId) {
-          if (!jobId) {
+          const normalizedJobId = `${jobId || ""}`.trim();
+          if (!normalizedJobId) {
+            renderRecentJobsError("该任务缺少 job_id，无法打开。", { reset: false });
             return;
           }
           closeRecentJobsDialog();
-          startPolling(jobId);
+          startPolling(normalizedJobId);
         },
       });
     } catch (err) {

@@ -38,6 +38,9 @@ def test_build_translation_debug_index_keeps_core_item_fields() -> None:
                     "route_path": ["block_level", "direct_typst"],
                     "fallback_to": "",
                     "degradation_reason": "",
+                    "provider": "deepseek_official",
+                    "request_label": "book: batch 1/1 item 1/1",
+                    "raw_excerpt": "raw model output",
                     "error_trace": [{"type": "validation", "code": "TEST"}],
                     "final_status": "translated",
                 },
@@ -55,6 +58,10 @@ def test_build_translation_debug_index_keeps_core_item_fields() -> None:
     assert index["items"][0]["semantic_role"] == "body"
     assert index["items"][0]["structure_role"] == "body"
     assert index["items"][0]["route_path"] == ["block_level", "direct_typst"]
+    assert index["items"][0]["provider"] == "deepseek_official"
+    assert index["items"][0]["prompt_mode"] == "direct_typst"
+    assert index["items"][0]["request_label"] == "book: batch 1/1 item 1/1"
+    assert index["items"][0]["raw_excerpt"] == "raw model output"
     assert index["items"][0]["error_types"] == ["validation"]
     assert index["items"][0]["source_preview"].startswith("This is a long English")
 

@@ -26,6 +26,8 @@ def render_translated_pages_map(
         source_pdf_path=source_pdf_path,
         output_pdf_path=output_pdf_path,
         pdf_compress_dpi=pdf_compress_dpi,
+        translated_pages=translated_pages_map,
+        strip_hidden_text=False,
     )
     doc = fitz.open(render_source_pdf.path)
     try:
@@ -46,5 +48,11 @@ def render_translated_pages_map(
         doc.close()
         for temp_source_path in render_source_pdf.temp_paths:
             temp_source_path.unlink(missing_ok=True)
-    compress_pdf_images_only(output_pdf_path, dpi=pdf_compress_dpi)
+    if render_source_pdf.image_compressed:
+        print(
+            "final image-only compress: skipped for direct_overlay because render source was already compressed",
+            flush=True,
+        )
+    else:
+        compress_pdf_images_only(output_pdf_path, dpi=pdf_compress_dpi)
     return len(translated_pages_map)

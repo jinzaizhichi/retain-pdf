@@ -5,11 +5,12 @@
 建议阅读顺序：
 
 1. [Python 后端架构边界](./architecture.md)
-2. [Python 依赖单一事实来源](./dependency_source_of_truth.md)
-3. [Pipeline 依赖说明](./pipeline_dependencies.md)
-4. [Pipeline 依赖清单 JSON](./pipeline_dependencies.json)
-5. [运行时 requirements 输入](./pipeline_runtime_requirements.in)
-6. [测试 requirements 输入](./pipeline_test_requirements.in)
+2. [翻译层说明](./translation.md)
+3. [Python 依赖单一事实来源](./dependency_source_of_truth.md)
+4. [Pipeline 依赖说明](./pipeline_dependencies.md)
+5. [Pipeline 依赖清单 JSON](./pipeline_dependencies.json)
+6. [运行时 requirements 输入](./pipeline_runtime_requirements.in)
+7. [测试 requirements 输入](./pipeline_test_requirements.in)
 
 维护原则：
 

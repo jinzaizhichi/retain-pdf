@@ -50,6 +50,13 @@ def _require_text(parent: dict[str, Any], key: str) -> str:
     return value.strip()
 
 
+def _int_field(parent: dict[str, Any], key: str, default: int) -> int:
+    value = parent.get(key, default)
+    if value is None or value == "":
+        value = default
+    return int(value)
+
+
 @dataclass(frozen=True)
 class StageJobRef:
     job_id: str
@@ -215,8 +222,8 @@ class TranslateStageSpec:
         if not isinstance(glossary_entries, list):
             raise RuntimeError("stage spec field 'params.glossary_entries' must be a list")
         params = TranslateStageParams(
-            start_page=int(params_payload.get("start_page", 0) or 0),
-            end_page=int(params_payload.get("end_page", -1) or -1),
+            start_page=_int_field(params_payload, "start_page", 0),
+            end_page=_int_field(params_payload, "end_page", -1),
             batch_size=int(params_payload.get("batch_size", 1) or 1),
             workers=int(params_payload.get("workers", 1) or 1),
             mode=str(params_payload.get("mode", "sci") or "sci"),
@@ -315,8 +322,8 @@ class RenderStageSpec:
         if not inputs.translations_dir.exists():
             raise RuntimeError(f"translations dir not found: {inputs.translations_dir}")
         params = RenderStageParams(
-            start_page=int(params_payload.get("start_page", 0) or 0),
-            end_page=int(params_payload.get("end_page", -1) or -1),
+            start_page=_int_field(params_payload, "start_page", 0),
+            end_page=_int_field(params_payload, "end_page", -1),
             render_mode=str(params_payload.get("render_mode", "typst") or "typst"),
             compile_workers=int(params_payload.get("compile_workers", 0) or 0),
             typst_font_family=str(params_payload.get("typst_font_family", "") or "").strip()
@@ -469,8 +476,8 @@ class ProviderStageSpec:
         if not isinstance(glossary_entries, list):
             raise RuntimeError("stage spec field 'translation.glossary_entries' must be a list")
         translation = ProviderStageTranslationParams(
-            start_page=int(translation_payload.get("start_page", 0) or 0),
-            end_page=int(translation_payload.get("end_page", -1) or -1),
+            start_page=_int_field(translation_payload, "start_page", 0),
+            end_page=_int_field(translation_payload, "end_page", -1),
             batch_size=int(translation_payload.get("batch_size", 1) or 1),
             workers=int(translation_payload.get("workers", 1) or 1),
             mode=str(translation_payload.get("mode", "sci") or "sci"),
@@ -606,8 +613,8 @@ class BookStageSpec:
         if not isinstance(glossary_entries, list):
             raise RuntimeError("stage spec field 'translation.glossary_entries' must be a list")
         translation = BookStageTranslationParams(
-            start_page=int(translation_payload.get("start_page", 0) or 0),
-            end_page=int(translation_payload.get("end_page", -1) or -1),
+            start_page=_int_field(translation_payload, "start_page", 0),
+            end_page=_int_field(translation_payload, "end_page", -1),
             batch_size=int(translation_payload.get("batch_size", 1) or 1),
             workers=int(translation_payload.get("workers", 1) or 1),
             mode=str(translation_payload.get("mode", "sci") or "sci"),

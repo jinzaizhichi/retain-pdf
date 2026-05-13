@@ -20,7 +20,7 @@ pub(crate) fn default_typst_font_family() -> String {
     "Source Han Serif SC".to_string()
 }
 pub(crate) fn default_pdf_compress_dpi() -> i64 {
-    200
+    0
 }
 pub(crate) fn default_end_page() -> i64 {
     -1

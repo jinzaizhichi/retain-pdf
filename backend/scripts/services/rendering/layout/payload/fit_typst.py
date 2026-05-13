@@ -76,16 +76,16 @@ def resolve_typst_binary_fit(
         fit_height_pt = min(fit_height_pt, source_height_limit)
     fit_height_pt = max(8.0, fit_height_pt)
 
-    floor_gap = 0.52 if heavy_dense_small_box else (0.38 if dense_small_box else 0.24)
+    floor_gap = 1.1 if heavy_dense_small_box else (0.86 if dense_small_box else 0.62)
     if is_body and page_body_font_size_pt is not None:
-        preferred_min_font = max(8.85, min(font_size_pt, page_body_font_size_pt - floor_gap))
+        preferred_min_font = max(7.4 if heavy_dense_small_box else 7.8, min(font_size_pt, page_body_font_size_pt - floor_gap))
     else:
         preferred_min_font = max(8.4, font_size_pt - (0.44 if dense_small_box else 0.3))
     overflow_excess = max(0.0, effective_overflow_ratio - 1.0)
     overflow_relief_font = overflow_excess / (overflow_excess + 0.75) if overflow_excess > 0 else 0.0
     if is_body:
-        min_font_floor = 6.8 if heavy_dense_small_box else (7.0 if dense_small_box else 7.2)
-        shrink_cap = 0.42 if heavy_dense_small_box else (0.38 if dense_small_box else 0.34)
+        min_font_floor = 6.6 if heavy_dense_small_box else (6.9 if dense_small_box else 7.1)
+        shrink_cap = 0.52 if heavy_dense_small_box else (0.48 if dense_small_box else 0.42)
     else:
         min_font_floor = 7.0
         shrink_cap = 0.36
@@ -98,8 +98,8 @@ def resolve_typst_binary_fit(
         min_font = preferred_min_font
 
     if leading_em <= 0.54 and is_body:
-        leading_floor_base = 0.26 if formula_weight >= TYPST_BINARY_FORMULA_RATIO_TRIGGER else 0.24
-        leading_delta = 0.02
+        leading_floor_base = 0.46 if formula_weight >= TYPST_BINARY_FORMULA_RATIO_TRIGGER else 0.44
+        leading_delta = 0.01
     elif not is_body:
         leading_floor_base = 0.22 if formula_weight >= TYPST_BINARY_FORMULA_RATIO_TRIGGER else 0.18
         leading_delta = 0.06 if effective_overflow_ratio >= 1.08 else 0.04
@@ -108,10 +108,10 @@ def resolve_typst_binary_fit(
         leading_delta = 0.02 if formula_weight >= TYPST_BINARY_FORMULA_RATIO_TRIGGER else (0.04 if effective_overflow_ratio >= 1.12 else 0.03)
     if effective_overflow_ratio > 1.0:
         overflow_relief = min(1.0, (effective_overflow_ratio - 1.0) / 1.2)
-        dynamic_leading_floor = leading_em - overflow_relief * (0.22 if is_body else 0.12)
-        absolute_leading_floor = 0.36 if is_body else 0.18
+        dynamic_leading_floor = leading_em - overflow_relief * (0.08 if is_body else 0.12)
+        absolute_leading_floor = 0.42 if is_body else 0.18
         leading_floor_base = min(leading_floor_base, max(absolute_leading_floor, dynamic_leading_floor))
-        leading_delta = max(leading_delta, 0.03 + overflow_relief * (0.11 if is_body else 0.06))
+        leading_delta = max(leading_delta, 0.02 + overflow_relief * (0.04 if is_body else 0.06))
     min_leading = max(leading_floor_base, leading_em - leading_delta)
     min_leading = min(min_leading, leading_em)
 

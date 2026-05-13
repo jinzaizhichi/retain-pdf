@@ -71,3 +71,28 @@ def test_blocking_untranslated_items_keeps_non_whitelisted_failures_blocking() -
 
     assert len(blocked) == 1
     assert blocked[0]["item_id"] == "p002-b001"
+
+
+def test_aggregate_payload_diagnostics_adds_debug_location_fields() -> None:
+    translated_pages_map = {
+        2: [
+            {
+                "item_id": "p003-b004",
+                "math_mode": "direct_typst",
+                "final_status": "failed",
+                "translation_diagnostics": {
+                    "route_path": ["block_level", "direct_typst"],
+                    "request_label": "book: batch 1/2 item 1/3",
+                    "provider_family": "deepseek_official",
+                    "error_trace": [{"type": "validation", "message": "empty translation output"}],
+                },
+            }
+        ]
+    }
+
+    item_diagnostics, _summary = aggregate_payload_diagnostics(translated_pages_map)
+
+    assert item_diagnostics[0]["provider"] == "deepseek_official"
+    assert item_diagnostics[0]["prompt_mode"] == "direct_typst"
+    assert item_diagnostics[0]["request_label"] == "book: batch 1/2 item 1/3"
+    assert item_diagnostics[0]["raw_excerpt"] == "empty translation output"

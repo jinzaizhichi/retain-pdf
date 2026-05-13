@@ -86,13 +86,17 @@ function rawStageOf(payload) {
 function stageKeyOf(payload) {
   const raw = rawStageOf(payload);
   const status = `${payload.status || ""}`.trim();
-  return stageGroupForRawStage(raw, status);
+  const workflow = firstNonEmpty(payload.workflow, payload.job_type, payload.raw_response?.workflow);
+  return stageGroupForRawStage(raw, status, workflow);
 }
 
 function stageSubtypeOf(payload) {
   const raw = rawStageOf(payload);
   const detail = firstNonEmpty(payload.stage_detail, payload.runtime?.current_stage).toLowerCase();
   const text = `${raw} ${detail}`;
+  if (raw.includes("startup")) {
+    return "startup";
+  }
   if (raw.includes("continuation_review") || text.includes("跨栏") || text.includes("跨页") || text.includes("连续段")) {
     return "continuation_review";
   }
@@ -296,6 +300,7 @@ function userStageLabel(payload) {
   if (stage.step && stage.total && payload.status !== "succeeded") {
     const subtype = stageSubtypeOf(payload);
     const subtypeLabel = {
+      startup: "启动",
       continuation_review: "跨栏/跨页判断",
       page_policies: "页面策略",
       domain_inference: "领域判断",

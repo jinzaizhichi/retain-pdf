@@ -15,6 +15,7 @@ ACTIVE_PROVIDER_FAMILY = _RUNTIME.provider_family
 DEFAULT_API_KEY_ENV = _RUNTIME.default_api_key_env
 DEFAULT_MODEL = _RUNTIME.default_model
 DEFAULT_BASE_URL = _RUNTIME.default_base_url
+PROVIDER_CAPABILITIES = _RUNTIME.capabilities
 build_headers = _RUNTIME.build_headers
 chat_completions_url = _RUNTIME.chat_completions_url
 get_api_key = _RUNTIME.get_api_key
@@ -35,6 +36,7 @@ __all__ = [
     "DEFAULT_API_KEY_ENV",
     "DEFAULT_BASE_URL",
     "DEFAULT_MODEL",
+    "PROVIDER_CAPABILITIES",
     "build_headers",
     "chat_completions_url",
     "extract_json_text",

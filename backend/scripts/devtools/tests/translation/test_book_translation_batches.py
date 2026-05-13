@@ -2,22 +2,19 @@ import sys
 from pathlib import Path
 from unittest import mock
 
-import requests
-
 REPO_SCRIPTS_ROOT = Path("/home/wxyhgk/tmp/Code/backend/scripts")
 sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
-from runtime.pipeline.book_translation_batches import _build_translation_batches
-from runtime.pipeline.book_translation_batches import _allocate_translation_queue_workers
-from runtime.pipeline.book_translation_batches import _classify_translation_batches
-from runtime.pipeline.book_translation_batches import _dedupe_pending_items
-from runtime.pipeline.book_translation_batches import _expand_duplicate_results
-from runtime.pipeline.book_translation_batches import _effective_translation_batch_size
-from runtime.pipeline.book_translation_batches import _translate_batch_or_keep_origin
+from services.translation.batching.plan import _allocate_translation_queue_workers
+from services.translation.batching.plan import _build_translation_batches
+from services.translation.batching.plan import _classify_translation_batches
+from services.translation.batching.plan import _dedupe_pending_items
+from services.translation.batching.plan import _effective_translation_batch_size
 from services.translation.llm.shared.control_context import build_translation_control_context
 from services.translation.llm.shared.control_context import resolve_engine_profile
 from services.translation.orchestration.units import finalize_payload_orchestration_metadata
 from services.translation.payload.parts.units import pending_translation_items
+from services.translation.results.applier import expand_duplicate_results as _expand_duplicate_results
 
 
 def _item(item_id: str, text: str, **overrides):
@@ -485,86 +482,6 @@ def test_smarter_batches_leave_reference_like_text_as_single_batch_without_fast_
     assert not batches[1][0].get("_batched_plain_candidate")
 
 
-def test_fast_path_keep_origin_is_removed_from_network_batches() -> None:
-    context = build_translation_control_context()
-    batches, immediate = _build_translation_batches(
-        [
-            _item("placeholder-only", "<f1-a7c/>"),
-            _item("short-number", "12.5"),
-            _item("body", "This sentence describes antibacterial activity and provides enough body text for translation."),
-        ],
-        effective_batch_size=4,
-        translation_context=context,
-    )
-    assert [[item["item_id"] for item in batch] for batch in batches] == [["body"], ["short-number"]]
-    assert [list(result)[0] for result in immediate] == ["placeholder-only"]
-    assert all(list(result.values())[0]["decision"] == "keep_origin" for result in immediate)
-
-
-def test_fast_path_keep_origin_skips_short_non_body_labels() -> None:
-    context = build_translation_control_context()
-    batches, immediate = _build_translation_batches(
-        [
-            _item(
-                "caption-e",
-                "E",
-                block_type="image_caption",
-                layout_zone="non_flow",
-                metadata={"structure_role": "caption"},
-            ),
-            _item("body", "This sentence describes antibacterial activity and provides enough body text for translation."),
-        ],
-        effective_batch_size=4,
-        translation_context=context,
-    )
-    assert [[item["item_id"] for item in batch] for batch in batches] == [["body"]]
-    assert [list(result)[0] for result in immediate] == ["caption-e"]
-    assert list(immediate[0].values())[0]["translation_diagnostics"]["degradation_reason"] == "short_non_body_label"
-
-
-def test_fast_path_keep_origin_skips_editorial_metadata_tokens() -> None:
-    context = build_translation_control_context()
-    batches, immediate = _build_translation_batches(
-        [
-            _item(
-                "crossmark",
-                "CrossMark",
-                block_type="text",
-                metadata={"structure_role": "body"},
-                page_idx=0,
-                lines=[{"spans": [{"content": "CrossMark"}]}],
-            ),
-            _item("body", "This sentence describes antibacterial activity and provides enough body text for translation."),
-        ],
-        effective_batch_size=4,
-        translation_context=context,
-    )
-    assert [[item["item_id"] for item in batch] for batch in batches] == [["body"], ["crossmark"]]
-    assert immediate == []
-
-
-def test_fast_path_keep_origin_skips_pure_email_fragments_only() -> None:
-    context = build_translation_control_context()
-    batches, immediate = _build_translation_batches(
-        [
-            _item(
-                "email",
-                "author@example.edu",
-                block_type="text",
-                metadata={"structure_role": "body"},
-                page_idx=0,
-                lines=[{"spans": [{"content": "author@example.edu"}]}],
-            ),
-            _item("body", "This sentence describes antibacterial activity and provides enough body text for translation."),
-        ],
-        effective_batch_size=4,
-        translation_context=context,
-    )
-    assert [[item["item_id"] for item in batch] for batch in batches] == [["body"]]
-    assert [list(result)[0] for result in immediate] == ["email"]
-    assert list(immediate[0].values())[0]["translation_diagnostics"]["degradation_reason"] == "hard_metadata_fragment"
-
-
 def test_duplicate_plain_items_are_collapsed_and_expanded_with_item_diagnostics() -> None:
     pending = [
         _item("a", "A", block_type="image_caption", page_idx=0),
@@ -589,69 +506,3 @@ def test_duplicate_plain_items_are_collapsed_and_expanded_with_item_diagnostics(
     assert expanded["b"]["translated_text"] == "甲"
     assert expanded["b"]["translation_diagnostics"]["item_id"] == "b"
     assert expanded["b"]["translation_diagnostics"]["page_idx"] == 1
-
-
-def test_translate_batch_wrapper_degrades_transport_failure_to_keep_origin() -> None:
-    context = build_translation_control_context()
-    batch = [
-        _item("a", "This sentence describes antibacterial activity and provides enough body text for translation."),
-        _item("b", "This paragraph keeps enough content for translation even when the network request times out."),
-    ]
-    with mock.patch(
-        "runtime.pipeline.book_translation_batches.translate_batch",
-        side_effect=requests.ConnectionError("Read timed out"),
-    ):
-        result = _translate_batch_or_keep_origin(
-            batch,
-            api_key="sk-test",
-            model="deepseek-chat",
-            base_url="https://api.deepseek.com/v1",
-            request_label="book: batch 1/1",
-            domain_guidance="",
-            mode="fast",
-            context=context,
-        )
-
-    assert result["a"]["decision"] == "keep_origin"
-    assert result["b"]["decision"] == "keep_origin"
-    assert result["a"]["translation_diagnostics"]["degradation_reason"] == "batch_transport_timeout_budget_exceeded"
-    assert result["a"]["translation_diagnostics"]["route_path"] == ["block_level", "batched_plain", "keep_origin"]
-
-
-def test_translate_batch_wrapper_appends_relevant_job_memory_to_domain_guidance() -> None:
-    captured: dict[str, object] = {}
-
-    class _MemoryStore:
-        def summary(self) -> str:
-            return "当前文档记忆：术语保持一致。\n- SCF => 自洽场\n- DFTB => 密度泛函紧束缚"
-
-        def summary_for_batch(self, batch) -> str:
-            source = "\n".join(str(item.get("source_text") or "") for item in batch)
-            if "SCF" in source:
-                return "当前块相关文档记忆：术语保持一致。\n- SCF => 自洽场"
-            return ""
-
-    def _fake_translate_fn(*_args, **kwargs):
-        captured["domain_guidance"] = kwargs["domain_guidance"]
-        captured["context"] = kwargs["context"]
-        return {"a": {"decision": "translate", "translated_text": "自洽场"}}
-
-    result = _translate_batch_or_keep_origin(
-        [_item("a", "SCF")],
-        api_key="sk-test",
-        model="deepseek-chat",
-        base_url="https://api.deepseek.com/v1",
-        request_label="book: batch 1/1",
-        domain_guidance="文档领域：量子化学。",
-        mode="fast",
-        context=build_translation_control_context(),
-        memory_store=_MemoryStore(),
-        translate_fn=_fake_translate_fn,
-    )
-
-    assert result["a"]["translated_text"] == "自洽场"
-    assert "文档领域：量子化学。" in captured["domain_guidance"]
-    assert "SCF => 自洽场" in captured["domain_guidance"]
-    assert "DFTB =>" not in captured["domain_guidance"]
-    assert "SCF => 自洽场" in captured["context"].merged_guidance
-    assert "DFTB =>" not in captured["context"].merged_guidance

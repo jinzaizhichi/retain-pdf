@@ -374,6 +374,44 @@ function checkRunningFinishedStageStaysInRenderUntilTerminal() {
   assertEqual(presentation.label, "第 3/4 步 · 渲染", "Running finished transition label");
 }
 
+function checkStartupStageUsesWorkflowContext() {
+  const cases = [
+    ["ocr", "ocr", "第 1/4 步 · 启动"],
+    ["translate", "translate", "第 2/4 步 · 启动"],
+    ["render", "render", "第 3/4 步 · 启动"],
+  ];
+  for (const [workflow, expectedStageKey, expectedLabel] of cases) {
+    const presentation = resolveDisplayedStagePresentation(
+      {
+        status: "running",
+        workflow,
+        job_type: workflow,
+        stage: "startup",
+        current_stage: "startup",
+        stage_detail: `${workflow} worker 已启动`,
+      },
+      { items: [] },
+    );
+    assertEqual(presentation.stageKey, expectedStageKey, `${workflow} startup stage`);
+    assertEqual(presentation.label, expectedLabel, `${workflow} startup label`);
+  }
+}
+
+function checkRenderPrepareDoesNotLookLikeOcr() {
+  const presentation = resolveDisplayedStagePresentation(
+    {
+      status: "running",
+      workflow: "render",
+      stage: "render_prepare",
+      current_stage: "render_prepare",
+      stage_detail: "开始准备纯渲染阶段",
+    },
+    { items: [] },
+  );
+  assertEqual(presentation.stageKey, "render", "Render prepare stage");
+  assertEqual(presentation.label, "第 3/4 步 · 渲染", "Render prepare label");
+}
+
 checkOcrPresentationUsesPageProgress();
 checkOcrPresentationIgnoresFutureStageEvents();
 checkOcrPresentationFallsBackToJobProgress();
@@ -391,5 +429,7 @@ checkOcrUploadWaitingDoesNotLookQueued();
 checkTranslationSubstageOrderDoesNotPreferBatchWhenReviewing();
 checkCompletedStageHasDoneKeyAndNoProgressTextRequirement();
 checkRunningFinishedStageStaysInRenderUntilTerminal();
+checkStartupStageUsesWorkflowContext();
+checkRenderPrepareDoesNotLookLikeOcr();
 
 console.log("status presentation smoke passed");

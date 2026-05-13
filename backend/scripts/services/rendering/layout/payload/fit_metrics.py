@@ -73,10 +73,10 @@ def fit_translated_block_metrics(
     else:
         max_steps = 4 if aggressive_fit else (2 if is_dense_block else 1)
     min_font = max(
-        8.9 if dense_small_box or is_dense_block else 9.05,
+        8.45 if dense_small_box or is_dense_block else 8.75,
         (page_body_font_size_pt - (0.62 if heavy_dense_small_box else 0.4 if dense_small_box else 0.18))
         if page_body_font_size_pt is not None
-        else (8.9 if dense_small_box or is_dense_block else 9.05),
+        else (8.45 if dense_small_box or is_dense_block else 8.75),
     )
     if wide_aspect_body_text:
         min_font = max(min_font, font_size_pt - 0.06)
@@ -90,18 +90,15 @@ def fit_translated_block_metrics(
     if item.get("_is_body_text_candidate", False):
         if not aggressive_fit:
             return best_font, best_leading
-        emergency_leading = round(
-            max(0.56 if dense_small_box or is_dense_block else 0.58, leading_em - (0.02 if dense_small_box or is_dense_block else 0.01)),
-            2,
-        )
+        emergency_leading = round(max(0.54 if dense_small_box or is_dense_block else 0.56, leading_em - 0.01), 2)
         emergency_min_font = max(
-            8.85 if dense_small_box or is_dense_block else 8.95,
-            (page_body_font_size_pt - (0.7 if heavy_dense_small_box else 0.5 if dense_small_box else 0.28))
+            7.8 if dense_small_box or is_dense_block else 8.2,
+            (page_body_font_size_pt - (1.25 if heavy_dense_small_box else 0.95 if dense_small_box else 0.7))
             if page_body_font_size_pt is not None
-            else (8.85 if dense_small_box or is_dense_block else 8.95),
+            else (7.8 if dense_small_box or is_dense_block else 8.2),
         )
-        for step in range(1, 4 if dense_small_box or is_dense_block else 2):
-            candidate_font = round(max(emergency_min_font, best_font - step * 0.1), 2)
+        for step in range(1, 8 if dense_small_box or is_dense_block else 5):
+            candidate_font = round(max(emergency_min_font, best_font - step * 0.14), 2)
             candidate_capacity = box_capacity_units(box, candidate_font, emergency_leading, visual_lines=visual_lines)
             if demand <= candidate_capacity * 0.98:
                 return candidate_font, emergency_leading

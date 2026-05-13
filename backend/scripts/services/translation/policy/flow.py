@@ -4,8 +4,9 @@ from services.translation.context import TranslationDocumentContext
 from services.translation.payload import ops as payload_ops
 from services.translation.policy.config import TranslationPolicyConfig
 from services.translation.policy.config import build_translation_policy_config
+from services.translation.policy.hints import apply_policy_hints
 from services.translation.policy.planner import TranslationPlanner
-from services.translation.policy.structured_technical_blocks import apply_structured_technical_context
+from services.translation.policy.structured_technical_blocks import collect_structured_technical_hints
 
 
 def _build_skip_summary(
@@ -57,7 +58,7 @@ def apply_translation_policies(
         )
 
     payload_ops.reset_policy_state(payload)
-    structured_technical_blocks = apply_structured_technical_context(payload)
+    structured_technical_blocks = apply_policy_hints(payload, collect_structured_technical_hints(payload))
     classified_items = 0
     skip_summary = _build_skip_summary(
         title_skipped=0,

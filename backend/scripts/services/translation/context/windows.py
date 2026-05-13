@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from services.translation.context.models import sanitize_prompt_context_text
 from services.translation.item_reader import item_is_textual
 
 
 DEFAULT_CONTEXT_WINDOW_NEIGHBORS = 2
 DEFAULT_CONTEXT_TEXT_LIMIT = 360
+
+
+@dataclass(frozen=True)
+class TranslationContextWindow:
+    item_id: str
+    before: str = ""
+    after: str = ""
 
 
 def _item_order(item: dict) -> tuple[int, int]:
@@ -53,6 +62,38 @@ def _is_context_candidate(item: dict) -> bool:
     return True
 
 
+def build_translation_context_windows(
+    page_payloads: dict[int, list[dict]],
+    *,
+    neighbors: int = DEFAULT_CONTEXT_WINDOW_NEIGHBORS,
+    text_limit: int = DEFAULT_CONTEXT_TEXT_LIMIT,
+) -> dict[str, TranslationContextWindow]:
+    flat_items = [
+        item
+        for page_idx in sorted(page_payloads)
+        for item in sorted(page_payloads[page_idx], key=_item_order)
+    ]
+    context_items = [item for item in flat_items if _is_context_candidate(item)]
+    index_by_identity = {id(item): index for index, item in enumerate(context_items)}
+    windows: dict[str, TranslationContextWindow] = {}
+    window_size = max(0, int(neighbors))
+    for item in flat_items:
+        item_id = str(item.get("item_id", "") or "")
+        if not item_id or not _is_context_candidate(item):
+            continue
+        index = index_by_identity.get(id(item))
+        if index is None:
+            continue
+        before_items = context_items[max(0, index - window_size) : index]
+        after_items = context_items[index + 1 : index + 1 + window_size]
+        windows[item_id] = TranslationContextWindow(
+            item_id=item_id,
+            before=_join_context_items(before_items, limit=text_limit),
+            after=_join_context_items(after_items, limit=text_limit),
+        )
+    return windows
+
+
 def annotate_translation_context_windows(
     page_payloads: dict[int, list[dict]],
     *,
@@ -66,32 +107,25 @@ def annotate_translation_context_windows(
     rows can be interpreted without adding fragile no-translation rules.
     """
 
+    windows = build_translation_context_windows(page_payloads, neighbors=neighbors, text_limit=text_limit)
+    annotated = 0
     flat_items = [
         item
         for page_idx in sorted(page_payloads)
         for item in sorted(page_payloads[page_idx], key=_item_order)
     ]
-    context_items = [item for item in flat_items if _is_context_candidate(item)]
-    index_by_identity = {id(item): index for index, item in enumerate(context_items)}
-    annotated = 0
-    window_size = max(0, int(neighbors))
     for item in flat_items:
-        if not _is_context_candidate(item):
+        item_id = str(item.get("item_id", "") or "")
+        window = windows.get(item_id)
+        if window is None:
             item["translation_context_before"] = ""
             item["translation_context_after"] = ""
             continue
-        index = index_by_identity.get(id(item))
-        if index is None:
-            continue
-        before_items = context_items[max(0, index - window_size) : index]
-        after_items = context_items[index + 1 : index + 1 + window_size]
-        before = _join_context_items(before_items, limit=text_limit)
-        after = _join_context_items(after_items, limit=text_limit)
-        if item.get("translation_context_before") != before:
-            item["translation_context_before"] = before
+        if item.get("translation_context_before") != window.before:
+            item["translation_context_before"] = window.before
             annotated += 1
-        if item.get("translation_context_after") != after:
-            item["translation_context_after"] = after
+        if item.get("translation_context_after") != window.after:
+            item["translation_context_after"] = window.after
             annotated += 1
     return annotated
 
@@ -99,5 +133,7 @@ def annotate_translation_context_windows(
 __all__ = [
     "DEFAULT_CONTEXT_TEXT_LIMIT",
     "DEFAULT_CONTEXT_WINDOW_NEIGHBORS",
+    "TranslationContextWindow",
     "annotate_translation_context_windows",
+    "build_translation_context_windows",
 ]

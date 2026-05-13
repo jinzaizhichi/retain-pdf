@@ -1,5 +1,17 @@
 import { $ } from "../../dom.js";
 
+function positiveInteger(value, fallback) {
+  const fallbackNumber = Number(fallback);
+  const normalizedFallback = Number.isFinite(fallbackNumber) && fallbackNumber > 0
+    ? Math.floor(fallbackNumber)
+    : 1;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) {
+    return normalizedFallback;
+  }
+  return Math.floor(number);
+}
+
 export function setDeveloperDialogValues(config) {
   $("developer-workflow").value = config.workflow;
   $("developer-render-source-job-id").value = config.renderSourceJobId;
@@ -18,11 +30,11 @@ export function readDeveloperDialogValues(defaults) {
     renderSourceJobId: $("developer-render-source-job-id")?.value?.trim() || "",
     model: $("developer-model")?.value?.trim() || defaults.model,
     baseUrl: $("developer-base-url")?.value?.trim() || defaults.baseUrl,
-    workers: Number($("developer-workers")?.value || defaults.workers),
-    batchSize: Number($("developer-batch-size")?.value || defaults.batchSize),
-    classifyBatchSize: Number($("developer-classify-batch-size")?.value || defaults.classifyBatchSize),
-    compileWorkers: Number($("developer-compile-workers")?.value || defaults.compileWorkers),
-    timeoutSeconds: Number($("developer-timeout-seconds")?.value || defaults.timeoutSeconds),
+    workers: positiveInteger($("developer-workers")?.value, defaults.workers),
+    batchSize: positiveInteger($("developer-batch-size")?.value, defaults.batchSize),
+    classifyBatchSize: positiveInteger($("developer-classify-batch-size")?.value, defaults.classifyBatchSize),
+    compileWorkers: positiveInteger($("developer-compile-workers")?.value, defaults.compileWorkers),
+    timeoutSeconds: positiveInteger($("developer-timeout-seconds")?.value, defaults.timeoutSeconds),
   };
 }
 

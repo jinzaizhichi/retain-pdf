@@ -8,7 +8,7 @@ from services.translation.orchestration.document_orchestrator import annotate_la
 from services.translation.orchestration.document_orchestrator import finalize_orchestration_metadata_by_page
 from services.translation.orchestration.document_orchestrator import review_candidate_continuation_pairs
 from services.translation.policy import TranslationPolicyConfig
-from services.translation.policy import apply_translation_policies
+from services.translation.policy.flow import apply_translation_policies
 from services.translation.payload import summarize_payload
 
 from services.translation.workflow.pages import save_pages
@@ -27,6 +27,7 @@ def apply_page_policies(
     sci_cutoff_page_idx: int | None,
     sci_cutoff_block_idx: int | None,
     policy_config: TranslationPolicyConfig | None = None,
+    progress_callback=None,
 ) -> int:
     classified_items = 0
     ordered_pages = sorted(page_payloads)
@@ -56,6 +57,8 @@ def apply_page_policies(
             f"book: page policy done {order}/{total_pages} -> source page {page_idx + 1} classified={page_classified}",
             flush=True,
         )
+        if progress_callback is not None:
+            progress_callback(order, total_pages, page_idx, page_classified)
     return classified_items
 
 
@@ -88,6 +91,7 @@ def review_and_apply_continuations(
     model: str,
     base_url: str,
     workers: int,
+    progress_callback=None,
 ) -> None:
     review_candidate_continuation_pairs(
         page_payloads=page_payloads,
@@ -97,6 +101,7 @@ def review_and_apply_continuations(
         base_url=base_url,
         workers=min(max(1, workers), 8),
         save_pages_fn=save_pages,
+        progress_callback=progress_callback,
     )
 
 

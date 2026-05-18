@@ -13,9 +13,9 @@ from services.translation.llm.result_canonicalizer import canonicalize_batch_res
 from services.translation.llm.result_validator import validate_batch_result
 from services.translation.llm.shared.control_context import TranslationControlContext
 from services.translation.llm.shared.orchestration.common import single_item_http_retry_attempts
-from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_transport_error
 from services.translation.llm.shared.orchestration.metadata import attach_result_metadata
 from services.translation.llm.shared.orchestration.metadata import restore_runtime_term_tokens
+import services.translation.llm.shared.orchestration.terminal_payloads as terminal_payloads
 from services.translation.llm.shared.orchestration.transport import defer_transport_retry
 from services.translation.llm.shared.orchestration.transport import plain_text_timeout_seconds
 from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL
@@ -120,7 +120,7 @@ def try_tagged_placeholder_path(
         if handle_transport_error and is_transport_error_fn(exc):
             if request_label:
                 print(
-                    f"{request_label}: tagged transport failure after {time.perf_counter() - tagged_started:.2f}s, degrade to keep_origin: {type(exc).__name__}: {exc}",
+                    f"{request_label}: tagged transport failure after {time.perf_counter() - tagged_started:.2f}s, mark failed: {type(exc).__name__}: {exc}",
                     flush=True,
                 )
             if allow_transport_tail_defer:
@@ -131,9 +131,11 @@ def try_tagged_placeholder_path(
                     request_label=request_label,
                     diagnostics=diagnostics,
                 )
-            return keep_origin_payload_for_transport_error(
+            return terminal_payloads.translation_failed_payload_for_transport(
                 item,
                 context=context,
-                route_path=route_path + ["keep_origin"],
+                route_path=route_path + ["failed"],
+                degradation_reason="tagged_transport_failure",
+                error_code="TRANSPORT_ERROR",
             )
         raise

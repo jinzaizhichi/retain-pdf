@@ -110,13 +110,16 @@ pub fn normalize_glossary_entries(
     let mut normalized = Vec::new();
     for entry in entries {
         let source = sanitize_csv_cell(&entry.source);
-        let target = sanitize_csv_cell(&entry.target);
+        let mut target = sanitize_csv_cell(&entry.target);
         let note = sanitize_csv_cell(&entry.note);
         let level = normalize_glossary_level(&entry.level);
         let match_mode = normalize_glossary_match_mode(&entry.match_mode);
         let context = sanitize_csv_cell(&entry.context);
         if source.is_empty() && target.is_empty() && note.is_empty() && context.is_empty() {
             continue;
+        }
+        if level == "preserve" && !source.is_empty() && target.is_empty() {
+            target = source.clone();
         }
         if source.is_empty() || target.is_empty() {
             return Err(AppError::bad_request(
@@ -267,8 +270,13 @@ fn parse_csv_row(
 
 fn normalize_glossary_level(value: &str) -> String {
     match sanitize_csv_cell(value).to_ascii_lowercase().as_str() {
-        "preserve" => "preserve".to_string(),
-        "canonical" => "canonical".to_string(),
+        "preserve" | "keep" | "keep_origin" | "keep-original" | "do_not_translate"
+        | "do-not-translate" | "not_translate" | "not-translate" | "no_translate"
+        | "no-translate" | "不翻译" | "保留" | "原文保留" => "preserve".to_string(),
+        "canonical" | "fixed" | "fixed_translation" | "fixed-translation" | "required"
+        | "强制翻译" | "固定翻译" | "专业译法" | "标准译法" => {
+            "canonical".to_string()
+        }
         _ => "preferred".to_string(),
     }
 }
@@ -276,7 +284,8 @@ fn normalize_glossary_level(value: &str) -> String {
 fn normalize_glossary_match_mode(value: &str) -> String {
     match sanitize_csv_cell(value).to_ascii_lowercase().as_str() {
         "regex" => "regex".to_string(),
-        "case_insensitive" | "case-insensitive" | "ci" => "case_insensitive".to_string(),
+        "case_insensitive" | "case-insensitive" | "ci" | "ignore_case" | "ignore-case"
+        | "大小写不敏感" | "忽略大小写" => "case_insensitive".to_string(),
         _ => "exact".to_string(),
     }
 }
@@ -301,12 +310,22 @@ fn detect_csv_header(row: &csv::StringRecord) -> Option<GlossaryCsvHeader> {
     for (index, value) in row.iter().enumerate() {
         let normalized = sanitize_csv_cell(value).to_ascii_lowercase();
         match normalized.as_str() {
-            "source" | "src" | "term" | "original" => source_idx = Some(index),
-            "target" | "dst" | "translation" | "translated" => target_idx = Some(index),
-            "note" | "notes" | "comment" | "comments" => note_idx = Some(index),
-            "level" | "glossary_level" => level_idx = Some(index),
-            "match" | "match_mode" | "match-mode" => match_mode_idx = Some(index),
-            "context" => context_idx = Some(index),
+            "source" | "src" | "term" | "original" | "原词" | "原文" | "术语" => {
+                source_idx = Some(index)
+            }
+            "target" | "dst" | "translation" | "translated" | "译文" | "翻译" | "目标译文" => {
+                target_idx = Some(index)
+            }
+            "note" | "notes" | "comment" | "comments" | "备注" | "说明" => {
+                note_idx = Some(index)
+            }
+            "level" | "glossary_level" | "mode" | "action" | "类型" | "模式" | "动作" => {
+                level_idx = Some(index)
+            }
+            "match" | "match_mode" | "match-mode" | "匹配" | "匹配模式" => {
+                match_mode_idx = Some(index)
+            }
+            "context" | "上下文" | "语境" => context_idx = Some(index),
             _ => {}
         }
     }
@@ -494,6 +513,37 @@ mod tests {
                 context: "paper".to_string(),
             }]
         );
+    }
+
+    #[test]
+    fn preserve_glossary_entry_can_omit_target() {
+        let entries = normalize_glossary_entries(&[GlossaryEntryInput {
+            source: " Hartree-Fock ".to_string(),
+            target: String::new(),
+            note: String::new(),
+            level: "不翻译".to_string(),
+            match_mode: "忽略大小写".to_string(),
+            context: String::new(),
+        }])
+        .expect("normalize preserve entry");
+
+        assert_eq!(entries[0].source, "Hartree-Fock");
+        assert_eq!(entries[0].target, "Hartree-Fock");
+        assert_eq!(entries[0].level, "preserve");
+        assert_eq!(entries[0].match_mode, "case_insensitive");
+    }
+
+    #[test]
+    fn parse_glossary_csv_supports_chinese_table_headers() {
+        let entries = parse_glossary_csv_text("原词,译文,类型,匹配模式,备注\nKohn-Sham,,保留,忽略大小写,method name\nDFT,density functional theory,专业译法,exact,expanded form\n")
+            .expect("parse csv");
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].source, "Kohn-Sham");
+        assert_eq!(entries[0].target, "Kohn-Sham");
+        assert_eq!(entries[0].level, "preserve");
+        assert_eq!(entries[0].match_mode, "case_insensitive");
+        assert_eq!(entries[1].level, "canonical");
     }
 
     #[test]

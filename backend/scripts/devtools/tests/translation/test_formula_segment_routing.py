@@ -7,7 +7,6 @@ REPO_SCRIPTS_ROOT = Path("/home/wxyhgk/tmp/Code/backend/scripts")
 sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 
-from services.translation.llm.shared.orchestration import retrying_translator
 from services.translation.llm.shared.orchestration import segment_routing
 
 
@@ -105,14 +104,12 @@ def test_formula_segment_messages_default_to_tagged_protocol() -> None:
 
 def test_long_formula_block_stays_plain_route() -> None:
     item = _formula_item(20)
-    assert retrying_translator._formula_segment_translation_route(item) == "none"
-    assert not retrying_translator._should_use_formula_segment_translation(item)
+    assert segment_routing.formula_segment_translation_route(item) == "none"
 
 
 def test_small_formula_inline_stays_plain_route() -> None:
     item = _small_formula_inline_item()
-    assert retrying_translator._formula_segment_translation_route(item) == "none"
-    assert not retrying_translator._should_use_formula_segment_translation(item)
+    assert segment_routing.formula_segment_translation_route(item) == "none"
 
 
 def test_small_formula_inline_uses_risk_score_not_single_phrase_only() -> None:
@@ -130,20 +127,17 @@ def test_fragmented_formula_segments_can_use_segmented_route_when_risk_threshold
 
     assert len(segments) > 4
     assert segment_routing.effective_formula_segment_count(segments) <= 4
-    assert retrying_translator._formula_segment_translation_route(item) == "single"
-    assert retrying_translator._should_use_formula_segment_translation(item)
+    assert segment_routing.formula_segment_translation_route(item) == "single"
 
 
 def test_prose_heavy_low_density_formula_block_prefers_plain_route() -> None:
     item = _prose_heavy_formula_item()
-    assert retrying_translator._formula_segment_translation_route(item) == "none"
-    assert not retrying_translator._should_use_formula_segment_translation(item)
+    assert segment_routing.formula_segment_translation_route(item) == "none"
 
 
 def test_formula_dense_prose_prefers_plain_route() -> None:
     item = _formula_dense_prose_item()
-    assert retrying_translator._formula_segment_translation_route(item) == "none"
-    assert not retrying_translator._should_use_formula_segment_translation(item)
+    assert segment_routing.formula_segment_translation_route(item) == "none"
 
 
 def test_segment_parser_allows_empty_optional_connector_segment() -> None:

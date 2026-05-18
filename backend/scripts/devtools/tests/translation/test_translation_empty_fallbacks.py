@@ -6,11 +6,14 @@ REPO_SCRIPTS_ROOT = Path("/home/wxyhgk/tmp/Code/backend/scripts")
 sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 
-from services.translation.llm.shared.orchestration import fallbacks
+from services.translation.llm.shared.orchestration.common import should_keep_origin_on_empty_translation
+from services.translation.llm.shared.orchestration.intentional_keep_origin import (
+    keep_origin_payload_for_empty_translation,
+)
 
 
 def test_short_non_body_empty_translation_degrades_to_keep_origin() -> None:
-    payload = fallbacks._keep_origin_payload_for_empty_translation(
+    payload = keep_origin_payload_for_empty_translation(
         {
             "item_id": "p012-b022",
             "page_idx": 11,
@@ -29,7 +32,7 @@ def test_short_non_body_empty_translation_degrades_to_keep_origin() -> None:
 
 
 def test_empty_translation_body_biography_does_not_keep_origin() -> None:
-    assert not fallbacks._should_keep_origin_on_empty_translation(
+    assert not should_keep_origin_on_empty_translation(
         {
             "item_id": "p011-b017",
             "page_idx": 10,

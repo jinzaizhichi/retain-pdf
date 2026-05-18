@@ -130,6 +130,16 @@ diagnostics
   -> payload
 ```
 
+### payload/parts 边界
+
+- `apply.py` 只保留翻译结果回填主流程。
+- `result_entries.py` 负责 result entry 归一化、metadata/diagnostics 提取和 reasoning leak 清理。
+- `group_split.py` 负责 continuation/group 翻译结果按成员切分，以及相关 token/math span 估算。
+- `result_status.py` 负责 `kept_origin` / `failed` 字段标记和 translation fields 清理。
+- `policy_state.py` 负责 policy 阶段的通用 skip/source-preserve 写字段。
+- `policy_defaults.py` 负责 reset 阶段的 foundational/default translatable 判定。
+- `legacy_policy_checks.py` 负责 legacy policy 中 CJK、引用条目、mixed literal 的纯判定。
+
 禁止方向：
 
 - `llm/providers/**` 不应 import `workflow`、`runtime.pipeline`、`rendering`。

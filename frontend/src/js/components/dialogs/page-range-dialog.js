@@ -5,27 +5,23 @@ class PageRangeDialog extends HTMLElement {
     }
     this.dataset.hydrated = "1";
     this.innerHTML = `
-      <dialog id="page-range-dialog" class="desktop-dialog page-range-dialog">
+      <dialog id="page-range-dialog" class="desktop-dialog page-range-dialog professional-translate-dialog">
         <form method="dialog" class="desktop-shell">
           <div class="desktop-head">
-            <h2 id="page-range-title">分页翻译</h2>
+            <h2 id="page-range-title">专业翻译</h2>
             <button id="page-range-close-btn" type="submit" class="dialog-close-btn" aria-label="关闭">×</button>
           </div>
           <div class="desktop-body">
-            <p id="page-range-limit-text" class="muted">按页码范围限制本次翻译，页码从 1 开始。</p>
-            <div class="grid two">
-              <label>
-                <span>起始页</span>
-                <input id="page-range-start" type="number" min="1" step="1" inputmode="numeric" autocomplete="off" placeholder="例如 1" />
-              </label>
-              <label>
-                <span>结束页</span>
-                <input id="page-range-end" type="number" min="1" step="1" inputmode="numeric" autocomplete="off" placeholder="例如 15" />
-              </label>
-            </div>
+            <p id="page-range-limit-text" class="muted">选择本次翻译使用的术语表。</p>
+            <label class="professional-glossary-field">
+              <span>术语表</span>
+              <select id="job-glossary-id">
+                <option value="">不使用术语表</option>
+              </select>
+            </label>
             <div class="actions">
-              <button id="page-range-clear-btn" type="button" class="secondary">清空</button>
-              <button id="page-range-apply-btn" type="button">应用</button>
+              <button id="page-range-clear-btn" type="button" class="secondary">不使用</button>
+              <button id="page-range-apply-btn" type="button">完成</button>
             </div>
           </div>
         </form>

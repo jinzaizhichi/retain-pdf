@@ -11,7 +11,8 @@ use axum::Json;
 use super::common::build_jobs_route_deps;
 use super::query_adapter::{
     job_artifact_manifest_response, job_artifacts_response, job_detail_response,
-    job_events_response, list_jobs_response, reader_regions_response, rerun_job_response,
+    job_diagnostics_response, job_events_response, list_jobs_response, reader_metadata_response,
+    reader_regions_response, rerun_job_response, resume_job_response, resume_plan_response,
 };
 
 pub async fn list_jobs(
@@ -84,6 +85,35 @@ pub async fn get_reader_regions(
     AxumPath(job_id): AxumPath<String>,
 ) -> Result<Json<ApiResponse<crate::models::ReaderRegionsView>>, AppError> {
     reader_regions_response(build_jobs_route_deps(&state), &job_id)
+}
+
+pub async fn get_reader_metadata(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+) -> Result<Json<ApiResponse<crate::models::ReaderMetadataView>>, AppError> {
+    reader_metadata_response(build_jobs_route_deps(&state), &job_id)
+}
+
+pub async fn get_job_diagnostics(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+) -> Result<Json<ApiResponse<crate::models::JobDiagnosticsView>>, AppError> {
+    job_diagnostics_response(build_jobs_route_deps(&state), &job_id)
+}
+
+pub async fn get_resume_plan(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+) -> Result<Json<ApiResponse<crate::models::JobResumePlanView>>, AppError> {
+    resume_plan_response(build_jobs_route_deps(&state), &job_id)
+}
+
+pub async fn resume_job(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<crate::models::JobSubmissionView>>, AppError> {
+    resume_job_response(build_jobs_route_deps(&state), &headers, &job_id)
 }
 
 pub async fn rerun_job(
@@ -274,6 +304,130 @@ mod tests {
             rerun_job.request_payload.source.artifact_job_id,
             "job-rerun-book-source"
         );
+    }
+
+    #[tokio::test]
+    async fn resume_plan_route_reports_render_checkpoint() {
+        let state = test_state("resume-plan-render");
+        let source_job = source_job_with_artifacts(
+            "job-resume-plan-render",
+            JobArtifacts {
+                source_pdf: Some("jobs/source/source/input.pdf".to_string()),
+                normalized_document_json: Some("jobs/source/ocr/document.v1.json".to_string()),
+                translations_dir: Some("jobs/source/translated".to_string()),
+                ..JobArtifacts::default()
+            },
+        );
+        state.db.save_job(&source_job).expect("save source job");
+
+        let response = build_app(state)
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/jobs/job-resume-plan-render/resume-plan")
+                    .header("X-API-Key", "test-key")
+                    .body(Body::empty())
+                    .expect("resume plan request"),
+            )
+            .await
+            .expect("resume plan response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = read_json(response).await;
+        assert_eq!(payload["data"]["can_resume"], true);
+        assert_eq!(payload["data"]["from_stage"], "render");
+        assert_eq!(payload["data"]["resume_workflow"], "render");
+        assert_eq!(payload["data"]["reruns_stages"], json!(["rendering"]));
+    }
+
+    #[tokio::test]
+    async fn diagnostics_route_exposes_stable_failure_summary() {
+        let state = test_state("diagnostics-route");
+        let mut job = JobSnapshot::new(
+            "job-diagnostics-route".to_string(),
+            CreateJobInput::default(),
+            vec!["python".to_string()],
+        );
+        job.status = JobStatusKind::Failed;
+        job.failure = Some(crate::models::JobFailureInfo {
+            stage: "failed".to_string(),
+            category: "legacy_provider_failed".to_string(),
+            code: None,
+            failed_stage: Some("translation".to_string()),
+            failure_code: Some("upstream_timeout".to_string()),
+            failure_category: Some("timeout".to_string()),
+            provider_stage: Some("continuation_review".to_string()),
+            provider_code: None,
+            summary: "翻译阶段超时".to_string(),
+            root_cause: Some("provider timed out".to_string()),
+            retryable: true,
+            upstream_host: None,
+            provider: Some("translation".to_string()),
+            suggestion: Some("从断点恢复任务".to_string()),
+            last_log_line: None,
+            raw_excerpt: None,
+            raw_error_excerpt: None,
+            raw_diagnostic: None,
+            ai_diagnostic: None,
+        });
+        state.db.save_job(&job).expect("save job");
+
+        let response = build_app(state)
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/jobs/job-diagnostics-route/diagnostics")
+                    .header("X-API-Key", "test-key")
+                    .body(Body::empty())
+                    .expect("diagnostics request"),
+            )
+            .await
+            .expect("diagnostics response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = read_json(response).await;
+        assert_eq!(payload["data"]["failed_stage"], "translation");
+        assert_eq!(payload["data"]["failed_substage"], "continuation_review");
+        assert_eq!(payload["data"]["summary"], "翻译阶段超时");
+        assert_eq!(payload["data"]["detail"], "provider timed out");
+        assert_eq!(payload["data"]["retryable"], true);
+        assert_eq!(payload["data"]["resume_available"], false);
+    }
+
+    #[tokio::test]
+    async fn resume_route_reuses_rerun_submission_contract() {
+        let state = test_state("resume-render");
+        let mut source_job = source_job_with_artifacts(
+            "job-resume-render-source",
+            JobArtifacts {
+                source_pdf: Some("jobs/source/source/input.pdf".to_string()),
+                normalized_document_json: Some("jobs/source/ocr/document.v1.json".to_string()),
+                translations_dir: Some("jobs/source/translated".to_string()),
+                ..JobArtifacts::default()
+            },
+        );
+        source_job.status = JobStatusKind::Succeeded;
+        state.db.save_job(&source_job).expect("save source job");
+
+        let response = build_app(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/jobs/job-resume-render-source/resume")
+                    .header("X-API-Key", "test-key")
+                    .body(Body::empty())
+                    .expect("resume request"),
+            )
+            .await
+            .expect("resume response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = read_json(response).await;
+        assert_eq!(payload["data"]["job_id"], "job-resume-render-source");
+        assert_eq!(payload["data"]["workflow"], "render");
+        let resumed_job = state.db.get_job("job-resume-render-source").expect("job");
+        assert_eq!(resumed_job.workflow, crate::models::WorkflowKind::Render);
+        assert_eq!(resumed_job.status, JobStatusKind::Queued);
     }
 
     #[tokio::test]
@@ -667,7 +821,9 @@ mod tests {
                     "page_index": 7,
                     "blocks": [{
                         "block_id": "p008-b0009",
-                        "bbox": [72.1, 132.4, 310.8, 186.2]
+                        "bbox": [72.1, 132.4, 310.8, 186.2],
+                        "source_text": "The source text",
+                        "block_kind": "text"
                     }]
                 }]
             }))
@@ -680,7 +836,9 @@ mod tests {
                 {
                     "item_id": "p008-b009",
                     "page_idx": 7,
-                    "bbox": [74.0, 130.0, 330.0, 190.0]
+                    "bbox": [74.0, 130.0, 330.0, 190.0],
+                    "translated_text": "译文",
+                    "render_markdown": "译文 markdown"
                 }
             ]))
             .expect("page json"),
@@ -740,6 +898,92 @@ mod tests {
             payload["data"]["items"][0]["translated"]["bbox"],
             json!([74.0, 130.0, 330.0, 190.0])
         );
+        assert_eq!(
+            payload["data"]["items"][0]["source"]["text"],
+            "The source text"
+        );
+        assert_eq!(payload["data"]["items"][0]["translated"]["text"], "译文");
+        assert_eq!(payload["data"]["items"][0]["markdown"], "译文 markdown");
+        assert_eq!(payload["data"]["items"][0]["region_type"], "text");
+        assert_eq!(payload["data"]["items"][0]["status"], "translated");
+    }
+
+    #[tokio::test]
+    async fn reader_metadata_route_returns_pdf_page_dimensions_when_ready() {
+        let state = test_state("reader-metadata");
+        let job_root = state.config.output_root.join("reader-metadata-job");
+        let source_dir = job_root.join("source");
+        let rendered_dir = job_root.join("rendered");
+        fs::create_dir_all(&source_dir).expect("source dir");
+        fs::create_dir_all(&rendered_dir).expect("rendered dir");
+        let source_pdf = source_dir.join("source.pdf");
+        let translated_pdf = rendered_dir.join("translated.pdf");
+        fs::write(&source_pdf, minimal_pdf_bytes(595, 842)).expect("source pdf");
+        fs::write(&translated_pdf, minimal_pdf_bytes(612, 792)).expect("translated pdf");
+
+        let mut input = CreateJobInput::default();
+        input.runtime.job_id = "reader-metadata-job".to_string();
+        let mut job = JobSnapshot::new(
+            "reader-metadata-job".to_string(),
+            input,
+            vec!["python".to_string()],
+        );
+        job.artifacts = Some(JobArtifacts {
+            job_root: Some("jobs/reader-metadata-job".to_string()),
+            source_pdf: Some("jobs/reader-metadata-job/source/source.pdf".to_string()),
+            output_pdf: Some("jobs/reader-metadata-job/rendered/translated.pdf".to_string()),
+            ..JobArtifacts::default()
+        });
+        state.db.save_job(&job).expect("save job");
+
+        let response = build_app(state)
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/jobs/reader-metadata-job/reader/metadata")
+                    .header("X-API-Key", "test-key")
+                    .body(Body::empty())
+                    .expect("metadata request"),
+            )
+            .await
+            .expect("metadata response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = read_json(response).await;
+        assert_eq!(payload["data"]["source"]["page_count"], 1);
+        assert_eq!(payload["data"]["source"]["pages"][0]["width"], 595.0);
+        assert_eq!(payload["data"]["source"]["pages"][0]["height"], 842.0);
+        assert_eq!(payload["data"]["translated"]["pages"][0]["width"], 612.0);
+        assert_eq!(payload["data"]["translated"]["pages"][0]["height"], 792.0);
+    }
+
+    fn minimal_pdf_bytes(width: i64, height: i64) -> Vec<u8> {
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] >>"),
+        ];
+        let mut bytes = b"%PDF-1.4\n".to_vec();
+        let mut offsets = vec![0usize];
+        for (idx, object) in objects.iter().enumerate() {
+            offsets.push(bytes.len());
+            bytes.extend_from_slice(format!("{} 0 obj\n{}\nendobj\n", idx + 1, object).as_bytes());
+        }
+        let xref_offset = bytes.len();
+        bytes.extend_from_slice(format!("xref\n0 {}\n", offsets.len()).as_bytes());
+        bytes.extend_from_slice(b"0000000000 65535 f \n");
+        for offset in offsets.iter().skip(1) {
+            bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        bytes.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+                offsets.len(),
+                xref_offset
+            )
+            .as_bytes(),
+        );
+        bytes
     }
 
     #[tokio::test]

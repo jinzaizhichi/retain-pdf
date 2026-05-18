@@ -54,6 +54,45 @@ def test_apply_translated_text_map_unwraps_json_string_keep_origin() -> None:
     assert payload[0]["translated_text"] == ""
 
 
+def test_apply_translated_text_map_keeps_failed_body_retryable() -> None:
+    payload = [
+        {
+            "item_id": "p017-b010",
+            "should_translate": True,
+            "classification_label": "",
+            "skip_reason": "",
+            "source_text": "where the constant A is a combination of k, m, and $ \\hbar $ that has dimensions of energy",
+            "protected_map": [],
+            "formula_map": [],
+            "translation_unit_protected_map": [],
+            "translation_unit_formula_map": [],
+        }
+    ]
+    translated = {
+        "p017-b010": {
+            "decision": "translate",
+            "translated_text": "",
+            "final_status": "failed",
+            "translation_diagnostics": {
+                "route_path": ["block_level", "direct_typst", "validation", "sentence_level", "keep_origin"],
+                "degradation_reason": "protocol_shell_repeated",
+                "fallback_to": "retry_required",
+                "error_trace": [{"type": "validation", "code": "PROTOCOL_SHELL"}],
+                "final_status": "failed",
+            },
+        }
+    }
+
+    apply_translated_text_map(payload, translated)
+
+    assert payload[0]["should_translate"] is True
+    assert payload[0]["skip_reason"] == ""
+    assert payload[0]["classification_label"] == ""
+    assert payload[0]["final_status"] == "failed"
+    assert payload[0]["translated_text"] == ""
+    assert payload[0]["translation_diagnostics"]["fallback_to"] == "retry_required"
+
+
 def test_apply_translated_text_map_unwraps_batch_json_string_result() -> None:
     payload = [
         {

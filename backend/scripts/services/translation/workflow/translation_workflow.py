@@ -12,7 +12,7 @@ from services.translation.policy import TranslationPolicyConfig
 from services.translation.policy import build_translation_policy_config
 from services.translation.continuation import annotate_continuation_context
 from services.translation.continuation import summarize_continuation_decisions
-from services.translation.policy import apply_translation_policies
+from services.translation.policy.flow import apply_translation_policies
 from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL, DEFAULT_MODEL
 from services.translation.llm.shared.orchestration import translate_batch
 from services.translation.payload import ensure_translation_template, load_translations, save_translations

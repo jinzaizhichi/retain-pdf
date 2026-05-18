@@ -3,9 +3,9 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
-from services.translation.llm.result_payload import result_entry
 from services.translation.llm.shared.control_context import TranslationControlContext
 from services.translation.llm.shared.orchestration import translate_batch as default_translate_batch
+import services.translation.llm.shared.orchestration.terminal_payloads as terminal_payloads
 from services.translation.llm.shared.provider_runtime import is_transport_error
 from services.translation.memory import JobMemoryStore
 from services.translation.context.execution_context import context_with_memory_guidance
@@ -14,27 +14,25 @@ from services.translation.context.execution_context import domain_guidance_with_
 TranslateBatchFn = Callable[..., dict[str, dict[str, str]]]
 
 
-def _keep_origin_results_for_transport_batch(
+def _failed_results_for_transport_batch(
     batch: list[dict],
     *,
     degradation_reason: str = "batch_transport_timeout_budget_exceeded",
 ) -> dict[str, dict[str, str]]:
     degraded: dict[str, dict[str, str]] = {}
     for item in batch:
-        payload = result_entry("keep_origin", "")
-        payload["error_taxonomy"] = "transport"
-        payload["translation_diagnostics"] = {
-            "item_id": item.get("item_id", ""),
-            "page_idx": item.get("page_idx"),
-            "route_path": ["block_level", "batched_plain", "keep_origin"],
-            "output_mode_path": [],
-            "error_trace": [{"type": "transport", "code": "BATCH_TRANSPORT_ERROR"}],
-            "fallback_to": "keep_origin",
-            "degradation_reason": degradation_reason,
-            "final_status": "kept_origin",
-        }
-        degraded[str(item.get("item_id", "") or "")] = payload
+        degraded.update(
+            terminal_payloads.translation_failed_payload_for_transport(
+                item,
+                route_path=["block_level", "batched_plain", "failed"],
+                degradation_reason=degradation_reason,
+                error_code="BATCH_TRANSPORT_ERROR",
+            )
+        )
     return degraded
+
+
+_keep_origin_results_for_transport_batch = _failed_results_for_transport_batch
 
 
 def _translate_batch_or_keep_origin(
@@ -75,10 +73,10 @@ def _translate_batch_or_keep_origin(
             raise
         if request_label:
             print(
-                f"{request_label}: transport failure, degrade batch to keep_origin: {type(exc).__name__}: {exc}",
+                f"{request_label}: transport failure, mark batch failed: {type(exc).__name__}: {exc}",
                 flush=True,
             )
-        return _keep_origin_results_for_transport_batch(batch)
+        return _failed_results_for_transport_batch(batch)
 
 
 def _submit_parallel_translation_batches(
@@ -120,6 +118,7 @@ def _submit_parallel_translation_batches(
 
 __all__ = [
     "_keep_origin_results_for_transport_batch",
+    "_failed_results_for_transport_batch",
     "_submit_parallel_translation_batches",
     "_translate_batch_or_keep_origin",
 ]

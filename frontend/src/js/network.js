@@ -168,6 +168,227 @@ export async function fetchReaderRegions(jobId, apiPrefix) {
   return unwrapEnvelope(payloadJson);
 }
 
+export async function fetchReaderMetadata(jobId, apiPrefix) {
+  if (isMockMode()) {
+    void jobId;
+    void apiPrefix;
+    return null;
+  }
+  const resp = await fetch(`${buildJobDetailEndpoint(jobId, apiPrefix)}/reader/metadata`, {
+    headers: buildApiHeaders(),
+  });
+  if (!resp.ok) {
+    if (resp.status === 404) {
+      return null;
+    }
+    throw new Error(`读取阅读元数据失败，请稍后重试。(${resp.status})`);
+  }
+  return unwrapEnvelope(await resp.json());
+}
+
+export async function fetchJobDiagnostics(jobId, apiPrefix) {
+  if (isMockMode()) {
+    return {
+      job_id: jobId,
+      summary: "mock failure diagnostics",
+      detail: "",
+      suggestion: "",
+      retryable: true,
+      resume_available: true,
+    };
+  }
+  const resp = await fetch(`${buildJobDetailEndpoint(jobId, apiPrefix)}/diagnostics`, {
+    headers: buildApiHeaders(),
+  });
+  if (!resp.ok) {
+    if (resp.status === 404) {
+      return null;
+    }
+    throw new Error(`读取失败诊断失败，请稍后重试。(${resp.status})`);
+  }
+  return unwrapEnvelope(await resp.json());
+}
+
+export async function fetchResumePlan(jobId, apiPrefix) {
+  if (isMockMode()) {
+    return {
+      job_id: jobId,
+      can_resume: true,
+      from_stage: "render",
+      resume_workflow: "render",
+      reuses_artifacts: ["translations_dir", "source_pdf"],
+      reruns_stages: ["render"],
+      reason: "mock resume plan",
+    };
+  }
+  const resp = await fetch(`${buildJobDetailEndpoint(jobId, apiPrefix)}/resume-plan`, {
+    headers: buildApiHeaders(),
+  });
+  if (!resp.ok) {
+    if (resp.status === 404) {
+      return null;
+    }
+    throw new Error(`读取恢复计划失败，请稍后重试。(${resp.status})`);
+  }
+  return unwrapEnvelope(await resp.json());
+}
+
+export async function resumeJob(jobId, apiPrefix) {
+  if (isMockMode()) {
+    return {
+      job_id: `mock-resume-${Date.now()}`,
+      status: "queued",
+    };
+  }
+  return submitJson(`${buildJobDetailEndpoint(jobId, apiPrefix)}/resume`, {});
+}
+
+export async function fetchGlossaries(apiPrefix) {
+  if (isMockMode()) {
+    void apiPrefix;
+    return {
+      items: [
+        {
+          glossary_id: "mock-glossary-quantum",
+          name: "Mock 量子化学术语",
+          entry_count: 2,
+          created_at: "",
+          updated_at: "",
+        },
+      ],
+    };
+  }
+  const resp = await fetch(buildApiEndpoint(apiPrefix, "glossaries"), {
+    headers: buildApiHeaders(),
+  });
+  if (!resp.ok) {
+    throw new Error(`读取术语表失败，请稍后重试。(${resp.status})`);
+  }
+  return unwrapEnvelope(await resp.json());
+}
+
+export async function fetchGlossary(glossaryId, apiPrefix) {
+  const normalizedGlossaryId = `${glossaryId || ""}`.trim();
+  if (!normalizedGlossaryId) {
+    throw new Error("读取术语表失败: 缺少 glossary_id");
+  }
+  if (isMockMode()) {
+    void apiPrefix;
+    return {
+      glossary_id: normalizedGlossaryId,
+      name: normalizedGlossaryId === "mock-glossary-quantum" ? "Mock 量子化学术语" : "Mock 术语表",
+      entry_count: 2,
+      entries: [
+        {
+          source: "Hartree-Fock",
+          target: "",
+          level: "preserve",
+          match_mode: "case_insensitive",
+          context: "",
+          note: "保留英文",
+        },
+        {
+          source: "density functional theory",
+          target: "密度泛函理论",
+          level: "canonical",
+          match_mode: "case_insensitive",
+          context: "",
+          note: "固定译法",
+        },
+      ],
+    };
+  }
+  const resp = await fetch(buildApiEndpoint(apiPrefix, `glossaries/${encodeURIComponent(normalizedGlossaryId)}`), {
+    headers: buildApiHeaders(),
+  });
+  if (!resp.ok) {
+    throw new Error(`读取术语表详情失败，请稍后重试。(${resp.status})`);
+  }
+  return unwrapEnvelope(await resp.json());
+}
+
+export async function createGlossary(apiPrefix, payload) {
+  if (isMockMode()) {
+    void apiPrefix;
+    return {
+      glossary_id: `mock-glossary-${Date.now()}`,
+      entry_count: Array.isArray(payload?.entries) ? payload.entries.length : 0,
+      ...payload,
+    };
+  }
+  return submitJson(buildApiEndpoint(apiPrefix, "glossaries"), payload);
+}
+
+export async function updateGlossary(apiPrefix, glossaryId, payload) {
+  const normalizedGlossaryId = `${glossaryId || ""}`.trim();
+  if (!normalizedGlossaryId) {
+    throw new Error("保存术语表失败: 缺少 glossary_id");
+  }
+  if (isMockMode()) {
+    void apiPrefix;
+    return {
+      glossary_id: normalizedGlossaryId,
+      entry_count: Array.isArray(payload?.entries) ? payload.entries.length : 0,
+      ...payload,
+    };
+  }
+  const resp = await fetch(buildApiEndpoint(apiPrefix, `glossaries/${encodeURIComponent(normalizedGlossaryId)}`), {
+    method: "PUT",
+    headers: buildApiHeaders({
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`保存术语表失败: ${resp.status} ${text}`);
+  }
+  return unwrapEnvelope(await resp.json());
+}
+
+export async function deleteGlossary(apiPrefix, glossaryId) {
+  const normalizedGlossaryId = `${glossaryId || ""}`.trim();
+  if (!normalizedGlossaryId) {
+    throw new Error("删除术语表失败: 缺少 glossary_id");
+  }
+  if (isMockMode()) {
+    void apiPrefix;
+    return { glossary_id: normalizedGlossaryId, deleted: true };
+  }
+  const resp = await fetch(buildApiEndpoint(apiPrefix, `glossaries/${encodeURIComponent(normalizedGlossaryId)}`), {
+    method: "DELETE",
+    headers: buildApiHeaders(),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`删除术语表失败: ${resp.status} ${text}`);
+  }
+  return unwrapEnvelope(await resp.json());
+}
+
+export async function parseGlossaryCsv(apiPrefix, csvText) {
+  if (isMockMode()) {
+    void apiPrefix;
+    void csvText;
+    return {
+      entry_count: 1,
+      entries: [
+        {
+          source: "Hartree-Fock",
+          target: "",
+          level: "preserve",
+          match_mode: "case_insensitive",
+          context: "",
+          note: "mock",
+        },
+      ],
+    };
+  }
+  return submitJson(buildApiEndpoint(apiPrefix, "glossaries/parse-csv"), {
+    csv_text: `${csvText || ""}`,
+  });
+}
+
 export async function fetchJobMarkdown(jobId, apiPrefix) {
   if (isMockMode()) {
     void jobId;

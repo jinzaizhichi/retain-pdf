@@ -9,8 +9,8 @@ from services.translation.llm.shared.orchestration.common import sentence_level_
 from services.translation.llm.shared.orchestration.common import should_keep_origin_on_empty_translation
 from services.translation.llm.shared.orchestration.common import should_keep_origin_on_protocol_shell
 from services.translation.llm.shared.orchestration.common import zh_char_count
-from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_empty_translation
-from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_transport_error
+import services.translation.llm.shared.orchestration.intentional_keep_origin as intentional_keep_origin
+import services.translation.llm.shared.orchestration.terminal_payloads as terminal_payloads
 from services.translation.llm.shared.orchestration.metadata import attach_result_metadata
 from services.translation.llm.shared.orchestration.metadata import restore_runtime_term_tokens
 from services.translation.llm.shared.orchestration.plain_text_retry_runtime import PlainTextResult
@@ -40,7 +40,7 @@ def finalize_plain_text_failure(
     if isinstance(last_error, EmptyTranslationError) and should_keep_origin_on_empty_translation(item):
         if request_label:
             print(f"{request_label}: degraded to keep_origin for short non-body empty translation", flush=True)
-        return keep_origin_payload_for_empty_translation(item)
+        return intentional_keep_origin.keep_origin_payload_for_empty_translation(item)
     if sentence_level_fallback_allowed(item):
         try:
             return runtime.sentence_level_fallback_fn(
@@ -66,10 +66,12 @@ def finalize_plain_text_failure(
                         request_label=request_label,
                         diagnostics=diagnostics,
                     )
-                return keep_origin_payload_for_transport_error(
+                return terminal_payloads.translation_failed_payload_for_transport(
                     item,
                     context=context,
-                    route_path=["block_level", "sentence_level", "keep_origin"],
+                    route_path=["block_level", "sentence_level", "failed"],
+                    degradation_reason="sentence_level_transport_failure",
+                    error_code="TRANSPORT_ERROR",
                 )
     elif request_label:
         print(f"{request_label}: skip sentence-level fallback for continuation/group unit", flush=True)

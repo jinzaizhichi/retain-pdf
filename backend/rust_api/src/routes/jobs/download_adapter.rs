@@ -1,13 +1,12 @@
-use std::path::{Path, PathBuf};
-
 use axum::http::{header, HeaderMap, HeaderValue};
 use axum::response::IntoResponse;
 use axum::response::Response;
+use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
 use crate::models::{to_absolute_url, JobSnapshot, MarkdownQuery, MarkdownView, PagePreviewQuery};
 use crate::routes::common::ok_json;
-use crate::routes::job_helpers::stream_file;
+use crate::routes::job_helpers::{file_etag, stream_file};
 
 use super::common::{request_base_url, JobsRouteDeps};
 use crate::services::jobs::{FileDownload, MarkdownDownload};
@@ -84,15 +83,19 @@ pub async fn page_preview_response(
     page: u32,
     query: &PagePreviewQuery,
 ) -> Result<Response, AppError> {
-    let mut response = file_download_response(
-        jobs_facade_ref(deps).page_preview_download(job_id, page, query)?,
-        headers,
-    )
-    .await?;
+    let download = jobs_facade_ref(deps).page_preview_download(job_id, page, query)?;
+    let etag = file_etag(&download.path);
+    let mut response = file_download_response(download, headers).await?;
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("public, max-age=31536000, immutable"),
     );
+    if let Some(etag) = etag {
+        response.headers_mut().insert(
+            header::ETAG,
+            HeaderValue::from_str(&etag).map_err(|error| AppError::internal(error.to_string()))?,
+        );
+    }
     Ok(response)
 }
 

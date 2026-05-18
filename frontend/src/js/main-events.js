@@ -4,9 +4,11 @@ import { bindDynamicPrimaryActions } from "./main-helpers.js";
 
 export function bindMainEvents({
   developerFeature,
+  glossariesFeature,
   artifactDownloadsFeature,
   statusDetailFeature,
   appShellFeature,
+  workflowFeature,
   uploadFeature,
   appActionsFeature,
   jobRuntimeFeature,
@@ -15,6 +17,7 @@ export function bindMainEvents({
   setText,
 }) {
   developerFeature?.bindEvents();
+  glossariesFeature?.bindEvents();
   artifactDownloadsFeature?.bindEvents();
   statusDetailFeature?.bindEvents();
   appShellFeature?.bindChrome();
@@ -34,7 +37,6 @@ export function bindMainEvents({
     void appActionsFeature?.submitForm(event);
   });
   $("page-range-btn")?.addEventListener("click", () => uploadFeature?.openPageRangeDialog());
-  $("page-range-summary")?.addEventListener("click", () => uploadFeature?.openPageRangeDialog());
   $("page-range-apply-btn")?.addEventListener("click", () => uploadFeature?.applyPageRanges());
   $("page-range-clear-btn")?.addEventListener("click", () => uploadFeature?.clearPageRanges());
   $("cancel-btn")?.addEventListener("click", () => jobRuntimeFeature?.cancelCurrentJob());

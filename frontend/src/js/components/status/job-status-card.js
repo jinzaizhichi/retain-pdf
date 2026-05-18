@@ -119,15 +119,18 @@ class JobStatusCard extends HTMLElement {
   }
 
   #normalizeSelectedProgress(progress = {}, fallback = {}) {
-    const current = Number(progress?.current ?? progress?.progressCurrent ?? fallback?.current ?? fallback?.progressCurrent);
-    const total = Number(progress?.total ?? progress?.progressTotal ?? fallback?.total ?? fallback?.progressTotal);
+    const fallbackBySubstage = fallback?.bySubstage || {};
+    const progressSubstageKey = progress?.substageKey || fallback?.substageKey || "";
+    const substageFallback = progressSubstageKey ? fallbackBySubstage[progressSubstageKey] : null;
+    const current = Number(progress?.current ?? progress?.progressCurrent ?? substageFallback?.current ?? substageFallback?.progressCurrent ?? fallback?.current ?? fallback?.progressCurrent);
+    const total = Number(progress?.total ?? progress?.progressTotal ?? substageFallback?.total ?? substageFallback?.progressTotal ?? fallback?.total ?? fallback?.progressTotal);
     return {
       current: Number.isFinite(current) ? current : NaN,
       total: Number.isFinite(total) ? total : NaN,
-      progressText: progress?.progressText || fallback?.progressText || "",
-      indeterminate: Boolean(progress?.indeterminate ?? progress?.progressIndeterminate ?? fallback?.indeterminate ?? fallback?.progressIndeterminate),
-      substageKey: progress?.substageKey || fallback?.substageKey || "",
-      visualStageKey: progress?.visualStageKey || fallback?.visualStageKey || "",
+      progressText: progress?.progressText || substageFallback?.progressText || fallback?.progressText || "",
+      indeterminate: Boolean(progress?.indeterminate ?? progress?.progressIndeterminate ?? substageFallback?.indeterminate ?? substageFallback?.progressIndeterminate ?? fallback?.indeterminate ?? fallback?.progressIndeterminate),
+      substageKey: progressSubstageKey,
+      visualStageKey: progress?.visualStageKey || substageFallback?.visualStageKey || fallback?.visualStageKey || "",
     };
   }
 

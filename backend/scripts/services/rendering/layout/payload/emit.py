@@ -38,7 +38,7 @@ def payload_to_render_block(payload: dict) -> RenderBlock:
             adjacent_collision_risk=payload["adjacent_collision_risk"],
             adjacent_available_height_pt=payload["adjacent_available_height_pt"],
         )
-        if payload.get("_body_font_unified") and not payload.get("prefer_typst_fit"):
+        if payload.get("_body_font_unified") and not payload.get("prefer_typst_fit") and not fit_to_box:
             fit_to_box = False
             fit_min_font_size_pt = 0.0
             fit_min_leading_em = 0.0

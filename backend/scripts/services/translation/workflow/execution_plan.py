@@ -12,6 +12,8 @@ from services.translation.ocr.json_extractor import load_ocr_json
 from services.translation.policy import TranslationPolicyConfig
 from services.translation.policy import build_book_translation_policy_config
 from services.translation.session_context import build_translation_context_from_policy
+from services.translation.terms import merge_auto_preserve_glossary_entries
+from services.translation.terms import GlossaryEntry
 
 if TYPE_CHECKING:
     from services.translation.workflow.execution import TranslationExecutionRequest
@@ -26,6 +28,7 @@ class TranslationExecutionPlan:
     policy_config: TranslationPolicyConfig
     translation_context: TranslationControlContext
     run_diagnostics: TranslationRunDiagnostics
+    glossary_entries: list[GlossaryEntry]
 
 
 def build_translation_execution_plan(request: TranslationExecutionRequest) -> TranslationExecutionPlan:
@@ -55,9 +58,17 @@ def build_translation_execution_plan(request: TranslationExecutionRequest) -> Tr
         )
     print(f"rule profile: {policy_config.rule_profile_name}", flush=True)
 
+    glossary_entries = merge_auto_preserve_glossary_entries(
+        request.glossary_entries or [],
+        _iter_translatable_texts(data),
+    )
+    auto_preserve_count = max(0, len(glossary_entries) - len(request.glossary_entries or []))
+    if auto_preserve_count:
+        print(f"terms: auto preserve technical terms={auto_preserve_count}", flush=True)
+
     translation_context = build_translation_context_from_policy(
         policy_config,
-        glossary_entries=request.glossary_entries or [],
+        glossary_entries=glossary_entries,
         model=request.model,
         base_url=request.base_url,
     )
@@ -87,4 +98,19 @@ def build_translation_execution_plan(request: TranslationExecutionRequest) -> Tr
         policy_config=policy_config,
         translation_context=translation_context,
         run_diagnostics=run_diagnostics,
+        glossary_entries=glossary_entries,
     )
+
+
+def _iter_translatable_texts(data: dict):
+    for page in data.get("pages", []) or []:
+        for block in page.get("blocks", []) or []:
+            content = block.get("content", {}) or {}
+            policy = block.get("policy", {}) or {}
+            if str(content.get("kind", "") or "").strip().lower() != "text":
+                continue
+            if policy.get("translate") is False:
+                continue
+            text = str(content.get("text") or block.get("text") or "").strip()
+            if text:
+                yield text

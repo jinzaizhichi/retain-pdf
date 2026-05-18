@@ -14,6 +14,8 @@ from services.rendering.output.typst.block_markup import typst_plain_markdown_ex
 from services.rendering.output.typst.block_markup import typst_single_line_fit_call
 from services.rendering.output.typst.shared import escape_typst_string
 
+PLAIN_LINE_FIT_MAX_CHARS = 40
+
 
 def sanitize_typst_markdown_for_compile(markdown: str) -> str:
     text = str(markdown or "")
@@ -46,11 +48,35 @@ def build_typst_block(block_id: str, block: RenderBlock, *, include_fill: bool =
         cover_fill=typst_rgb(block.cover_fill),
     )
 
-    if block.render_kind == "plain_line":
+    if block.render_kind in {"plain", "plain_line"}:
+        plain_text = block.plain_text
+        if len(plain_text) > PLAIN_LINE_FIT_MAX_CHARS:
+            text_name = f"{fields.var_prefix}_txt"
+            body_name = f"{fields.var_prefix}_body"
+            body_expr = typst_plain_markdown_expr(
+                text_name,
+                font_size_pt=fields.font_size,
+                leading_em=fields.leading,
+                font_weight=fields.font_weight,
+                text_fill=text_fill,
+                first_line_indent_pt=typst_config.first_line_indent_pt(block.first_line_indent_pt),
+                justify_text=typst_config.typst_bool(block.justify_text),
+            )
+            parts = [
+                f'#let {text_name} = "{escape_typst_string(plain_text)}"',
+                typst_markdown_block(
+                    body_name,
+                    width_pt=fields.width,
+                    height_pt=fields.height,
+                    block_fill=block_fill,
+                    body_expr=body_expr,
+                ),
+                typst_place_context(x_pt=fields.x0, y_pt=fields.y0, body_name=body_name),
+            ]
+            return "\n".join(parts) + "\n"
         text_name = f"{fields.var_prefix}_txt"
         base_name = f"{fields.var_prefix}_base"
         scaled_name = f"{fields.var_prefix}_scaled"
-        plain_text = block.plain_text
         parts = [
             f'#let {text_name} = "{escape_typst_string(plain_text)}"',
             f'#let {base_name} = box[#{{ set text(size: {fields.font_size}pt, weight: "{fields.font_weight}", fill: {text_fill}); {text_name} }}]',

@@ -23,7 +23,7 @@ def run_translation_execution_plan(
     # Import lazily to keep services.translation.workflow importable without pulling runtime.pipeline.
     from services.translation.workflow.book_flow import translate_book_with_global_continuations
 
-    glossary_entries = request.glossary_entries or []
+    glossary_entries = plan.glossary_entries
     prewarm_handle: RenderPrewarmHandle | None = None
 
     def _set_prewarm_handle(handle: RenderPrewarmHandle | None) -> None:

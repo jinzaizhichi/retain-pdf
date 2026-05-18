@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Callable
 
 from services.translation.orchestration.units import finalize_orchestration_metadata_by_page
 from services.translation.orchestration.units import finalize_payload_orchestration_metadata
@@ -60,6 +61,7 @@ def review_candidate_continuation_pairs(
     workers: int,
     save_pages_fn,
     batch_size: int = 24,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> int:
     flat_payload = [item for page_idx in sorted(page_payloads) for item in page_payloads[page_idx]]
     pairs = candidate_continuation_pairs(flat_payload)
@@ -112,9 +114,13 @@ def review_candidate_continuation_pairs(
             if decision == "join" and pair_id in pair_map
         ]
 
+    completed_batches = 0
     if workers <= 1 or len(batches) == 1:
         for index, batch in enumerate(batches, start=1):
             approved.extend(_run_review(batch, index))
+            completed_batches += 1
+            if progress_callback is not None:
+                progress_callback(completed_batches, len(batches))
     else:
         with ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
             futures = {
@@ -123,6 +129,9 @@ def review_candidate_continuation_pairs(
             }
             for future in as_completed(futures):
                 approved.extend(future.result())
+                completed_batches += 1
+                if progress_callback is not None:
+                    progress_callback(completed_batches, len(batches))
 
     applied = apply_candidate_pair_joins(flat_payload, approved)
     annotate_layout_zones_by_page(page_payloads)

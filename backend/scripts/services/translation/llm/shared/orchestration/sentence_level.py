@@ -9,8 +9,8 @@ from services.translation.llm.validation.errors import PlaceholderInventoryError
 from services.translation.llm.validation.placeholder_tokens import placeholder_sequence
 from services.translation.llm.shared.orchestration.common import chunk_source_text_fallback
 from services.translation.llm.shared.orchestration.common import SENTENCE_SPLIT_RE
-from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_transport_error
 from services.translation.llm.shared.orchestration.metadata import formula_route_diagnostics
+import services.translation.llm.shared.orchestration.terminal_payloads as terminal_payloads
 from services.translation.llm.shared.orchestration.metadata import restore_runtime_term_tokens
 from services.translation.llm.shared.provider_runtime import translate_single_item_plain_text
 from services.translation.llm.shared.provider_runtime import translate_single_item_plain_text_unstructured
@@ -164,11 +164,13 @@ def sentence_level_fallback_or_keep_origin(
     except Exception as sentence_exc:
         if request_label:
             print(
-                f"{request_label}: sentence-level fallback failed, degrade to keep_origin: {type(sentence_exc).__name__}: {sentence_exc}",
+                f"{request_label}: sentence-level fallback failed, mark failed: {type(sentence_exc).__name__}: {sentence_exc}",
                 flush=True,
             )
-        return keep_origin_payload_for_transport_error(
+        return terminal_payloads.translation_failed_payload_for_transport(
             item,
             context=context,
             route_path=route_path,
+            degradation_reason="sentence_level_fallback_failed",
+            error_code=type(sentence_exc).__name__.upper(),
         )

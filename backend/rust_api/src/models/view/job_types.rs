@@ -85,6 +85,7 @@ pub struct ReaderRegionBoxView {
     pub bbox: Vec<f64>,
     pub unit: String,
     pub origin: String,
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone, PartialEq)]
@@ -92,11 +93,33 @@ pub struct ReaderRegionItemView {
     pub item_id: String,
     pub source: ReaderRegionBoxView,
     pub translated: ReaderRegionBoxView,
+    pub markdown: Option<String>,
+    pub region_type: String,
+    pub status: String,
 }
 
 #[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct ReaderRegionsView {
     pub items: Vec<ReaderRegionItemView>,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct ReaderPageMetadataView {
+    pub page: i64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct ReaderDocumentMetadataView {
+    pub page_count: i64,
+    pub pages: Vec<ReaderPageMetadataView>,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct ReaderMetadataView {
+    pub source: Option<ReaderDocumentMetadataView>,
+    pub translated: Option<ReaderDocumentMetadataView>,
 }
 
 #[derive(Debug, Serialize)]
@@ -191,6 +214,28 @@ pub struct JobFailureDiagnosticView {
     pub upstream_host: Option<String>,
     pub suggestion: Option<String>,
     pub last_log_line: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct JobDiagnosticsView {
+    pub failed_stage: Option<String>,
+    pub failed_substage: Option<String>,
+    pub summary: String,
+    pub detail: Option<String>,
+    pub suggestion: Option<String>,
+    pub retryable: bool,
+    pub resume_available: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct JobResumePlanView {
+    pub can_resume: bool,
+    pub job_id: String,
+    pub from_stage: Option<String>,
+    pub resume_workflow: Option<WorkflowKind>,
+    pub reuses_artifacts: Vec<String>,
+    pub reruns_stages: Vec<String>,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from services.translation.diagnostics import TranslationDiagnosticsCollector
 from services.translation.llm.shared.orchestration.common import is_long_plain_text_item
-from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_transport_error
+import services.translation.llm.shared.orchestration.terminal_payloads as terminal_payloads
 
 
 class DeferredTransportRetry(Exception):
@@ -88,13 +88,12 @@ def mark_transport_result_dead_letter(
     route_path = list(translation_diagnostics.get("route_path") or ["block_level", "plain_text"])
     if "dlq" not in route_path:
         route_path.append("dlq")
-    degraded = keep_origin_payload_for_transport_error(
+    degraded = terminal_payloads.translation_failed_payload_for_transport(
         item,
         context=context,
         route_path=route_path,
         degradation_reason="transport_retry_queue_exhausted",
         error_code=str((error_trace[-1] or {}).get("code", "") or "TRANSPORT_ERROR"),
-        final_status="failed",
         fallback_to="dead_letter_queue",
         dead_letter=True,
     )

@@ -13,7 +13,6 @@ from services.translation.llm.validation.errors import TranslationProtocolError
 from services.translation.llm.validation.errors import UnexpectedPlaceholderError
 from services.translation.llm.placeholder_transform import has_formula_placeholders
 from services.translation.llm.shared.control_context import TranslationControlContext
-from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_transport_error
 from services.translation.llm.shared.orchestration.plain_text_retry_actions import try_plain_text_request as _try_plain_text_request
 from services.translation.llm.shared.orchestration.plain_text_retry_actions import try_protocol_shell_salvage as _try_protocol_shell_salvage
 from services.translation.llm.shared.orchestration.plain_text_retry_actions import try_raw_plain_text_fallback as _try_raw_plain_text_fallback
@@ -21,6 +20,7 @@ from services.translation.llm.shared.orchestration.plain_text_retry_finalize imp
 from services.translation.llm.shared.orchestration.plain_text_retry_runtime import PlainTextResult
 from services.translation.llm.shared.orchestration.plain_text_retry_runtime import PlainTextRetryRuntime
 from services.translation.llm.shared.orchestration.transport import defer_transport_retry
+import services.translation.llm.shared.orchestration.terminal_payloads as terminal_payloads
 
 _PLAIN_VALIDATION_ERRORS = (
     UnexpectedPlaceholderError,
@@ -189,12 +189,12 @@ def run_plain_text_attempts(
                     item_id=str(item.get("item_id", "") or ""),
                     page_idx=item.get("page_idx"),
                     severity="warning",
-                    message=f"Degraded to keep_origin after transport failure: {type(exc).__name__}",
+                    message=f"Marked failed after transport failure: {type(exc).__name__}",
                     retryable=True,
                 )
             if request_label:
                 print(
-                    f"{request_label}: transport failure after {time.perf_counter() - started:.2f}s, degrade to keep_origin: {type(exc).__name__}: {exc}",
+                    f"{request_label}: transport failure after {time.perf_counter() - started:.2f}s, mark failed: {type(exc).__name__}: {exc}",
                     flush=True,
                 )
             if allow_transport_tail_defer:
@@ -205,10 +205,12 @@ def run_plain_text_attempts(
                     request_label=request_label,
                     diagnostics=diagnostics,
                 )
-            return keep_origin_payload_for_transport_error(
+            return terminal_payloads.translation_failed_payload_for_transport(
                 item,
                 context=context,
-                route_path=["block_level", "plain_text", "keep_origin"],
+                route_path=["block_level", "plain_text", "failed"],
+                degradation_reason="transport_timeout_budget_exceeded",
+                error_code="TRANSPORT_ERROR",
             )
 
     if last_error is not None:

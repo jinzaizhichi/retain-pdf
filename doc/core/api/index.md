@@ -196,11 +196,15 @@
 阶段恢复：
 
 - `POST /api/v1/jobs/{job_id}/rerun`
+- `GET /api/v1/jobs/{job_id}/resume-plan`
+- `POST /api/v1/jobs/{job_id}/resume`
 - 有 `translations_dir + source_pdf` 时，复用原 `job_id` 原地重渲染并替换渲染产物
 - 只有 `normalized_document_json + source_pdf` 时，创建新的 `book` 恢复任务
 - `workflow=translate` + `source.artifact_job_id`：复用 OCR checkpoint
 - `workflow=book` + `source.artifact_job_id`：复用 OCR checkpoint 后继续翻译并渲染
 - `workflow=render` + `source.artifact_job_id`：复用翻译产物后只重跑渲染
+
+`/resume` 当前复用 `/rerun` 的恢复执行契约；`/resume-plan` 用于前端先展示“会从哪里恢复、会复用哪些产物、会重跑哪些阶段”。
 
 ## 6. 任务查询与事件
 
@@ -257,6 +261,46 @@
 - `none`
 
 主任务事件流会合并 OCR 子任务页进度。任务完成后仍保留历史事件。
+
+失败诊断：
+
+`GET /api/v1/jobs/{job_id}/diagnostics`
+
+返回稳定字段：
+
+```json
+{
+  "failed_stage": "translation",
+  "failed_substage": "continuation_review",
+  "summary": "翻译阶段超时",
+  "detail": "provider timed out",
+  "suggestion": "从断点恢复任务",
+  "retryable": true,
+  "resume_available": true
+}
+```
+
+断点恢复计划：
+
+`GET /api/v1/jobs/{job_id}/resume-plan`
+
+```json
+{
+  "can_resume": true,
+  "job_id": "job-id",
+  "from_stage": "render",
+  "resume_workflow": "render",
+  "reuses_artifacts": ["source_pdf", "translations_dir", "normalized_document_json"],
+  "reruns_stages": ["rendering"],
+  "reason": null
+}
+```
+
+执行恢复：
+
+`POST /api/v1/jobs/{job_id}/resume`
+
+响应同 `POST /api/v1/jobs/{job_id}/rerun`，返回 `JobSubmissionView`。
 
 ## 7. 产物与下载
 
@@ -341,11 +385,50 @@ Content-Type: application/pdf
 200 OK
 Content-Type: image/jpeg
 Cache-Control: public, max-age=31536000, immutable
+ETag: "..."
 ```
 
 预览图按 job 缓存在 `DATA_ROOT/jobs/{job_id}/artifacts/` 下。前端可先请求第一页预览图实现秒开，再后台加载 PDF.js。
 
-## 8. OCR-only 接口
+## 8. 对照阅读辅助接口
+
+阅读区域映射：
+
+`GET /api/v1/jobs/{job_id}/reader/regions`
+
+每项包含：
+
+- `item_id`
+- `source.page/bbox/unit/origin/text`
+- `translated.page/bbox/unit/origin/text`
+- `markdown`
+- `region_type`
+- `status`
+
+坐标单位固定为 PDF point，原点为左上角。前端可用 `item_id` 做译文 hover 到原文 bbox 的映射，也可以直接使用 `text` / `markdown` 做复制菜单。
+
+PDF 元数据：
+
+`GET /api/v1/jobs/{job_id}/reader/metadata`
+
+返回 source / translated 两侧的页数和每页尺寸：
+
+```json
+{
+  "source": {
+    "page_count": 533,
+    "pages": [{ "page": 1, "width": 595, "height": 842 }]
+  },
+  "translated": {
+    "page_count": 533,
+    "pages": [{ "page": 1, "width": 595, "height": 842 }]
+  }
+}
+```
+
+某一侧 PDF 尚未就绪时，该侧返回 `null`。
+
+## 9. OCR-only 接口
 
 - `POST /api/v1/ocr/jobs`
 - `GET /api/v1/ocr/jobs?limit=20&offset=0&status=&provider=`
@@ -366,6 +449,97 @@ Cache-Control: public, max-age=31536000, immutable
 - `GET /api/v1/glossaries/{glossary_id}`
 - `PUT /api/v1/glossaries/{glossary_id}`
 - `DELETE /api/v1/glossaries/{glossary_id}`
+
+术语表用于前端做“自定义词汇表”：
+
+- 不翻译，保留原文：`level=preserve`
+- 专业词汇固定译法：`level=canonical`
+- 软性偏好译法：`level=preferred`
+
+表格行字段：
+
+```json
+{
+  "source": "Hartree-Fock",
+  "target": "Hartree-Fock",
+  "level": "preserve",
+  "match_mode": "case_insensitive",
+  "context": "",
+  "note": "方法名，保留英文"
+}
+```
+
+字段说明：
+
+- `source`：原文词条，必填。
+- `target`：目标译文。`level=preserve` 时可为空，后端会自动设为 `source`。
+- `level`：
+  - `preserve`：强制保留，不翻译。
+  - `canonical`：强制使用固定译法。
+  - `preferred`：提示模型优先这样翻译，不保证强制命中。
+- `match_mode`：
+  - `exact`：默认精确匹配。
+  - `case_insensitive`：忽略大小写。
+  - `regex`：正则匹配。
+- `context`：可选，只在附近上下文包含该词时生效。
+- `note`：备注，只给前端和 prompt 说明用。
+
+创建术语表：
+
+```http
+POST /api/v1/glossaries
+```
+
+```json
+{
+  "name": "量子化学术语",
+  "entries": [
+    {
+      "source": "Hartree-Fock",
+      "target": "",
+      "level": "preserve",
+      "match_mode": "case_insensitive",
+      "note": "保留英文"
+    },
+    {
+      "source": "density functional theory",
+      "target": "密度泛函理论",
+      "level": "canonical",
+      "match_mode": "case_insensitive",
+      "note": "固定专业译法"
+    }
+  ]
+}
+```
+
+更新术语表：
+
+```http
+PUT /api/v1/glossaries/{glossary_id}
+```
+
+请求体同创建接口。后端按整个 `entries` 数组替换。
+
+CSV 解析：
+
+```http
+POST /api/v1/glossaries/parse-csv
+```
+
+```json
+{
+  "csv_text": "原词,译文,类型,匹配模式,备注\nHartree-Fock,,保留,忽略大小写,保留英文\nDFT,密度泛函理论,专业译法,忽略大小写,固定译法\n"
+}
+```
+
+CSV 表头支持英文和中文别名：
+
+- 原词：`source/src/term/original/原词/原文/术语`
+- 译文：`target/translation/translated/译文/翻译/目标译文`
+- 类型：`level/mode/action/类型/模式/动作`
+- 匹配模式：`match/match_mode/匹配/匹配模式`
+- 备注：`note/comment/备注/说明`
+- 上下文：`context/上下文/语境`
 
 任务提交时可通过 `translation.glossary_id` 引用命名术语表，也可通过 `translation.glossary_entries` 传 inline 条目。
 

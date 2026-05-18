@@ -7,9 +7,9 @@ import {
   markUploadReady,
   openPageRangeDialogView,
   readPageRangeInputs,
-  renderPageRangeSummary as renderPageRangeSummaryView,
   selectedUploadFile,
   setFileLabel,
+  setInlinePageRangeVisible,
   showUploadStatus,
   writePageRangeInputs,
 } from "./view.js";
@@ -46,21 +46,37 @@ export function mountUploadFeature({
   }
 
   function currentPageRanges() {
-    const applied = state.appliedPageRange || "";
-    if (applied) {
-      return applied;
-    }
     const { start, end } = readPageRangeInputs();
     return normalizePageRangeValue(start, end);
   }
 
-  function renderPageRangeSummary() {
-    if (!workflowNeedsUpload()) {
-      renderPageRangeSummaryView({ visible: false });
-      return;
+  function validatePageRanges() {
+    const { start: rawStart, end: rawEnd } = readPageRangeInputs();
+    const start = rawStart.trim();
+    const end = rawEnd.trim();
+    const maxPage = Number(state.uploadedPageCount || 0) || frontMaxPageCount;
+    if ((start && Number(start) < 1) || (end && Number(end) < 1)) {
+      setText("error-box", "页码必须从 1 开始");
+      return false;
     }
-    const value = currentPageRanges();
-    renderPageRangeSummaryView({ visible: Boolean(value), value });
+    if ((start && maxPage && Number(start) > maxPage) || (end && maxPage && Number(end) > maxPage)) {
+      setText("error-box", `页码不能超过 ${maxPage}`);
+      return false;
+    }
+    if (start && end && Number(start) > Number(end)) {
+      setText("error-box", "起始页不能大于结束页");
+      return false;
+    }
+    if (maxPage && start && end && Number(end) - Number(start) + 1 > maxPage) {
+      setText("error-box", `页码区间不能超过 ${maxPage} 页`);
+      return false;
+    }
+    state.appliedPageRange = normalizePageRangeValue(start, end);
+    return true;
+  }
+
+  function renderPageRangeSummary() {
+    setInlinePageRangeVisible(workflowNeedsUpload() && Boolean(state.uploadId));
   }
 
   function openPageRangeDialog() {
@@ -71,30 +87,6 @@ export function mountUploadFeature({
   }
 
   function applyPageRanges() {
-    const { start: rawStart, end: rawEnd } = readPageRangeInputs();
-    const start = rawStart.trim();
-    const end = rawEnd.trim();
-    if ((start && Number(start) < 1) || (end && Number(end) < 1)) {
-      setText("error-box", "页码必须从 1 开始");
-      return;
-    }
-    if ((start && frontMaxPageCount && Number(start) > frontMaxPageCount) || (end && frontMaxPageCount && Number(end) > frontMaxPageCount)) {
-      setText("error-box", `页码不能超过 ${frontMaxPageCount}`);
-      return;
-    }
-    if (start && end && Number(start) > Number(end)) {
-      setText("error-box", "起始页不能大于结束页");
-      return;
-    }
-    if (frontMaxPageCount && start && end && Number(end) - Number(start) + 1 > frontMaxPageCount) {
-      setText("error-box", `页码区间不能超过 ${frontMaxPageCount} 页`);
-      return;
-    }
-    writePageRangeInputs({ start, end });
-    state.appliedPageRange = normalizePageRangeValue(start, end);
-    setText("error-box", "-");
-    renderPageRangeSummary();
-    refreshSubmitControls();
     closePageRangeDialog();
   }
 
@@ -103,6 +95,7 @@ export function mountUploadFeature({
     state.appliedPageRange = "";
     renderPageRangeSummary();
     refreshSubmitControls();
+    closePageRangeDialog();
   }
 
   async function handleFileSelected() {
@@ -110,6 +103,7 @@ export function mountUploadFeature({
     resetUploadedFile();
     resetUploadProgress();
     state.appliedPageRange = "";
+    clearPageRangeInputs();
     renderPageRangeSummary();
     applyWorkflowMode();
     setFileLabel(file, defaultFileLabel);
@@ -168,9 +162,15 @@ export function mountUploadFeature({
         uploadedPageCount,
         uploadedBytes: Number(payload.bytes || file.size || 0),
       });
+      writePageRangeInputs({
+        start: uploadedPageCount > 0 ? "1" : "",
+        end: uploadedPageCount > 0 ? `${uploadedPageCount}` : "",
+      });
+      state.appliedPageRange = currentPageRanges();
       markUploadReady(!!state.uploadId);
       showUploadStatus("上传完成，可以开始任务。");
       clearFileInputValue();
+      renderPageRangeSummary();
       refreshSubmitControls();
     } catch (err) {
       resetUploadedFile();
@@ -189,5 +189,6 @@ export function mountUploadFeature({
     normalizePageRangeValue,
     openPageRangeDialog,
     renderPageRangeSummary,
+    validatePageRanges,
   };
 }

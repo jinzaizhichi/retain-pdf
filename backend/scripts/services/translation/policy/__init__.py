@@ -16,7 +16,6 @@ from services.translation.policy.reference_section import resolve_reference_cuto
 
 __all__ = [
     "TranslationPolicyConfig",
-    "apply_translation_policies",
     "build_book_translation_policy_config",
     "build_translation_policy_config",
     "extract_ocr_preview_text",
@@ -30,11 +29,3 @@ __all__ = [
     "should_infer_domain_context",
     "should_skip_title_translation",
 ]
-
-
-def __getattr__(name: str):
-    if name == "apply_translation_policies":
-        from services.translation.policy.flow import apply_translation_policies
-
-        return apply_translation_policies
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

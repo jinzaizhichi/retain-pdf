@@ -47,7 +47,7 @@ def test_extract_direct_typst_protocol_text_handles_item_id_mapping() -> None:
     assert extract_direct_typst_protocol_text(raw, item_id="p014-b004") == "示例 4.2：水分子单点能计算的 Q-CHEM 输入。"
 
 
-def test_repeated_direct_typst_protocol_shell_degrades_to_keep_origin() -> None:
+def test_repeated_direct_typst_protocol_shell_marks_body_failed() -> None:
     item = _body_item()
 
     def fail_with_protocol_shell(*args, **kwargs):
@@ -72,10 +72,12 @@ def test_repeated_direct_typst_protocol_shell_degrades_to_keep_origin() -> None:
 
     payload = result[item["item_id"]]
     diagnostics = payload["translation_diagnostics"]
-    assert payload["decision"] == "keep_origin"
-    assert payload["final_status"] == "kept_origin"
+    assert payload["decision"] == "translate"
+    assert payload["translated_text"] == ""
+    assert payload["final_status"] == "failed"
     assert diagnostics["degradation_reason"] == "protocol_shell_repeated"
     assert diagnostics["error_trace"] == [{"type": "validation", "code": "PROTOCOL_SHELL"}]
+    assert diagnostics["fallback_to"] == "retry_required"
 
 
 def test_repeated_direct_typst_empty_body_uses_sentence_level_fallback() -> None:
@@ -140,8 +142,9 @@ def test_repeated_direct_typst_empty_body_degrades_when_sentence_level_fails() -
 
     payload = result[item["item_id"]]
     diagnostics = payload["translation_diagnostics"]
-    assert payload["decision"] == "keep_origin"
-    assert payload["final_status"] == "kept_origin"
+    assert payload["decision"] == "translate"
+    assert payload["translated_text"] == ""
+    assert payload["final_status"] == "failed"
     assert diagnostics["degradation_reason"] == "empty_translation_repeated"
     assert diagnostics["error_trace"] == [{"type": "validation", "code": "EMPTY_TRANSLATION"}]
 

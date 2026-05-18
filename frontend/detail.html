@@ -26,6 +26,10 @@
             <a id="detail-markdown-json-btn" class="button-link secondary disabled" href="#" target="_blank" rel="noopener noreferrer">Markdown JSON</a>
           </div>
         </div>
+        <div class="detail-task-actions" aria-label="任务操作">
+          <button id="detail-rerun-btn" type="button" class="detail-trigger-btn" disabled>断点恢复/重新运行</button>
+          <span id="detail-rerun-status" class="detail-inline-note">当前任务暂不可恢复。</span>
+        </div>
         <div class="detail-meta-list">
           <div class="detail-meta-row"><span class="label">Job ID</span><span id="detail-job-id" class="value mono">-</span></div>
           <div class="detail-meta-row"><span class="label">状态摘要</span><span id="detail-status-summary" class="value">-</span></div>
@@ -51,11 +55,7 @@
         </article>
 
         <article class="detail-card">
-          <div class="detail-trigger-head">
-            <h2>失败诊断</h2>
-            <button id="detail-rerun-btn" type="button" class="detail-trigger-btn" disabled>从断点恢复/重新运行</button>
-          </div>
-          <p id="detail-rerun-status" class="detail-inline-note">失败后如后端允许，可基于已有产物创建恢复任务。</p>
+          <h2>失败诊断</h2>
           <div class="detail-meta-list">
             <div class="detail-meta-row"><span class="label">摘要</span><span id="detail-failure-summary" class="value">-</span></div>
             <div class="detail-meta-row"><span class="label">分类</span><span id="detail-failure-category" class="value">-</span></div>

@@ -7,48 +7,31 @@ export function readPageRangeInputs() {
   };
 }
 
-export function renderPageRangeSummary({ visible, value = "" } = {}) {
-  const summary = $("page-range-summary");
-  if (!summary) {
-    return;
-  }
-  if (!visible || !value) {
-    summary.classList.add("hidden");
-    summary.textContent = "已选择页码：-";
-    return;
-  }
-  summary.classList.remove("hidden");
-  summary.textContent = `已选择页码：${value}`;
+export function setInlinePageRangeVisible(visible) {
+  $("inline-page-range")?.classList.toggle("hidden", !visible);
 }
 
 export function openPageRangeDialogView({ applied = "", maxPage = 0 } = {}) {
-  const [start = "", end = ""] = applied.includes("-") ? applied.split("-", 2) : [applied, applied];
   const limitText = $("page-range-limit-text");
   const titleEl = $("page-range-title");
   if (maxPage > 0) {
     if (limitText) {
-      limitText.textContent = `按页码范围限制本次翻译（最多 ${maxPage} 页，页码从 1 开始）。`;
+      limitText.textContent = "选择本次翻译使用的术语表。页码范围可直接在上传区域填写。";
     }
     if (titleEl) {
-      titleEl.textContent = `分页翻译（最多 ${maxPage} 页）`;
+      titleEl.textContent = "专业翻译";
     }
   } else {
     if (limitText) {
-      limitText.textContent = "按页码范围限制本次翻译，页码从 1 开始。";
+      limitText.textContent = "选择本次翻译使用的术语表。页码范围可直接在上传区域填写。";
     }
     if (titleEl) {
-      titleEl.textContent = "分页翻译";
+      titleEl.textContent = "专业翻译";
     }
   }
   if (maxPage > 0) {
     $("page-range-start")?.setAttribute("max", String(maxPage));
     $("page-range-end")?.setAttribute("max", String(maxPage));
-  }
-  if ($("page-range-start")) {
-    $("page-range-start").value = start || "";
-  }
-  if ($("page-range-end")) {
-    $("page-range-end").value = end || "";
   }
   $("page-range-dialog")?.showModal();
 }

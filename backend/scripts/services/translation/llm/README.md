@@ -19,6 +19,10 @@
 - 想看主翻译编排和 batch 重试：
   `shared/orchestration/retrying_translator.py`
 - 想看 plain-text 降级、placeholder 稳定策略：
+  `shared/orchestration/single_item_flow.py`
+- 想看单条 direct-typst/heavy-formula/tagged-placeholder 路由包装：
+  `shared/orchestration/single_item_routes.py`
+- 想看 fallback facade：
   `shared/orchestration/fallbacks.py`
 - 想看编排目录的完整职责地图：
   `shared/orchestration/README.md`
@@ -83,7 +87,15 @@
   - `shared/structured_parsers.py`
 - shared 编排层
   - `shared/orchestration/README.md`
+  - `shared/orchestration/retrying_translator.py`
+  - `shared/orchestration/single_item_flow.py`
+  - `shared/orchestration/single_item_deps.py`
+  - `shared/orchestration/single_item_routes.py`
   - `shared/orchestration/fallbacks.py`
+  - `shared/orchestration/segment_request.py`
+  - `shared/orchestration/segment_windows.py`
+  - `shared/orchestration/segment_executor.py`
+  - `shared/orchestration/segment_failures.py`
   - `shared/orchestration/batched_plain.py`
   - `shared/orchestration/direct_typst.py`
   - `shared/orchestration/direct_typst_long_text.py`
@@ -96,7 +108,6 @@
   - `shared/orchestration/metadata.py`
   - `shared/orchestration/common.py`
   - `shared/orchestration/segment_routing.py`
-  - `shared/orchestration/retrying_translator.py`
 - 公共逻辑
   - `placeholder_guard.py`
   - `domain_context.py`
@@ -126,6 +137,7 @@
   `workflow/translation_workflow.py`
   -> `services.translation.llm.translate_batch`
   -> `shared/orchestration/retrying_translator.py`
+  -> `shared/orchestration/single_item_flow.py`
   -> `providers/deepseek/translation_client.py`
   -> `providers/deepseek/client.py`
 - 领域提示链：
@@ -135,7 +147,7 @@
 - 公式降级链：
   `shared/orchestration/retrying_translator.py`
   -> `shared/orchestration/segment_routing.py`
-  -> `shared/orchestration/fallbacks.py`
+  -> `shared/orchestration/single_item_flow.py`
   -> `placeholder_guard.py`
 
 ## 排错入口
@@ -144,6 +156,7 @@
   `placeholder_guard.py`
 - 批次重试、单 item 降级：
   `shared/orchestration/retrying_translator.py`
+  `shared/orchestration/single_item_flow.py`
   `shared/orchestration/fallbacks.py`
   `shared/orchestration/README.md`
 - 结构化输出解析失败：

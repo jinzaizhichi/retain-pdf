@@ -4,10 +4,10 @@ from typing import Callable
 
 from services.translation.diagnostics import TranslationDiagnosticsCollector
 from services.translation.llm.shared.control_context import TranslationControlContext
-from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_transport_error
 from services.translation.llm.shared.orchestration.metadata import attach_result_metadata
 from services.translation.llm.shared.orchestration.metadata import restore_runtime_term_tokens
 from services.translation.llm.shared.orchestration.segment_routing import translate_single_item_formula_segment_text_with_retries
+import services.translation.llm.shared.orchestration.terminal_payloads as terminal_payloads
 from services.translation.llm.shared.orchestration.transport import defer_transport_retry
 
 
@@ -48,7 +48,7 @@ def try_formula_segment_path(
         if is_transport_error_fn(exc):
             if request_label:
                 print(
-                    f"{request_label}: formula route transport failure, degrade to keep_origin: {type(exc).__name__}: {exc}",
+                    f"{request_label}: formula route transport failure, mark failed: {type(exc).__name__}: {exc}",
                     flush=True,
                 )
             if allow_transport_tail_defer:
@@ -59,10 +59,12 @@ def try_formula_segment_path(
                     request_label=request_label,
                     diagnostics=diagnostics,
                 )
-            return keep_origin_payload_for_transport_error(
+            return terminal_payloads.translation_failed_payload_for_transport(
                 item,
                 context=context,
-                route_path=["block_level", "segmented", "keep_origin"],
+                route_path=["block_level", "segmented", "failed"],
+                degradation_reason="segmented_transport_failure",
+                error_code="TRANSPORT_ERROR",
             )
         if request_label:
             print(

@@ -7,6 +7,23 @@ use crate::error::AppError;
 use crate::models::{JobSnapshot, ReaderRegionBoxView, ReaderRegionItemView, ReaderRegionsView};
 use crate::storage_paths::{resolve_normalized_document, resolve_translation_manifest};
 
+mod metadata;
+mod value_extract;
+
+pub(crate) use metadata::load_reader_metadata_view;
+use value_extract::{
+    bbox_from_value, canonical_item_id, markdown_from_item, region_type_from_item,
+    source_text_from_item, translated_text_from_item, translation_status_from_item, value_string,
+};
+
+#[derive(Clone)]
+struct SourceRegion {
+    page: i64,
+    bbox: Vec<f64>,
+    text: Option<String>,
+    region_type: String,
+}
+
 pub(crate) fn load_reader_regions_view(
     data_root: &Path,
     job: &JobSnapshot,
@@ -30,15 +47,32 @@ pub(crate) fn load_reader_regions_view(
                 .get("page_idx")
                 .and_then(Value::as_i64)
                 .unwrap_or(fallback_page_idx);
-            let source = source_regions
+            let translated_text = translated_text_from_item(&item);
+            let markdown = markdown_from_item(&item).or_else(|| translated_text.clone());
+            let status = translation_status_from_item(&item);
+            let source_region = source_regions
                 .get(&item_id)
                 .cloned()
-                .or_else(|| source_regions.get(&canonical_item_id(&item_id)).cloned())
+                .or_else(|| source_regions.get(&canonical_item_id(&item_id)).cloned());
+            let region_type = source_region
+                .as_ref()
+                .map(|region| region.region_type.clone())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| region_type_from_item(&item));
+            let source = source_region
+                .map(|region| ReaderRegionBoxView {
+                    page: region.page,
+                    bbox: region.bbox,
+                    unit: "pdf_point".to_string(),
+                    origin: "top_left".to_string(),
+                    text: region.text,
+                })
                 .unwrap_or_else(|| ReaderRegionBoxView {
                     page: translated_page_idx + 1,
                     bbox: translated_bbox.clone(),
                     unit: "pdf_point".to_string(),
                     origin: "top_left".to_string(),
+                    text: source_text_from_item(&item),
                 });
             items.push(ReaderRegionItemView {
                 item_id,
@@ -48,7 +82,11 @@ pub(crate) fn load_reader_regions_view(
                     bbox: translated_bbox,
                     unit: "pdf_point".to_string(),
                     origin: "top_left".to_string(),
+                    text: translated_text,
                 },
+                markdown,
+                region_type,
+                status,
             });
         }
     }
@@ -90,7 +128,10 @@ fn load_manifest_pages(manifest_path: &Path) -> Result<Vec<(i64, Vec<Value>)>, A
         };
         let text = std::fs::read_to_string(&payload_path)?;
         let page_payload: Value = serde_json::from_str(&text).map_err(|err| {
-            AppError::internal(format!("parse translation page {}: {err}", payload_path.display()))
+            AppError::internal(format!(
+                "parse translation page {}: {err}",
+                payload_path.display()
+            ))
         })?;
         let items = page_payload.as_array().cloned().unwrap_or_default();
         result.push((page_idx, items));
@@ -101,7 +142,7 @@ fn load_manifest_pages(manifest_path: &Path) -> Result<Vec<(i64, Vec<Value>)>, A
 fn load_source_region_map(
     data_root: &Path,
     job: &JobSnapshot,
-) -> Result<HashMap<String, ReaderRegionBoxView>, AppError> {
+) -> Result<HashMap<String, SourceRegion>, AppError> {
     let Some(path) = resolve_normalized_document(job, data_root) else {
         return Ok(HashMap::new());
     };
@@ -109,16 +150,24 @@ fn load_source_region_map(
         return Ok(HashMap::new());
     }
     let text = std::fs::read_to_string(&path)?;
-    let payload: Value = serde_json::from_str(&text)
-        .map_err(|err| AppError::internal(format!("parse normalized document {}: {err}", path.display())))?;
-    let pages = payload.get("pages").and_then(Value::as_array).ok_or_else(|| {
-        AppError::internal(format!("invalid normalized document: {}", path.display()))
+    let payload: Value = serde_json::from_str(&text).map_err(|err| {
+        AppError::internal(format!(
+            "parse normalized document {}: {err}",
+            path.display()
+        ))
     })?;
+    let pages = payload
+        .get("pages")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            AppError::internal(format!("invalid normalized document: {}", path.display()))
+        })?;
     let mut regions = HashMap::new();
     for page in pages {
-        let page_idx = page.get("page_index").and_then(Value::as_i64).unwrap_or_else(|| {
-            page.get("page").and_then(Value::as_i64).unwrap_or(1) - 1
-        });
+        let page_idx = page
+            .get("page_index")
+            .and_then(Value::as_i64)
+            .unwrap_or_else(|| page.get("page").and_then(Value::as_i64).unwrap_or(1) - 1);
         let Some(blocks) = page.get("blocks").and_then(Value::as_array) else {
             continue;
         };
@@ -130,49 +179,15 @@ fn load_source_region_map(
             let Some(bbox) = bbox_from_value(block.get("bbox")) else {
                 continue;
             };
-            let region = ReaderRegionBoxView {
+            let region = SourceRegion {
                 page: page_idx + 1,
                 bbox,
-                unit: "pdf_point".to_string(),
-                origin: "top_left".to_string(),
+                text: source_text_from_item(block),
+                region_type: region_type_from_item(block),
             };
             regions.insert(block_id.clone(), region.clone());
             regions.insert(canonical_item_id(&block_id), region);
         }
     }
     Ok(regions)
-}
-
-fn bbox_from_value(value: Option<&Value>) -> Option<Vec<f64>> {
-    let values = value?.as_array()?;
-    if values.len() < 4 {
-        return None;
-    }
-    let mut bbox = Vec::with_capacity(4);
-    for value in values.iter().take(4) {
-        let number = value.as_f64()?;
-        if !number.is_finite() {
-            return None;
-        }
-        bbox.push(number);
-    }
-    if bbox[2] <= bbox[0] || bbox[3] <= bbox[1] {
-        return None;
-    }
-    Some(bbox)
-}
-
-fn canonical_item_id(value: &str) -> String {
-    let Some((page, block)) = value.split_once("-b") else {
-        return value.to_string();
-    };
-    let block_num = block.parse::<u32>().ok();
-    match block_num {
-        Some(num) => format!("{page}-b{num:04}"),
-        None => value.to_string(),
-    }
-}
-
-fn value_string(value: Option<&Value>) -> String {
-    value.and_then(Value::as_str).unwrap_or("").to_string()
 }

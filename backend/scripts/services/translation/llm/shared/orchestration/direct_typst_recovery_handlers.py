@@ -7,11 +7,37 @@ from services.translation.llm.shared.orchestration.common import looks_like_cjk_
 from services.translation.llm.shared.orchestration.common import sentence_level_fallback_allowed
 from services.translation.llm.shared.orchestration.common import should_keep_origin_on_empty_translation
 from services.translation.llm.shared.orchestration.direct_typst_recovery_actions import is_named_validation_exception
-from services.translation.llm.shared.orchestration.direct_typst_recovery_actions import sentence_level_fallback_or_keep_origin
+from services.translation.llm.shared.orchestration.direct_typst_recovery_actions import sentence_level_fallback_or_terminal_failure
 from services.translation.llm.shared.orchestration.direct_typst_recovery_actions import try_math_delimiter_repair
 from services.translation.llm.shared.orchestration.direct_typst_recovery_actions import try_protocol_shell_salvage
-from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_direct_typst_validation_failure
+import services.translation.llm.shared.orchestration.intentional_keep_origin as intentional_keep_origin
+import services.translation.llm.shared.orchestration.terminal_payloads as terminal_payloads
 from services.translation.llm.validation.english_residue import should_force_translate_body_text
+
+
+def _direct_typst_validation_failure_payload(
+    item: dict,
+    *,
+    context,
+    route_path: list[str],
+    degradation_reason: str,
+    error_code: str,
+) -> dict[str, dict[str, str]]:
+    if should_force_translate_body_text(item):
+        return terminal_payloads.translation_failed_payload_for_validation(
+            item,
+            context=context,
+            route_path=route_path,
+            degradation_reason=degradation_reason,
+            error_code=error_code,
+        )
+    return intentional_keep_origin.keep_origin_payload_for_direct_typst_validation_failure(
+        item,
+        context=context,
+        route_path=route_path,
+        degradation_reason=degradation_reason,
+        error_code=error_code,
+    )
 
 
 def handle_repeated_math_delimiter_error(
@@ -51,7 +77,7 @@ def handle_repeated_math_delimiter_error(
     if repaired is not None:
         return repaired, last_error
     if should_force_translate_body_text(item) and sentence_level_fallback_allowed(item):
-        return sentence_level_fallback_or_keep_origin(
+        return sentence_level_fallback_or_terminal_failure(
             item,
             api_key=api_key,
             model=model,
@@ -59,11 +85,11 @@ def handle_repeated_math_delimiter_error(
             request_label=request_label,
             context=context,
             diagnostics=diagnostics,
-            route_path=route_prefix + ["validation", "sentence_level", "keep_origin"],
+            route_path=route_prefix + ["validation", "sentence_level", "failed"],
             translate_plain=translate_plain,
             translate_unstructured=translate_unstructured,
             sentence_level_fallback_fn=sentence_level_fallback_fn,
-            keep_origin_on_failure_fn=lambda fallback_item, *, context, route_path: keep_origin_payload_for_direct_typst_validation_failure(
+            keep_origin_on_failure_fn=lambda fallback_item, *, context, route_path, **_kwargs: _direct_typst_validation_failure_payload(
                 fallback_item,
                 context=context,
                 route_path=route_path,
@@ -71,10 +97,10 @@ def handle_repeated_math_delimiter_error(
                 error_code="MATH_DELIMITER_UNBALANCED",
             ),
         ), last_error
-    return keep_origin_payload_for_direct_typst_validation_failure(
+    return _direct_typst_validation_failure_payload(
         item,
         context=context,
-        route_path=route_prefix + ["keep_origin"],
+        route_path=route_prefix + ["failed"],
         degradation_reason="math_delimiter_unbalanced",
         error_code="MATH_DELIMITER_UNBALANCED",
     ), last_error
@@ -110,7 +136,7 @@ def handle_repeated_protocol_shell_error(
             print(f"{request_label}: direct_typst raw protocol shell salvaged successfully", flush=True)
         return salvaged, last_error
     if should_force_translate_body_text(item) and sentence_level_fallback_allowed(item):
-        return sentence_level_fallback_or_keep_origin(
+        return sentence_level_fallback_or_terminal_failure(
             item,
             api_key=api_key,
             model=model,
@@ -118,11 +144,11 @@ def handle_repeated_protocol_shell_error(
             request_label=request_label,
             context=context,
             diagnostics=diagnostics,
-            route_path=route_prefix + ["validation", "sentence_level", "keep_origin"],
+            route_path=route_prefix + ["validation", "sentence_level", "failed"],
             translate_plain=translate_plain,
             translate_unstructured=translate_unstructured,
             sentence_level_fallback_fn=sentence_level_fallback_fn,
-            keep_origin_on_failure_fn=lambda fallback_item, *, context, route_path: keep_origin_payload_for_direct_typst_validation_failure(
+            keep_origin_on_failure_fn=lambda fallback_item, *, context, route_path, **_kwargs: _direct_typst_validation_failure_payload(
                 fallback_item,
                 context=context,
                 route_path=route_path,
@@ -133,10 +159,10 @@ def handle_repeated_protocol_shell_error(
     reason = "protocol_shell_group_repeated" if is_continuation_or_group_unit(item) else "protocol_shell_repeated"
     if looks_like_cjk_dominant_body_text(item) or not should_force_translate_body_text(item):
         reason = "protocol_shell_repeated"
-    return keep_origin_payload_for_direct_typst_validation_failure(
+    return _direct_typst_validation_failure_payload(
         item,
         context=context,
-        route_path=route_prefix + ["keep_origin"],
+        route_path=route_prefix + ["failed"],
         degradation_reason=reason,
         error_code="PROTOCOL_SHELL",
     ), last_error
@@ -168,10 +194,10 @@ def handle_raw_validation_failure(
             flush=True,
         )
     if is_named_validation_exception(last_error, "EnglishResidueError"):
-        return keep_origin_payload_for_direct_typst_validation_failure(
+        return _direct_typst_validation_failure_payload(
             item,
             context=context,
-            route_path=route_prefix + ["keep_origin"],
+            route_path=route_prefix + ["failed"],
             degradation_reason="english_residue_repeated",
             error_code="ENGLISH_RESIDUE",
         ), last_error
@@ -211,7 +237,7 @@ def handle_raw_validation_failure(
         )
     if is_named_validation_exception(last_error, "EmptyTranslationError"):
         if should_keep_origin_on_empty_translation(item) or not should_force_translate_body_text(item):
-            return keep_origin_payload_for_direct_typst_validation_failure(
+            return intentional_keep_origin.keep_origin_payload_for_direct_typst_validation_failure(
                 item,
                 context=context,
                 route_path=route_prefix + ["keep_origin"],
@@ -219,7 +245,7 @@ def handle_raw_validation_failure(
                 error_code="EMPTY_TRANSLATION",
             ), last_error
         if sentence_level_fallback_allowed(item):
-            return sentence_level_fallback_or_keep_origin(
+            return sentence_level_fallback_or_terminal_failure(
                 item,
                 api_key=api_key,
                 model=model,
@@ -227,11 +253,11 @@ def handle_raw_validation_failure(
                 request_label=request_label,
                 context=context,
                 diagnostics=diagnostics,
-                route_path=route_prefix + ["validation", "sentence_level", "keep_origin"],
+                route_path=route_prefix + ["validation", "sentence_level", "failed"],
                 translate_plain=translate_plain,
                 translate_unstructured=translate_unstructured,
                 sentence_level_fallback_fn=sentence_level_fallback_fn,
-                keep_origin_on_failure_fn=lambda fallback_item, *, context, route_path: keep_origin_payload_for_direct_typst_validation_failure(
+                keep_origin_on_failure_fn=lambda fallback_item, *, context, route_path, **_kwargs: _direct_typst_validation_failure_payload(
                     fallback_item,
                     context=context,
                     route_path=route_path,
@@ -239,10 +265,10 @@ def handle_raw_validation_failure(
                     error_code="EMPTY_TRANSLATION",
                 ),
             ), last_error
-        return keep_origin_payload_for_direct_typst_validation_failure(
+        return _direct_typst_validation_failure_payload(
             item,
             context=context,
-            route_path=route_prefix + ["keep_origin"],
+            route_path=route_prefix + ["failed"],
             degradation_reason="empty_translation_repeated",
             error_code="EMPTY_TRANSLATION",
         ), last_error

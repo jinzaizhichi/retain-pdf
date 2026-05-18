@@ -97,10 +97,10 @@ function stageKeyOf(payload) {
 function stageSubtypeOf(payload) {
   const explicitSubstage = firstNonEmpty(payload.substage, payload.payload?.substage).toLowerCase();
   if (explicitSubstage) {
-    if (explicitSubstage.includes("continuation")) {
+    if (explicitSubstage.includes("continuation") || explicitSubstage.includes("cross_page") || explicitSubstage.includes("cross_column")) {
       return "continuation_review";
     }
-    if (explicitSubstage.includes("page_policies")) {
+    if (explicitSubstage.includes("page_policies") || explicitSubstage.includes("page_policy")) {
       return "page_policies";
     }
     if (explicitSubstage.includes("domain")) {
@@ -122,10 +122,18 @@ function stageSubtypeOf(payload) {
   if (raw.includes("startup")) {
     return "startup";
   }
-  if (raw.includes("continuation_review") || text.includes("跨栏") || text.includes("跨页") || text.includes("连续段")) {
+  if (
+    raw.includes("continuation_review")
+    || raw.includes("continuation")
+    || raw.includes("cross_page")
+    || raw.includes("cross_column")
+    || text.includes("跨栏")
+    || text.includes("跨页")
+    || text.includes("连续段")
+  ) {
     return "continuation_review";
   }
-  if (raw.includes("page_policies") || text.includes("页面策略") || text.includes("块分类")) {
+  if (raw.includes("page_policies") || raw.includes("page_policy") || text.includes("页面策略") || text.includes("块分类")) {
     return "page_policies";
   }
   if (raw.includes("domain_inference") || text.includes("领域") || text.includes("术语")) {

@@ -47,14 +47,19 @@ import {
 } from "./desktop.js";
 import {
   buildApiEndpoint,
+  createGlossary,
   buildJobDetailEndpoint,
   deleteLibraryBook,
+  deleteGlossary,
+  fetchGlossary,
+  fetchGlossaries,
   fetchJobEvents,
   fetchJobArtifactsManifest,
   fetchJobList,
   fetchLibraryBookList,
   fetchJobPayload,
   fetchProtected,
+  parseGlossaryCsv,
   fetchTranslationDiagnostics,
   fetchTranslationItem,
   fetchTranslationItems,
@@ -63,6 +68,7 @@ import {
   submitJobRequest,
   submitJson,
   submitUploadRequest,
+  updateGlossary,
   queryDeepSeekBalance,
   validateDeepSeekToken,
   validatePaddleToken,
@@ -73,6 +79,7 @@ import { mountAppShellFeature } from "./features/app-shell/controller.js";
 import { mountArtifactDownloadsFeature } from "./features/artifact-downloads/controller.js";
 import { mountBrowserCredentialsFeature } from "./features/credentials/browser.js";
 import { mountDeveloperFeature } from "./features/developer/controller.js";
+import { mountGlossariesFeature } from "./features/glossaries/controller.js";
 import { mountJobRuntimeFeature } from "./features/job-runtime/controller.js";
 import { mountStatusDetailFeature } from "./features/status-detail/controller.js";
 import { mountUploadFeature } from "./features/upload/controller.js";
@@ -108,6 +115,7 @@ const WORKFLOW_TRANSLATE = "translate";
 const WORKFLOW_RENDER = "render";
 let browserCredentialsFeature = null;
 let developerFeature = null;
+let glossariesFeature = null;
 let artifactDownloadsFeature = null;
 let appActionsFeature = null;
 let appShellFeature = null;
@@ -195,6 +203,9 @@ function mountUploadWorkflowFeatures() {
     currentPageRanges: () => uploadFeature?.currentPageRanges() || "",
     renderPageRangeSummary: () => uploadFeature?.renderPageRangeSummary(),
     getBrowserCredentialsFeature: () => browserCredentialsFeature,
+    fetchGlossaries,
+    apiPrefix: API_PREFIX,
+    setText,
   });
   developerFeature = mountDeveloperFeature({
     syncDeveloperDialogFromState: () => workflowFeature?.syncDeveloperDialogFromState(),
@@ -220,6 +231,19 @@ function mountUploadWorkflowFeatures() {
     applyWorkflowMode: () => workflowFeature?.applyWorkflowMode(),
     refreshSubmitControls: () => workflowFeature?.refreshSubmitControls(),
     workflowNeedsUpload: (workflow) => workflowFeature?.workflowNeedsUpload(workflow) ?? (workflow !== WORKFLOW_RENDER),
+  });
+}
+
+function mountGlossaryFeature() {
+  glossariesFeature = mountGlossariesFeature({
+    apiPrefix: API_PREFIX,
+    fetchGlossaries,
+    fetchGlossary,
+    createGlossary,
+    updateGlossary,
+    deleteGlossary,
+    parseGlossaryCsv,
+    refreshWorkflowGlossaries: (options) => workflowFeature?.loadGlossaryOptions(options),
   });
 }
 
@@ -285,6 +309,7 @@ function mountCredentialAndActionFeatures() {
     workflowNeedsUpload: (workflow) => workflowFeature?.workflowNeedsUpload(workflow) ?? (workflow !== WORKFLOW_RENDER),
     currentRenderSourceJobId: () => workflowFeature?.currentRenderSourceJobId() || "",
     collectRunPayload: () => workflowFeature?.collectRunPayload() || {},
+    validateBeforeSubmit: () => uploadFeature?.validatePageRanges?.() ?? true,
     getBrowserCredentialsFeature: () => browserCredentialsFeature,
     getJobRuntimeFeature: () => jobRuntimeFeature,
     onDesktopConfigSaved: () => workflowFeature?.applyWorkflowMode(),
@@ -328,9 +353,11 @@ function mountJobFeatures() {
 function bindFeatureEvents() {
   bindMainEvents({
     developerFeature,
+    glossariesFeature,
     artifactDownloadsFeature,
     statusDetailFeature,
     appShellFeature,
+    workflowFeature,
     uploadFeature,
     appActionsFeature,
     jobRuntimeFeature,
@@ -345,6 +372,7 @@ async function initializePage() {
   applyPersistedConfig(persistedConfig);
   mountCoreFeatures();
   mountUploadWorkflowFeatures();
+  mountGlossaryFeature();
   mountCredentialAndActionFeatures();
   mountJobFeatures();
   bindFeatureEvents();

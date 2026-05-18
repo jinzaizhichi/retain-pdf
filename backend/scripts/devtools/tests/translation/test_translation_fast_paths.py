@@ -35,26 +35,6 @@ def _ensure_package_stubs():
 
 def _load_module(name: str, path: Path):
     _ensure_package_stubs()
-    if not path.exists():
-        remap = {
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py":
-                REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "segment_routing.py":
-                REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "segment_routing.py",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py":
-                REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "deepseek_client.py":
-                REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "providers" / "deepseek" / "client.py",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "translation_client.py":
-                REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "providers" / "deepseek" / "translation_client.py",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "structured_output.py":
-                REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "structured_output.py",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "structured_parsers.py":
-                REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "structured_parsers.py",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "structured_models.py":
-                REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "structured_models.py",
-        }
-        path = remap.get(path, path)
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -86,6 +66,27 @@ def _install_minimal_continuation_stub():
     module.review_candidate_pairs = lambda *args, **kwargs: {}
     sys.modules["services.translation.continuation"] = module
     return module
+
+
+def _translate_direct_typst_for_test(module, item: dict, *, context, request_label: str = "test"):
+    direct_typst = _load_module(
+        "services.translation.llm.shared.orchestration.direct_typst",
+        REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "direct_typst.py",
+    )
+    return direct_typst.translate_direct_typst_plain_text_with_retries(
+        item,
+        api_key="",
+        model="deepseek-chat",
+        base_url="https://api.deepseek.com/v1",
+        request_label=request_label,
+        context=context,
+        diagnostics=None,
+        translator=module.translate_single_item_plain_text_with_retries,
+        translate_plain_fn=module.translate_single_item_plain_text,
+        translate_unstructured_fn=module.translate_single_item_plain_text_unstructured,
+        sentence_level_fallback_fn=module._sentence_level_fallback,
+        validate_batch_result_fn=module.validate_batch_result,
+    )
 
 
 class TranslationFastPathTests(unittest.TestCase):
@@ -126,15 +127,7 @@ class TranslationFastPathTests(unittest.TestCase):
             "translate_single_item_plain_text_unstructured",
             side_effect=protocol_exc,
         ):
-            result = module._translate_direct_typst_plain_text_with_retries(
-                item,
-                api_key="",
-                model="deepseek-chat",
-                base_url="https://api.deepseek.com/v1",
-                request_label="test",
-                context=context,
-                diagnostics=None,
-            )
+            result = _translate_direct_typst_for_test(module, item, context=context)
 
         payload = result["p036-b015"]
         self.assertEqual(payload["decision"], "translate")
@@ -147,7 +140,7 @@ class TranslationFastPathTests(unittest.TestCase):
     def test_continuation_group_protocol_shell_degrades_to_keep_origin(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         context_module = _load_module(
             "services.translation.llm.shared.control_context",
@@ -207,11 +200,11 @@ class TranslationFastPathTests(unittest.TestCase):
     def test_direct_typst_continuation_group_protocol_shell_is_salvaged(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         context_module = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         context = context_module.build_translation_control_context(mode="sci")
         item = {
@@ -241,15 +234,7 @@ class TranslationFastPathTests(unittest.TestCase):
             "translate_single_item_plain_text_unstructured",
             side_effect=protocol_exc,
         ):
-            result = module._translate_direct_typst_plain_text_with_retries(
-                item,
-                api_key="",
-                model="deepseek-chat",
-                base_url="https://api.deepseek.com/v1",
-                request_label="test",
-                context=context,
-                diagnostics=None,
-            )
+            result = _translate_direct_typst_for_test(module, item, context=context)
 
         payload = result["__cg__:cg-007-003"]
         self.assertEqual(payload["decision"], "translate")
@@ -259,11 +244,11 @@ class TranslationFastPathTests(unittest.TestCase):
     def test_direct_typst_continuation_group_protocol_shell_partial_accepts_body_text(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         context_module = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         context = context_module.build_translation_control_context(mode="sci")
         item = {
@@ -296,15 +281,7 @@ class TranslationFastPathTests(unittest.TestCase):
                 translated_text="COBOL代码现代化：这只是一个数据点，因此我们最后才重点提及。",
             ),
         ):
-            result = module._translate_direct_typst_plain_text_with_retries(
-                item,
-                api_key="",
-                model="deepseek-chat",
-                base_url="https://api.deepseek.com/v1",
-                request_label="test",
-                context=context,
-                diagnostics=None,
-            )
+            result = _translate_direct_typst_for_test(module, item, context=context)
 
         payload = result["__cg__:cg-008-004"]
         self.assertEqual(payload["decision"], "translate")
@@ -313,11 +290,11 @@ class TranslationFastPathTests(unittest.TestCase):
     def test_direct_typst_long_text_is_split_before_remote_translation(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         context_module = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         context = context_module.build_translation_control_context(mode="sci")
         long_source = " ".join(f"This is sentence {i} describing a long legal disclaimer." for i in range(1, 180))
@@ -344,15 +321,7 @@ class TranslationFastPathTests(unittest.TestCase):
             }
 
         with mock.patch.object(module, "translate_single_item_plain_text", side_effect=_fake_plain_text) as plain_mock:
-            result = module._translate_direct_typst_plain_text_with_retries(
-                item,
-                api_key="",
-                model="deepseek-chat",
-                base_url="https://api.deepseek.com/v1",
-                request_label="test",
-                context=context,
-                diagnostics=None,
-            )
+            result = _translate_direct_typst_for_test(module, item, context=context)
 
         payload = result[item["item_id"]]
         self.assertEqual(payload["decision"], "translate")
@@ -362,11 +331,11 @@ class TranslationFastPathTests(unittest.TestCase):
     def test_continuation_group_english_residue_does_not_enter_sentence_level_fallback(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         control_context = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         item = {
             "item_id": "__cg__:cg-001-001",
@@ -403,17 +372,19 @@ class TranslationFastPathTests(unittest.TestCase):
                     )
 
         payload = result[item["item_id"]]
-        self.assertEqual(payload["decision"], "keep_origin")
+        self.assertEqual(payload["decision"], "translate")
+        self.assertEqual(payload["translated_text"], "")
+        self.assertEqual(payload["final_status"], "failed")
         self.assertEqual(payload["translation_diagnostics"]["degradation_reason"], "english_residue_repeated")
 
     def test_continuation_group_english_residue_with_partial_chinese_is_salvaged(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         control_context = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         item = {
             "item_id": "__cg__:cg-001-002",
@@ -462,11 +433,11 @@ class TranslationFastPathTests(unittest.TestCase):
     def test_protocol_shell_unwrap_salvages_continuation_group_without_sentence_fallback(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         control_context = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         item = {
             "item_id": "__cg__:cg-005-007",
@@ -502,14 +473,14 @@ class TranslationFastPathTests(unittest.TestCase):
         self.assertIn("轨道相互作用仅是若干因素之一", payload["translated_text"])
         self.assertEqual(payload["translation_diagnostics"]["route_path"], ["block_level", "protocol_shell_unwrap"])
 
-    def test_formula_english_residue_degrades_to_keep_origin_after_all_fallbacks_fail(self):
+    def test_formula_english_residue_marks_failed_after_all_fallbacks_fail(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         control_context = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         item = {
             "item_id": "p009-b067",
@@ -545,17 +516,19 @@ class TranslationFastPathTests(unittest.TestCase):
                         diagnostics=None,
                     )
         payload = result["p009-b067"]
-        self.assertEqual(payload["decision"], "keep_origin")
+        self.assertEqual(payload["decision"], "translate")
+        self.assertEqual(payload["translated_text"], "")
+        self.assertEqual(payload["final_status"], "failed")
         self.assertEqual(payload["translation_diagnostics"]["degradation_reason"], "english_residue_repeated")
 
     def test_english_residue_after_raw_fallback_continues_to_sentence_level(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         control_context = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         placeholder_guard = _load_module(
             "services.translation.llm.placeholder_guard",
@@ -605,11 +578,11 @@ class TranslationFastPathTests(unittest.TestCase):
     def test_direct_typst_english_residue_does_not_enter_sentence_level_fallback(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         control_context = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         item = {
             "item_id": "p001-b002",
@@ -645,18 +618,20 @@ class TranslationFastPathTests(unittest.TestCase):
                     )
 
         payload = result["p001-b002"]
-        self.assertEqual(payload["decision"], "keep_origin")
+        self.assertEqual(payload["decision"], "translate")
+        self.assertEqual(payload["translated_text"], "")
+        self.assertEqual(payload["final_status"], "failed")
         self.assertEqual(payload["translation_diagnostics"]["degradation_reason"], "english_residue_repeated")
-        self.assertEqual(payload["translation_diagnostics"]["route_path"], ["block_level", "direct_typst", "keep_origin"])
+        self.assertEqual(payload["translation_diagnostics"]["route_path"], ["block_level", "direct_typst", "failed"])
 
     def test_direct_typst_body_protocol_failure_falls_back_to_sentence_level(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         control_context = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         item = {
             "item_id": "p021-b005",
@@ -723,11 +698,11 @@ class TranslationFastPathTests(unittest.TestCase):
     def test_direct_typst_validation_failure_does_not_enter_tagged_placeholder_retry(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         control_context = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         item = {
             "item_id": "p001-b002",
@@ -767,11 +742,11 @@ class TranslationFastPathTests(unittest.TestCase):
     def test_continuation_group_with_placeholders_uses_plain_path_first(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         control_context = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         item = {
             "item_id": "__cg__:cg-009-013",

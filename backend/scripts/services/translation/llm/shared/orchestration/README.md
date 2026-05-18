@@ -15,9 +15,15 @@
 - 想看总入口：
   `retrying_translator.py`
 - 想看 plain-text 单条降级主链：
+  `single_item_flow.py`
+- 想看单条编排的路由包装：
+  `single_item_routes.py`
+- 想看 fallback facade：
   `fallbacks.py`
 - 想看公式 segment 路由：
   `segment_routing.py`
+- 想看公式 segment 请求/切窗执行：
+  `segment_request.py` / `segment_windows.py` / `segment_executor.py`
 - 想看 direct-typst 特殊路径：
   `direct_typst.py`
 - 想看 batch/cache/tail retry：
@@ -26,17 +32,32 @@
 ## 当前边界
 
 - `retrying_translator.py`
-  shared orchestration 聚合入口。
-  负责把 workflow 侧请求接到 plain-text / segment / provider runtime 主链。
+  shared orchestration 稳定入口。
+  只负责 `translate_batch` / `translate_items_to_text_map`，不承载真实编排逻辑，也不再暴露历史 `_xxx` 私有 API。
 
 - `fallbacks.py`
   plain-text 单条编排 facade。
+  负责：
+  - 保留顶层测试/调用入口
+  - 通过显式依赖注入把 facade 上的测试替身传给 `single_item_flow.py`
+  - 转发到 `single_item_flow.py`
+  不再保留 tagged-placeholder 等旧私有路径包装。
+
+- `single_item_flow.py`
+  plain-text 单条编排主链。
   负责：
   - 选择 direct-typst / segmented / plain-text 主路径
   - tagged placeholder first 决策
   - 单条 plain-text attempt loop
   - sentence-level fallback 接入
-  - 保留兼容 shim，避免外部调用点和测试直接断掉
+
+- `single_item_deps.py`
+  单条编排的显式依赖注入对象。
+  只负责把 provider 调用、segment 调用、sentence fallback、validation 等可替换函数集中传入 `single_item_flow.py`。
+
+- `single_item_routes.py`
+  单条编排的路由包装。
+  只负责 direct-typst、heavy-formula、tagged-placeholder 这些可替换 route 的调用形状，避免 `single_item_flow.py` 继续承载测试替身和历史包装入口。
 
 - `batched_plain.py`
   batched plain-text 编排。
@@ -79,12 +100,39 @@
   sentence-level fallback。
   只负责句级拆分、逐句请求、部分成功拼回。
 
+- `segment_routing.py`
+  公式 segment 对外路由 facade。
+  只负责暴露 routing / risk / plan 入口，并把执行转发给 executor。
+
+- `segment_request.py`
+  公式 segment provider 请求。
+  只负责 tagged/json 双格式请求、响应解析和格式错误收口。
+
+- `segment_windows.py`
+  公式 segment 单窗口重试。
+  只负责窗口上下文合并、窗口级 attempt loop 和 provider 请求调用。
+
+- `segment_executor.py`
+  公式 segment 执行编排。
+  只负责单窗口/多窗口整体流程、结果拼回、validation 和窗口失败收口。
+
+- `segment_failures.py`
+  公式 segment 失败 payload 构造。
+  只负责把窗口失败诊断写成统一 `failed` payload。
+
 - `transport.py`
   transport tail retry / DLQ 公共逻辑。
 
+- `terminal_payloads.py`
+  翻译终态 payload 构造器。
+  约定：
+  - 明确不可译/可跳过内容才使用 `kept_origin`
+  - provider、transport、validation、chunk/window 失败统一使用 `failed`
+  - `failed` 默认带 `fallback_to=retry_required`，让导出门禁拦住半成品
+
 - `keep_origin.py`
-  keep-origin payload 构造器。
-  统一所有 degrade payload 的格式。
+  keep-origin 兼容入口。
+  新增失败终态时优先使用 `terminal_payloads.py`，不要再把失败写成 keep-origin。
 
 - `metadata.py`
   translation_diagnostics / formula diagnostics / runtime term restore。
@@ -97,9 +145,9 @@
 最常见的调用链是：
 
 `retrying_translator.py`
--> `fallbacks.py`
+-> `fallbacks.py` / `single_item_flow.py`
 -> `direct_typst.py` / `segment_routing.py` / plain-text provider runtime
--> `keep_origin.py` / `plain_text_validation.py` / `sentence_level.py`
+-> `terminal_payloads.py` / `plain_text_validation.py` / `sentence_level.py`
 
 batch 路径是：
 
@@ -109,7 +157,9 @@ batch 路径是：
 
 ## 后续约定
 
-- 新的降级策略，优先放进对应的责任模块，不要再回堆到 `fallbacks.py`
-- `fallbacks.py` 保持“薄 facade + 主 loop”定位，不再塞纯工具函数
+- 新的降级策略，优先放进对应的责任模块，不要再回堆到 `fallbacks.py` 或 `retrying_translator.py`
+- 失败不是 keep-origin。除 fast-path metadata、短非正文标签、明确中文原文等有意保留场景外，所有异常终态都应写成 `failed`。
+- `fallbacks.py` 保持薄 facade 定位，不再塞真实流程或旧私有别名
+- `retrying_translator.py` 保持稳定入口定位，不再塞 `_xxx_impl` 历史别名和真实流程
 - provider 专属逻辑不要进入这里，统一留在 `shared/provider_runtime.py` 之后的 provider 实现里
 - 如果某个模块再次超过 400-500 行，优先按责任切，不按代码块机械切

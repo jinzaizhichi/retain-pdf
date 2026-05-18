@@ -112,6 +112,9 @@ def sanitize_direct_typst_inline_math(text: str) -> str:
             return match.group(0)
         if expr in {"^®", "^{®}", r"^\circled{R}", r"^\textcircled{R}"}:
             return "®"
+        spreadsheet_cell = re.fullmatch(r"\\([A-Za-z]{1,3})\\([0-9]{1,7})", expr)
+        if spreadsheet_cell:
+            return f"{spreadsheet_cell.group(1)}{spreadsheet_cell.group(2)}"
         expr = re.sub(r"\\{2,}(?=[A-Za-z])", r"\\", expr)
         expr = re.sub(r"\\langlen\b", r"\\langle n", expr)
         expr = re.sub(r"\\angle(?=[A-Za-z])", r"\\angle ", expr)

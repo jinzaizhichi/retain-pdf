@@ -11,13 +11,12 @@ from services.translation.llm.shared.orchestration.direct_typst_long_text import
 from services.translation.llm.shared.orchestration.direct_typst_long_text import translate_direct_typst_long_text_chunks
 from services.translation.llm.shared.orchestration.direct_typst_repair import try_repair_direct_typst_math_delimiters
 from services.translation.llm.shared.orchestration.direct_typst_salvage import try_salvage_direct_typst_protocol_shell_error
-from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_direct_typst_validation_failure
-from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_transport_error
+import services.translation.llm.shared.orchestration.terminal_payloads as terminal_payloads
 from services.translation.llm.shared.orchestration.metadata import attach_result_metadata
 from services.translation.llm.shared.orchestration.metadata import restore_runtime_term_tokens
 from services.translation.llm.shared.orchestration.direct_typst_recovery import handle_direct_typst_validation_failure
 from services.translation.llm.shared.orchestration.direct_typst_recovery import is_named_validation_exception
-from services.translation.llm.shared.orchestration.direct_typst_recovery import sentence_level_fallback_or_keep_origin
+from services.translation.llm.shared.orchestration.direct_typst_recovery import sentence_level_fallback_or_terminal_failure
 from services.translation.llm.shared.orchestration.transport import defer_transport_retry
 from services.translation.llm.shared.orchestration.transport import plain_text_timeout_seconds
 from services.translation.llm.shared.provider_runtime import is_transport_error
@@ -135,11 +134,11 @@ def translate_direct_typst_plain_text_with_retries(
                 last_error = exc
                 if request_label:
                     print(
-                        f"{request_label}: direct_typst transport failure after {time.perf_counter() - started:.2f}s, degrade to keep_origin: {type(exc).__name__}: {exc}",
+                        f"{request_label}: direct_typst transport failure after {time.perf_counter() - started:.2f}s, mark failed: {type(exc).__name__}: {exc}",
                         flush=True,
                     )
                 if should_force_translate_body_text(item) and sentence_level_fallback_allowed(item):
-                    return sentence_level_fallback_or_keep_origin(
+                    return sentence_level_fallback_or_terminal_failure(
                         item,
                         api_key=api_key,
                         model=model,
@@ -147,7 +146,7 @@ def translate_direct_typst_plain_text_with_retries(
                         request_label=request_label,
                         context=context,
                         diagnostics=diagnostics,
-                        route_path=route_prefix + ["keep_origin"],
+                        route_path=route_prefix + ["failed"],
                         translate_plain=translate_plain,
                         translate_unstructured=translate_unstructured,
                         sentence_level_fallback_fn=sentence_level_fallback_fn,
@@ -160,10 +159,12 @@ def translate_direct_typst_plain_text_with_retries(
                         request_label=request_label,
                         diagnostics=diagnostics,
                     )
-                return keep_origin_payload_for_transport_error(
+                return terminal_payloads.translation_failed_payload_for_transport(
                     item,
                     context=context,
-                    route_path=route_prefix + ["keep_origin"],
+                    route_path=route_prefix + ["failed"],
+                    degradation_reason="transport_timeout_budget_exceeded",
+                    error_code="TRANSPORT_ERROR",
                 )
 
             last_error = exc
@@ -239,10 +240,10 @@ def translate_direct_typst_plain_text_with_retries(
 
     if last_error is not None:
         if is_named_validation_exception(last_error, "TranslationProtocolError"):
-            return keep_origin_payload_for_direct_typst_validation_failure(
+            return terminal_payloads.translation_failed_payload_for_validation(
                 item,
                 context=context,
-                route_path=route_prefix + ["keep_origin"],
+                route_path=route_prefix + ["failed"],
                 degradation_reason="protocol_shell_repeated",
                 error_code="PROTOCOL_SHELL",
             )

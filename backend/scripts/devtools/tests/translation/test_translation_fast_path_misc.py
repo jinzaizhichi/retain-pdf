@@ -10,8 +10,10 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 from services.translation.llm import placeholder_guard
 from services.translation.llm.shared import cache
-from services.translation.llm.shared.orchestration import fallbacks
 from services.translation.llm.shared.orchestration import segment_routing
+from services.translation.llm.shared.orchestration.intentional_keep_origin import (
+    keep_origin_payload_for_repeated_empty_translation,
+)
 from services.translation.payload.parts.apply import apply_translated_text_map
 
 
@@ -104,7 +106,7 @@ def test_apply_translation_trims_direct_typst_neighbor_continuation_leak() -> No
 
 
 def test_repeated_empty_translation_degrades_to_keep_origin() -> None:
-    payload = fallbacks._keep_origin_payload_for_repeated_empty_translation(
+    payload = keep_origin_payload_for_repeated_empty_translation(
         {
             "item_id": "p001-b017",
             "page_idx": 0,
@@ -165,6 +167,7 @@ def test_formula_segment_route_prefers_plain_for_small_segment_count() -> None:
 
 def test_direct_typst_skips_heavy_formula_split_entry() -> None:
     from services.translation.llm.shared import control_context
+    from services.translation.llm.shared.orchestration import route_selection
 
     item = {
         "item_id": "p001-b002",
@@ -176,30 +179,17 @@ def test_direct_typst_skips_heavy_formula_split_entry() -> None:
         "translation_unit_protected_source_text": r"Observe $\mathrm{Ph(i-PrO)SiH_2}$ and more text.",
     }
     context = control_context.build_translation_control_context(mode="sci")
-    plain_payload = {
-        "p001-b002": {
-            "decision": "translate",
-            "translated_text": r"观察到 $\mathrm{Ph(i-PrO)SiH_2}$ 以及更多文本。",
-        }
-    }
 
-    with mock.patch.object(fallbacks, "_heavy_formula_split_reason", side_effect=AssertionError("should not be called")):
-        with mock.patch.object(fallbacks, "translate_single_item_plain_text", return_value=plain_payload):
-            result = fallbacks.translate_single_item_plain_text_with_retries(
-                item,
-                api_key="",
-                model="deepseek-chat",
-                base_url="https://api.deepseek.com/v1",
-                request_label="test",
-                context=context,
-                diagnostics=None,
-            )
+    with mock.patch.object(route_selection, "heavy_formula_split_reason", side_effect=AssertionError("should not be called")):
+        route = route_selection.select_single_item_route(item, context=context)
 
-    assert result["p001-b002"]["translated_text"] == plain_payload["p001-b002"]["translated_text"]
+    assert route.direct_typst
+    assert route.heavy_formula_split_reason == ""
 
 
 def test_english_residue_degrades_to_keep_origin_after_sentence_fallback_failure() -> None:
     from services.translation.llm.shared import control_context
+    from services.translation.llm.shared.orchestration import fallbacks
 
     item = {
         "item_id": "p001-b002",
@@ -238,6 +228,7 @@ def test_english_residue_degrades_to_keep_origin_after_sentence_fallback_failure
                 )
 
     payload = result["p001-b002"]
-    assert payload["decision"] == "keep_origin"
+    assert payload["decision"] == "translate"
+    assert payload["final_status"] == "failed"
     assert payload["translation_diagnostics"]["degradation_reason"] == "english_residue_repeated"
-    assert payload["translation_diagnostics"]["final_status"] == "kept_origin"
+    assert payload["translation_diagnostics"]["final_status"] == "failed"

@@ -1,8 +1,6 @@
 use crate::config::ProviderLimitsConfig;
 use crate::error::AppError;
-use crate::models::{
-    CreateJobInput, OcrProviderKind, UploadRecord, SOURCE_CLEANUP_STRATEGIES,
-};
+use crate::models::{CreateJobInput, OcrProviderKind, UploadRecord, SOURCE_CLEANUP_STRATEGIES};
 use crate::ocr_provider::{
     parse_provider_kind, provider_display_name, provider_token, provider_token_field_name,
     require_supported_provider,

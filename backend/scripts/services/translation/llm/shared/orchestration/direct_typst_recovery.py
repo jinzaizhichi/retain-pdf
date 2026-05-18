@@ -4,7 +4,9 @@ import time
 
 from services.translation.llm.shared.orchestration.direct_typst_recovery_actions import handle_raw_transport_failure as _handle_raw_transport_failure
 from services.translation.llm.shared.orchestration.direct_typst_recovery_actions import is_named_validation_exception
-from services.translation.llm.shared.orchestration.direct_typst_recovery_actions import sentence_level_fallback_or_keep_origin
+from services.translation.llm.shared.orchestration.direct_typst_recovery_actions import (
+    sentence_level_fallback_or_terminal_failure,
+)
 from services.translation.llm.shared.orchestration.direct_typst_recovery_actions import try_math_delimiter_repair as _try_math_delimiter_repair
 from services.translation.llm.shared.orchestration.direct_typst_recovery_actions import try_protocol_shell_salvage as _try_protocol_shell_salvage
 from services.translation.llm.shared.orchestration.direct_typst_recovery_actions import try_raw_plain_text as _try_raw_plain_text
@@ -131,5 +133,7 @@ def handle_direct_typst_validation_failure(
 __all__ = [
     "handle_direct_typst_validation_failure",
     "is_named_validation_exception",
-    "sentence_level_fallback_or_keep_origin",
+    "sentence_level_fallback_or_terminal_failure",
 ]
+
+sentence_level_fallback_or_keep_origin = sentence_level_fallback_or_terminal_failure

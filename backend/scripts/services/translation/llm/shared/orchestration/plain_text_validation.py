@@ -2,13 +2,9 @@ from __future__ import annotations
 
 from services.translation.diagnostics import TranslationDiagnosticsCollector
 from services.translation.llm.validation.errors import EnglishResidueError
-from services.translation.llm.validation.errors import EmptyTranslationError
-from services.translation.llm.validation.errors import MathDelimiterError
 from services.translation.llm.validation.errors import TranslationProtocolError
-from services.translation.llm.validation.errors import UnexpectedPlaceholderError
-from services.translation.llm.validation.errors import PlaceholderInventoryError
-from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_repeated_empty_translation
-from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_validation
+import services.translation.llm.shared.orchestration.intentional_keep_origin as intentional_keep_origin
+import services.translation.llm.shared.orchestration.terminal_payloads as terminal_payloads
 
 
 def _is_named_exception(exc: Exception, *names: str) -> bool:
@@ -134,10 +130,10 @@ def finalize_plain_text_validation_failure(
             )
         if request_label:
             print(f"{request_label}: degraded to keep_origin after repeated English-residue validation failure", flush=True)
-        return keep_origin_payload_for_validation(
+        return terminal_payloads.translation_failed_payload_for_validation(
             item,
             context=context,
-            route_path=route_prefix + ["keep_origin"],
+            route_path=route_prefix + ["failed"],
             degradation_reason="english_residue_repeated",
             error_code="ENGLISH_RESIDUE",
         )
@@ -154,10 +150,19 @@ def finalize_plain_text_validation_failure(
             )
         if request_label:
             print(f"{request_label}: degraded to keep_origin after repeated protocol/json shell output", flush=True)
-        return keep_origin_payload_for_validation(
+        return intentional_keep_origin.keep_origin_payload_for_validation(
             item,
             context=context,
             route_path=route_prefix + ["keep_origin"],
+            degradation_reason="protocol_shell_repeated",
+            error_code="PROTOCOL_SHELL",
+        )
+
+    if _is_named_exception(last_error, "TranslationProtocolError"):
+        return terminal_payloads.translation_failed_payload_for_validation(
+            item,
+            context=context,
+            route_path=route_prefix + ["failed"],
             degradation_reason="protocol_shell_repeated",
             error_code="PROTOCOL_SHELL",
         )
@@ -174,7 +179,7 @@ def finalize_plain_text_validation_failure(
             )
         if request_label:
             print(f"{request_label}: degraded to keep_origin after repeated inline math delimiter failure", flush=True)
-        return keep_origin_payload_for_validation(
+        return intentional_keep_origin.keep_origin_payload_for_validation(
             item,
             context=context,
             route_path=route_prefix + ["keep_origin"],
@@ -194,7 +199,16 @@ def finalize_plain_text_validation_failure(
             )
         if request_label:
             print(f"{request_label}: degraded to keep_origin after repeated empty translation output", flush=True)
-        return keep_origin_payload_for_repeated_empty_translation(item)
+        return intentional_keep_origin.keep_origin_payload_for_repeated_empty_translation(item)
+
+    if _is_named_exception(last_error, "EmptyTranslationError"):
+        return terminal_payloads.translation_failed_payload_for_validation(
+            item,
+            context=context,
+            route_path=route_prefix + ["failed"],
+            degradation_reason="empty_translation_repeated",
+            error_code="EMPTY_TRANSLATION",
+        )
 
     if (
         has_formula_placeholders_fn(item)
@@ -212,11 +226,12 @@ def finalize_plain_text_validation_failure(
             )
         if request_label:
             print(f"{request_label}: degraded to keep_origin after repeated placeholder instability", flush=True)
-        return keep_origin_payload_for_validation(
+        return terminal_payloads.translation_failed_payload_for_validation(
             item,
             context=context,
-            route_path=route_prefix + ["keep_origin"],
+            route_path=route_prefix + ["failed"],
             degradation_reason="placeholder_unstable",
+            error_code="PLACEHOLDER_UNSTABLE",
         )
 
     return None

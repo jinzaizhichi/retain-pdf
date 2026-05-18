@@ -1,9 +1,4 @@
 import * as pdfjsLib from "../../vendor/pdfjs-dist/build/pdf.mjs";
-import {
-  EventBus,
-  PDFLinkService,
-  PDFViewer,
-} from "../../vendor/pdfjs-dist/web/pdf_viewer.mjs";
 import { apiBase, buildApiHeaders } from "./config.js";
 import { $ } from "./dom.js";
 import {
@@ -18,9 +13,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 
 const PDFJS_CMAP_URL = new URL("../../vendor/pdfjs-dist/cmaps/", import.meta.url).toString();
 const PDFJS_STANDARD_FONT_DATA_URL = new URL("../../vendor/pdfjs-dist/standard_fonts/", import.meta.url).toString();
-const PDF_TO_CSS_UNITS = 96 / 72;
-const MAX_READER_CANVAS_PIXELS = 4096 * 4096;
+const MAX_READER_CANVAS_PIXELS = 8192 * 8192;
 const READER_RANGE_CHUNK_SIZE = 512 * 1024;
+const MAX_READER_OUTPUT_SCALE = 2.5;
 
 const viewerControllers = new Map();
 let resizeTicking = false;
@@ -28,6 +23,8 @@ let pageRowSyncTicking = false;
 let regionOverlayTicking = false;
 let readerRegionBinding = null;
 let selectedReaderRegion = null;
+let hoveredReaderRegion = null;
+const readerRegionItemCache = new Map();
 
 export function resolveReaderArtifactUrl(item) {
   const raw = `${item?.resource_url || item?.resource_path || ""}`.trim();
@@ -48,13 +45,21 @@ function getViewerController(key) {
 }
 
 function applyViewerScale(controller) {
-  if (!controller?.viewer || !controller.basePageWidth) {
+  if (!controller?.pdfDocument || !controller.basePageWidth) {
     return;
   }
   const hostWidth = Math.max(320, controller.viewerHost.clientWidth || 0);
   const availableWidth = Math.max(280, hostWidth - 12);
-  const scale = availableWidth / (controller.basePageWidth * PDF_TO_CSS_UNITS);
-  controller.viewer.currentScale = Math.max(0.35, Math.min(2.4, scale));
+  const scale = Math.max(0.35, Math.min(2.4, availableWidth / controller.basePageWidth));
+  if (Math.abs((controller.currentScale || 0) - scale) < 0.005) {
+    return;
+  }
+  controller.currentScale = scale;
+  updateManualPageSizes(controller);
+  controller.renderTasks?.forEach((task) => task?.cancel?.());
+  controller.renderTasks?.clear();
+  controller.renderedPages?.clear();
+  scheduleVisibleManualPages(controller);
   schedulePageRowSync();
 }
 
@@ -129,7 +134,18 @@ function getPageCanvasBox(pageElement) {
 }
 
 function getPdfPageView(controller, pageNumber) {
-  return controller?.viewer?.getPageView?.(Number(pageNumber) - 1) || null;
+  const viewport = controller?.pageViewports?.get(Number(pageNumber));
+  if (!viewport) {
+    return null;
+  }
+  return {
+    pdfPage: {
+      getViewport: ({ scale = 1 } = {}) => ({
+        width: viewport.width * scale,
+        height: viewport.height * scale,
+      }),
+    },
+  };
 }
 
 function getPageCanvasBoxWithPdfSize(controller, pageElement, pageNumber) {
@@ -181,8 +197,19 @@ function normalizeReaderRegions(regions) {
       }
       return {
         itemId: `${region?.item_id || ""}`,
-        source: { page: sourcePage, bbox: sourceBox },
-        translated: { page: translatedPage, bbox: translatedBox },
+        source: {
+          page: sourcePage,
+          bbox: sourceBox,
+          text: `${region?.source?.text || region?.source_text || ""}`,
+        },
+        translated: {
+          page: translatedPage,
+          bbox: translatedBox,
+          text: `${region?.translated?.text || region?.translated_text || ""}`,
+        },
+        markdown: `${region?.markdown || region?.markdown_text || ""}`,
+        regionType: `${region?.region_type || ""}`,
+        status: `${region?.status || ""}`,
       };
     })
     .filter(Boolean);
@@ -214,6 +241,61 @@ function placeRegionBox(element, bbox, canvasBox) {
   return true;
 }
 
+function regionRectFromBox(bbox, canvasBox) {
+  if (!canvasBox) {
+    return null;
+  }
+  const [x0, y0, x1, y1] = bbox;
+  const pageWidth = Number(canvasBox.pdfWidth || 0);
+  const pageHeight = Number(canvasBox.pdfHeight || 0);
+  if (!pageWidth || !pageHeight) {
+    return null;
+  }
+  const widthScale = canvasBox.width / pageWidth;
+  const heightScale = canvasBox.height / pageHeight;
+  const left = canvasBox.left + x0 * widthScale;
+  const top = canvasBox.top + y0 * heightScale;
+  const width = (x1 - x0) * widthScale;
+  const height = (y1 - y0) * heightScale;
+  if (![left, top, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { left, top, right: left + width, bottom: top + height };
+}
+
+function findTranslatedRegionAtPoint(event) {
+  const binding = readerRegionBinding;
+  if (!binding?.translatedController || !binding.regions.length) {
+    return null;
+  }
+  const pageElement = event.target?.closest?.(".page[data-page-number]");
+  if (!pageElement || !binding.translatedController.viewerElement.contains(pageElement)) {
+    return null;
+  }
+  const pageNumber = pageNumberOfElement(pageElement);
+  if (!pageNumber) {
+    return null;
+  }
+  const pageRect = pageElement.getBoundingClientRect();
+  const x = event.clientX - pageRect.left;
+  const y = event.clientY - pageRect.top;
+  const canvasBox = getPageCanvasBoxWithPdfSize(binding.translatedController, pageElement, pageNumber);
+  if (!canvasBox) {
+    return null;
+  }
+  for (let index = binding.regions.length - 1; index >= 0; index -= 1) {
+    const region = binding.regions[index];
+    if (region.translated.page !== pageNumber) {
+      continue;
+    }
+    const rect = regionRectFromBox(region.translated.bbox, canvasBox);
+    if (rect && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+      return region;
+    }
+  }
+  return null;
+}
+
 function drawRegionBox(controller, regionPart, layerClassName, boxClassName) {
   if (!controller || !regionPart) {
     return;
@@ -229,6 +311,35 @@ function drawRegionBox(controller, regionPart, layerClassName, boxClassName) {
   if (placeRegionBox(box, regionPart.bbox, canvasBox)) {
     layer.appendChild(box);
   }
+}
+
+function showReaderRegionToast(controller, regionPart, message) {
+  if (!controller || !regionPart || !message) {
+    return;
+  }
+  const pageElement = controller.viewerElement.querySelector(`.page[data-page-number="${regionPart.page}"]`);
+  const canvasBox = getPageCanvasBoxWithPdfSize(controller, pageElement, regionPart.page);
+  if (!pageElement || !canvasBox) {
+    return;
+  }
+  const rect = regionRectFromBox(regionPart.bbox, canvasBox);
+  if (!rect) {
+    return;
+  }
+  const layer = ensureRegionLayer(pageElement, "reader-translated-highlight-layer");
+  layer.querySelectorAll(".reader-region-copy-toast").forEach((element) => element.remove());
+  const toast = document.createElement("div");
+  toast.className = "reader-region-copy-toast";
+  toast.textContent = message;
+  toast.style.left = `${Math.max(canvasBox.left + 8, rect.left + (rect.right - rect.left) / 2)}px`;
+  toast.style.top = `${Math.max(canvasBox.top + 8, rect.top + 6)}px`;
+  layer.appendChild(toast);
+  window.setTimeout(() => {
+    toast.classList.add("is-leaving");
+  }, 760);
+  window.setTimeout(() => {
+    toast.remove();
+  }, 1100);
 }
 
 function clearActiveRegionHighlights() {
@@ -265,6 +376,52 @@ function hideReaderRegionPair() {
   clearActiveRegionHighlights();
 }
 
+function handleTranslatedRegionMouseMove(event) {
+  const region = findTranslatedRegionAtPoint(event);
+  if (region?.itemId === hoveredReaderRegion?.itemId) {
+    return;
+  }
+  hoveredReaderRegion = region;
+  if (region) {
+    showReaderRegionPair(region);
+  } else {
+    hideReaderRegionPair();
+  }
+}
+
+function handleTranslatedRegionMouseLeave() {
+  hoveredReaderRegion = null;
+  hideReaderRegionPair();
+}
+
+function handleTranslatedRegionClick(event) {
+  const region = findTranslatedRegionAtPoint(event);
+  if (!region) {
+    return;
+  }
+  selectReaderRegion(region);
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) {
+    throw new Error("copy command failed");
+  }
+}
+
 function selectReaderRegion(region) {
   selectedReaderRegion = selectedReaderRegion?.itemId === region?.itemId ? null : region;
   if (selectedReaderRegion) {
@@ -274,48 +431,190 @@ function selectReaderRegion(region) {
   }
 }
 
-function renderTranslatedRegionTargets() {
-  const binding = readerRegionBinding;
-  if (!binding?.translatedController || !binding.regions.length) {
+function escapeHtml(value) {
+  return `${value ?? ""}`
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    const text = `${value ?? ""}`.trim();
+    if (text) {
+      return text;
+    }
+  }
+  return "";
+}
+
+function removeReaderMarkdownPopover() {
+  document.querySelector("#reader-region-markdown-popover")?.remove();
+}
+
+function formatReaderRegionMarkdownPayload(payload) {
+  const item = payload?.item || payload || {};
+  const markdown = firstText(
+    payload?.markdown,
+    item.markdown,
+    item.markdown_text,
+    item.markdown_source,
+    item.protected_markdown,
+    item.render_markdown,
+    item.typst_markdown,
+  );
+  const translated = firstText(
+    payload?.translated?.text,
+    payload?.translated_text,
+    item.translated_text,
+    item.translation_unit_translated_text,
+    item.group_translated_text,
+    item.protected_translated_text,
+    item.translation_unit_protected_translated_text,
+    item.group_protected_translated_text,
+  );
+  const source = firstText(payload?.source?.text, payload?.source_text, item.source_text, item.text, item.raw_text);
+  return {
+    title: firstText(payload?.item_id, item.item_id, "translation item"),
+    primaryLabel: markdown ? "Markdown" : (translated ? "译文" : "原文"),
+    primaryText: markdown || translated || source || "该区域暂无可显示文本",
+    source,
+    translated,
+  };
+}
+
+function renderReaderTextBlock(label, text) {
+  const normalized = `${text || ""}`;
+  if (!normalized.trim()) {
+    return "";
+  }
+  return `
+    <section class="reader-region-markdown-section">
+      <div class="reader-region-markdown-label-row">
+        <span class="reader-region-markdown-label">${escapeHtml(label)}</span>
+        <button type="button" class="reader-region-copy-btn" data-copy-text="${escapeHtml(normalized)}">复制</button>
+      </div>
+      <pre>${escapeHtml(normalized)}</pre>
+    </section>
+  `;
+}
+
+async function copyReaderRegionText(button) {
+  const text = button?.dataset?.copyText || "";
+  if (!text) {
     return;
   }
-  clearRegionLayers(binding.translatedController, "reader-translated-region-layer");
-  const byTranslatedPage = new Map();
-  binding.regions.forEach((region) => {
-    const pageRegions = byTranslatedPage.get(region.translated.page) || [];
-    pageRegions.push(region);
-    byTranslatedPage.set(region.translated.page, pageRegions);
-  });
-  binding.translatedController.viewerElement.querySelectorAll(".page[data-page-number]").forEach((pageElement) => {
-    const pageNumber = pageNumberOfElement(pageElement);
-    const pageRegions = byTranslatedPage.get(pageNumber) || [];
-    if (!pageRegions.length) {
-      return;
-    }
-    const canvasBox = getPageCanvasBoxWithPdfSize(binding.translatedController, pageElement, pageNumber);
-    if (!canvasBox) {
-      return;
-    }
-    const layer = ensureRegionLayer(pageElement, "reader-translated-region-layer");
-    pageRegions.forEach((region) => {
-      const target = document.createElement("button");
-      target.type = "button";
-      target.className = "reader-translated-region-target";
-      target.setAttribute("aria-label", region.itemId ? `高亮原文 ${region.itemId}` : "高亮原文");
-      target.addEventListener("mouseenter", () => showReaderRegionPair(region));
-      target.addEventListener("focus", () => showReaderRegionPair(region));
-      target.addEventListener("mouseleave", hideReaderRegionPair);
-      target.addEventListener("blur", hideReaderRegionPair);
-      target.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        selectReaderRegion(region);
-      });
-      if (placeRegionBox(target, region.translated.bbox, canvasBox)) {
-        layer.appendChild(target);
-      }
+  try {
+    await copyTextToClipboard(text);
+    const previous = button.textContent;
+    button.textContent = "已复制";
+    window.setTimeout(() => {
+      button.textContent = previous || "复制";
+    }, 900);
+  } catch {
+    button.textContent = "复制失败";
+    window.setTimeout(() => {
+      button.textContent = "复制";
+    }, 900);
+  }
+}
+
+async function fetchReaderRegionPayload(region) {
+  if (region?.markdown || region?.source?.text || region?.translated?.text) {
+    return region;
+  }
+  const binding = readerRegionBinding;
+  if (!binding?.jobId || !binding?.fetchTranslationItem || !region?.itemId) {
+    return null;
+  }
+  const cacheKey = `${binding.jobId}:${region.itemId}`;
+  if (readerRegionItemCache.has(cacheKey)) {
+    return readerRegionItemCache.get(cacheKey);
+  }
+  const request = binding.fetchTranslationItem(binding.jobId, region.itemId, binding.apiPrefix);
+  readerRegionItemCache.set(cacheKey, request);
+  return request;
+}
+
+async function handleTranslatedRegionDoubleClick(event) {
+  const region = findTranslatedRegionAtPoint(event);
+  if (!region) {
+    return;
+  }
+  event.preventDefault();
+  showReaderRegionPair(region);
+  try {
+    const payload = await fetchReaderRegionPayload(region);
+    const formatted = formatReaderRegionMarkdownPayload(payload);
+    await copyTextToClipboard(formatted.translated || formatted.primaryText);
+    showReaderRegionToast(readerRegionBinding?.translatedController, region.translated, "已复制");
+  } catch {
+    showReaderRegionToast(readerRegionBinding?.translatedController, region.translated, "复制失败");
+    // Keep text selection behavior unaffected if copy is unavailable.
+  }
+}
+
+function positionReaderMarkdownPopover(popover, event) {
+  const margin = 12;
+  const width = Math.min(360, window.innerWidth - margin * 2);
+  popover.style.width = `${Math.max(220, width)}px`;
+  popover.style.left = `${Math.min(event.clientX + 10, window.innerWidth - width - margin)}px`;
+  popover.style.top = `${Math.min(event.clientY + 10, window.innerHeight - 180)}px`;
+}
+
+function renderReaderMarkdownPopover(event, region, state) {
+  removeReaderMarkdownPopover();
+  const popover = document.createElement("div");
+  popover.id = "reader-region-markdown-popover";
+  popover.className = "reader-region-markdown-popover";
+  popover.innerHTML = `
+    <div class="reader-region-markdown-head">
+      <span>${escapeHtml(region?.itemId || "区域文本")}</span>
+      <button type="button" class="reader-region-markdown-close" aria-label="关闭">×</button>
+    </div>
+    <div class="reader-region-markdown-body">${escapeHtml(state?.message || "正在读取...")}</div>
+  `;
+  document.body.appendChild(popover);
+  positionReaderMarkdownPopover(popover, event);
+  for (const eventName of ["mousedown", "mouseup", "click", "dblclick", "contextmenu"]) {
+    popover.addEventListener(eventName, (popoverEvent) => {
+      popoverEvent.stopPropagation();
     });
+  }
+  popover.querySelector(".reader-region-markdown-close")?.addEventListener("click", removeReaderMarkdownPopover);
+  popover.addEventListener("click", (clickEvent) => {
+    const copyButton = clickEvent.target?.closest?.(".reader-region-copy-btn");
+    if (!copyButton || !popover.contains(copyButton)) {
+      return;
+    }
+    clickEvent.preventDefault();
+    copyReaderRegionText(copyButton);
   });
+  return popover;
+}
+
+async function showReaderRegionMarkdown(event, region) {
+  event.preventDefault();
+  event.stopPropagation();
+  showReaderRegionPair(region);
+  const binding = readerRegionBinding;
+  if (!binding?.jobId || !binding?.fetchTranslationItem || !region?.itemId) {
+    renderReaderMarkdownPopover(event, region, { message: "缺少 item_id，无法读取文本" });
+    return;
+  }
+  const popover = renderReaderMarkdownPopover(event, region, { message: "正在读取..." });
+  try {
+    const payload = await fetchReaderRegionPayload(region);
+    const formatted = formatReaderRegionMarkdownPayload(payload);
+    popover.querySelector(".reader-region-markdown-body").innerHTML = `
+      ${renderReaderTextBlock(formatted.primaryLabel, formatted.primaryText)}
+      ${formatted.source && formatted.primaryText !== formatted.source ? renderReaderTextBlock("原文", formatted.source) : ""}
+    `;
+  } catch (error) {
+    popover.querySelector(".reader-region-markdown-body").textContent = error?.message || "读取失败";
+  }
 }
 
 function scheduleRegionOverlayRender() {
@@ -325,7 +624,11 @@ function scheduleRegionOverlayRender() {
   regionOverlayTicking = true;
   window.requestAnimationFrame(() => {
     regionOverlayTicking = false;
-    renderTranslatedRegionTargets();
+    if (hoveredReaderRegion) {
+      showReaderRegionPair(hoveredReaderRegion);
+    } else if (selectedReaderRegion) {
+      showReaderRegionPair(selectedReaderRegion);
+    }
   });
 }
 
@@ -347,9 +650,35 @@ export function bindPrimaryViewer(controller, onPageChange) {
   if (!controller) {
     return;
   }
-  controller.eventBus.on("pagechanging", ({ pageNumber }) => {
-    onPageChange?.(pageNumber || 1);
-  });
+  if (controller.primaryScrollHandler) {
+    controller.scrollShell.removeEventListener("scroll", controller.primaryScrollHandler);
+  }
+  let ticking = false;
+  controller.primaryScrollHandler = () => {
+    if (ticking) {
+      return;
+    }
+    ticking = true;
+    window.requestAnimationFrame(() => {
+      ticking = false;
+      const containerRect = controller.scrollShell.getBoundingClientRect();
+      const focusY = containerRect.top + Math.min(containerRect.height * 0.35, 320);
+      let bestPage = 1;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      controller.viewerElement.querySelectorAll(".page[data-page-number]").forEach((pageElement) => {
+        const rect = pageElement.getBoundingClientRect();
+        const pageFocus = rect.top + Math.min(rect.height * 0.35, 320);
+        const distance = Math.abs(pageFocus - focusY);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestPage = pageNumberOfElement(pageElement) || bestPage;
+        }
+      });
+      onPageChange?.(bestPage);
+    });
+  };
+  controller.scrollShell.addEventListener("scroll", controller.primaryScrollHandler, { passive: true });
+  controller.primaryScrollHandler();
 }
 
 function createViewerController(key) {
@@ -360,48 +689,163 @@ function createViewerController(key) {
     return null;
   }
 
-  const eventBus = new EventBus();
-  const linkService = new PDFLinkService({ eventBus });
-  const viewer = new PDFViewer({
-    container: scrollShell,
-    viewer: viewerElement,
-    eventBus,
-    linkService,
-    textLayerMode: 1,
-    annotationMode: 2,
-    removePageBorders: true,
-    maxCanvasPixels: MAX_READER_CANVAS_PIXELS,
-  });
-  linkService.setViewer(viewer);
-
   const controller = {
     key,
-    eventBus,
-    linkService,
-    viewer,
+    scrollShell,
     viewerHost,
     viewerElement,
     basePageWidth: 0,
+    currentScale: 0,
+    pdfDocument: null,
+    pageViewports: new Map(),
+    renderedPages: new Set(),
+    renderTasks: new Map(),
+    visiblePages: new Set(),
+    pageObserver: null,
+    primaryScrollHandler: null,
   };
-  eventBus.on("pagesinit", () => {
-    applyViewerScale(controller);
-    schedulePageRowSync();
-    scheduleRegionOverlayRender();
-  });
-  eventBus.on("pagesloaded", () => {
-    schedulePageRowSync();
-    scheduleRegionOverlayRender();
-  });
-  eventBus.on("pagerendered", () => {
-    schedulePageRowSync();
-    scheduleRegionOverlayRender();
-  });
-  eventBus.on("scalechanging", () => {
-    schedulePageRowSync();
-    scheduleRegionOverlayRender();
-  });
   viewerControllers.set(key, controller);
   return controller;
+}
+
+function outputScaleForPage(width, height) {
+  const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, MAX_READER_OUTPUT_SCALE));
+  const pixels = width * height * dpr * dpr;
+  if (pixels <= MAX_READER_CANVAS_PIXELS) {
+    return dpr;
+  }
+  return Math.max(1, Math.sqrt(MAX_READER_CANVAS_PIXELS / Math.max(1, width * height)));
+}
+
+function pageElementFor(controller, pageNumber) {
+  return controller?.viewerElement.querySelector(`.page[data-page-number="${pageNumber}"]`) || null;
+}
+
+function setManualPageSize(controller, pageElement, pageNumber) {
+  const viewport = controller.pageViewports.get(Number(pageNumber));
+  if (!viewport || !pageElement) {
+    return;
+  }
+  const width = Math.floor(viewport.width * controller.currentScale);
+  const height = Math.floor(viewport.height * controller.currentScale);
+  pageElement.style.width = `${width}px`;
+  pageElement.style.height = `${height}px`;
+  const canvasWrapper = pageElement.querySelector(".canvasWrapper");
+  if (canvasWrapper) {
+    canvasWrapper.style.width = `${width}px`;
+    canvasWrapper.style.height = `${height}px`;
+  }
+}
+
+function updateManualPageSizes(controller) {
+  controller?.viewerElement.querySelectorAll(".page[data-page-number]").forEach((pageElement) => {
+    setManualPageSize(controller, pageElement, pageNumberOfElement(pageElement));
+  });
+}
+
+async function renderManualPage(controller, pageNumber) {
+  if (
+    !controller?.pdfDocument
+    || controller.renderedPages.has(pageNumber)
+    || controller.renderTasks.has(pageNumber)
+  ) {
+    return;
+  }
+  const pageElement = pageElementFor(controller, pageNumber);
+  const canvas = pageElement?.querySelector("canvas");
+  if (!pageElement || !canvas) {
+    return;
+  }
+  try {
+    const pdfPage = await controller.pdfDocument.getPage(pageNumber);
+    const baseViewport = pdfPage.getViewport({ scale: 1 });
+    controller.pageViewports.set(pageNumber, {
+      width: baseViewport.width,
+      height: baseViewport.height,
+    });
+    setManualPageSize(controller, pageElement, pageNumber);
+    const viewport = pdfPage.getViewport({ scale: controller.currentScale });
+    const outputScale = outputScaleForPage(viewport.width, viewport.height);
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) {
+      return;
+    }
+    canvas.width = Math.floor(viewport.width * outputScale);
+    canvas.height = Math.floor(viewport.height * outputScale);
+    canvas.style.width = `${Math.floor(viewport.width)}px`;
+    canvas.style.height = `${Math.floor(viewport.height)}px`;
+    context.setTransform(outputScale, 0, 0, outputScale, 0, 0);
+    const renderTask = pdfPage.render({ canvas, canvasContext: context, viewport });
+    controller.renderTasks.set(pageNumber, renderTask);
+    await renderTask.promise;
+    controller.renderedPages.add(pageNumber);
+  } catch (error) {
+    if (error?.name !== "RenderingCancelledException") {
+      pageElement.dataset.renderError = "1";
+    }
+  } finally {
+    controller.renderTasks.delete(pageNumber);
+    schedulePageRowSync();
+    scheduleRegionOverlayRender();
+  }
+}
+
+function scheduleVisibleManualPages(controller) {
+  const visiblePages = [...(controller?.visiblePages || [])].sort((a, b) => a - b);
+  visiblePages.slice(0, 8).forEach((pageNumber) => {
+    void renderManualPage(controller, pageNumber);
+  });
+}
+
+function createManualPageElement(controller, pageNumber, fallbackViewport) {
+  const pageElement = document.createElement("div");
+  pageElement.className = "page";
+  pageElement.dataset.pageNumber = `${pageNumber}`;
+  pageElement.setAttribute("role", "region");
+  const canvasWrapper = document.createElement("div");
+  canvasWrapper.className = "canvasWrapper";
+  const canvas = document.createElement("canvas");
+  canvasWrapper.appendChild(canvas);
+  pageElement.appendChild(canvasWrapper);
+  controller.viewerElement.appendChild(pageElement);
+  controller.pageViewports.set(pageNumber, {
+    width: fallbackViewport.width,
+    height: fallbackViewport.height,
+  });
+  setManualPageSize(controller, pageElement, pageNumber);
+  controller.pageObserver.observe(pageElement);
+}
+
+function mountManualPages(controller, pdfDocument, firstViewport) {
+  controller.pageObserver?.disconnect?.();
+  controller.renderTasks.forEach((task) => task?.cancel?.());
+  controller.viewerElement.innerHTML = "";
+  controller.pdfDocument = pdfDocument;
+  controller.pageViewports.clear();
+  controller.renderedPages.clear();
+  controller.renderTasks.clear();
+  controller.visiblePages.clear();
+  controller.pageObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      const pageNumber = pageNumberOfElement(entry.target);
+      if (!pageNumber) {
+        return;
+      }
+      if (entry.isIntersecting) {
+        controller.visiblePages.add(pageNumber);
+      } else {
+        controller.visiblePages.delete(pageNumber);
+      }
+    });
+    scheduleVisibleManualPages(controller);
+  }, {
+    root: controller.scrollShell,
+    rootMargin: "900px 0px",
+    threshold: 0.01,
+  });
+  for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+    createManualPageElement(controller, pageNumber, firstViewport);
+  }
 }
 
 async function loadPdfDocument({ itemOrUrl }) {
@@ -445,9 +889,13 @@ export async function mountPdfViewer({
   const firstPage = await pdfDocument.getPage(1);
   const firstViewport = firstPage.getViewport({ scale: 1 });
   controller.basePageWidth = firstViewport.width;
-  controller.linkService.setDocument(pdfDocument);
-  controller.viewer.setDocument(pdfDocument);
+  mountManualPages(controller, pdfDocument, firstViewport);
   applyViewerScale(controller);
+  controller.visiblePages.add(1);
+  if (pdfDocument.numPages > 1) {
+    controller.visiblePages.add(2);
+  }
+  scheduleVisibleManualPages(controller);
 
   showReaderPaneReady(key, emptyId);
 
@@ -462,7 +910,14 @@ export function bindResizeRefresh() {
   window.addEventListener("resize", scheduleScaleRefresh);
 }
 
-export function bindReaderRegionHover({ regions, sourceController, translatedController } = {}) {
+export function bindReaderRegionHover({
+  regions,
+  sourceController,
+  translatedController,
+  jobId = "",
+  apiPrefix = "",
+  fetchTranslationItem = null,
+} = {}) {
   const normalizedRegions = normalizeReaderRegions(regions);
   if (!normalizedRegions.length || !sourceController || !translatedController) {
     return;
@@ -471,7 +926,24 @@ export function bindReaderRegionHover({ regions, sourceController, translatedCon
     regions: normalizedRegions,
     sourceController,
     translatedController,
+    jobId,
+    apiPrefix,
+    fetchTranslationItem,
   };
   selectedReaderRegion = null;
+  hoveredReaderRegion = null;
+  if (translatedController.viewerElement.dataset.readerRegionHitTestBound !== "1") {
+    translatedController.viewerElement.dataset.readerRegionHitTestBound = "1";
+    translatedController.viewerElement.addEventListener("mousemove", handleTranslatedRegionMouseMove);
+    translatedController.viewerElement.addEventListener("mouseleave", handleTranslatedRegionMouseLeave);
+    translatedController.viewerElement.addEventListener("click", handleTranslatedRegionClick);
+    translatedController.viewerElement.addEventListener("dblclick", handleTranslatedRegionDoubleClick);
+    translatedController.viewerElement.addEventListener("contextmenu", (event) => {
+      const region = findTranslatedRegionAtPoint(event);
+      if (region) {
+        showReaderRegionMarkdown(event, region);
+      }
+    });
+  }
   scheduleRegionOverlayRender();
 }

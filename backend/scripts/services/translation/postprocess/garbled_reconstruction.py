@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Callable
 
 from services.translation.item_reader import item_block_kind
 from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL
@@ -245,6 +246,7 @@ def _run_reconstruction_candidates(
     model: str,
     base_url: str,
     workers: int,
+    progress_callback: Callable[[int, int, set[int]], None] | None = None,
 ) -> tuple[int, set[int]]:
     reconstructed = 0
     dirty_pages: set[int] = set()
@@ -262,7 +264,7 @@ def _run_reconstruction_candidates(
     )
 
     if max_workers == 1:
-        for key, item in candidate_list:
+        for completed, (key, item) in enumerate(candidate_list, start=1):
             try:
                 translated_text = _repair_item_translation(
                     item,
@@ -278,6 +280,8 @@ def _run_reconstruction_candidates(
                 _apply_reconstruction(target_items, translated_text)
                 reconstructed += 1
                 dirty_pages.update(_collect_dirty_pages(target_items))
+            if progress_callback is not None:
+                progress_callback(completed, len(candidate_list), set(dirty_pages))
         return reconstructed, dirty_pages
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -291,6 +295,7 @@ def _run_reconstruction_candidates(
             ): (key, item)
             for key, item in candidate_list
         }
+        completed = 0
         for future in as_completed(future_map):
             key, item = future_map[future]
             try:
@@ -303,6 +308,9 @@ def _run_reconstruction_candidates(
                 _apply_reconstruction(target_items, translated_text)
                 reconstructed += 1
                 dirty_pages.update(_collect_dirty_pages(target_items))
+            completed += 1
+            if progress_callback is not None:
+                progress_callback(completed, len(candidate_list), set(dirty_pages))
     return reconstructed, dirty_pages
 
 
@@ -337,6 +345,7 @@ def reconstruct_garbled_page_payloads(
     model: str,
     base_url: str,
     workers: int,
+    progress_callback: Callable[[int, int, set[int]], None] | None = None,
 ) -> dict[str, object]:
     flat_payload = [item for page_idx in sorted(page_payloads) for item in page_payloads[page_idx]]
     candidates_by_key, representatives = _collect_candidates(flat_payload)
@@ -355,6 +364,7 @@ def reconstruct_garbled_page_payloads(
         model=model,
         base_url=base_url,
         workers=workers,
+        progress_callback=progress_callback,
     )
     return {
         "garbled_candidates": len(candidate_list),

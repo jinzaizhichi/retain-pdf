@@ -4,9 +4,9 @@ use axum::Json;
 use crate::error::AppError;
 use crate::models::{
     ApiResponse, ArtifactLinksView, JobArtifactManifestView, JobDetailView, JobEventListView,
-    JobListView, ListJobEventsQuery, ListJobsQuery, ListTranslationItemsQuery, ReaderRegionsView,
-    TranslationDebugItemView, TranslationDebugListView, TranslationDiagnosticsView,
-    TranslationReplayView,
+    JobListView, ListJobEventsQuery, ListJobsQuery, ListTranslationItemsQuery, ReaderMetadataView,
+    ReaderRegionsView, TranslationDebugItemView, TranslationDebugListView,
+    TranslationDiagnosticsView, TranslationReplayView,
 };
 
 use super::common::{jobs_facade, ok_json, request_base_url, JobsRouteDeps};
@@ -74,6 +74,27 @@ pub fn reader_regions_response(
     Ok(ok_json(jobs_facade(deps).reader_regions_view(job_id)?))
 }
 
+pub fn reader_metadata_response(
+    deps: JobsRouteDeps<'_>,
+    job_id: &str,
+) -> Result<Json<ApiResponse<ReaderMetadataView>>, AppError> {
+    Ok(ok_json(jobs_facade(deps).reader_metadata_view(job_id)?))
+}
+
+pub fn job_diagnostics_response(
+    deps: JobsRouteDeps<'_>,
+    job_id: &str,
+) -> Result<Json<ApiResponse<crate::models::JobDiagnosticsView>>, AppError> {
+    Ok(ok_json(jobs_facade(deps).job_diagnostics_view(job_id)?))
+}
+
+pub fn resume_plan_response(
+    deps: JobsRouteDeps<'_>,
+    job_id: &str,
+) -> Result<Json<ApiResponse<crate::models::JobResumePlanView>>, AppError> {
+    Ok(ok_json(jobs_facade(deps).resume_plan_view(job_id)?))
+}
+
 pub async fn cancel_job_response(
     deps: JobsRouteDeps<'_>,
     headers: &HeaderMap,
@@ -97,6 +118,14 @@ pub fn rerun_job_response(
     Ok(ok_json(
         jobs_facade(deps).rerun_submission(&base_url, job_id)?,
     ))
+}
+
+pub fn resume_job_response(
+    deps: JobsRouteDeps<'_>,
+    headers: &HeaderMap,
+    job_id: &str,
+) -> Result<Json<ApiResponse<crate::models::JobSubmissionView>>, AppError> {
+    rerun_job_response(deps, headers, job_id)
 }
 
 pub fn translation_diagnostics_response(

@@ -8,6 +8,14 @@ from pathlib import Path
 
 
 REPO_SCRIPTS_ROOT = Path("/home/wxyhgk/tmp/Code/backend/scripts")
+sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
+
+from services.translation.llm.result_payload import result_entry
+from services.translation.llm.shared.orchestration.heavy_formula import heavy_formula_split_reason
+from services.translation.llm.shared.orchestration.heavy_formula import translate_heavy_formula_block
+from services.translation.llm.shared.orchestration.metadata import should_store_translation_result
+from services.translation.llm.shared.orchestration.sentence_level import sentence_level_fallback
+from services.translation.llm.shared.orchestration.transport import DeferredTransportRetry
 
 
 def load_retrying_translator():
@@ -143,7 +151,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
         def fake_plain(*args, **kwargs):
             calls.append("plain")
-            return {item["item_id"]: module._result_entry("translate", "普通结果 [[FORMULA_1]]")}
+            return {item["item_id"]: result_entry("translate", "普通结果 [[FORMULA_1]]")}
 
         original_plain = fallbacks.translate_single_item_plain_text
         try:
@@ -178,7 +186,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
         def fake_plain(*args, **kwargs):
             calls.append("plain")
             return {
-                item["item_id"]: module._result_entry(
+                item["item_id"]: result_entry(
                     "translate",
                     "功函数 <f1-6a9/>，也缩写为 <f2-ef6/>，可定义为提取一个电子所需的最小能量。",
                 )
@@ -227,7 +235,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
         def fake_plain(*args, **kwargs):
             calls.append("plain")
             return {
-                item["item_id"]: module._result_entry(
+                item["item_id"]: result_entry(
                     "translate",
                     "对于扩散过程，转移矩阵 <f1-a11/> 与边缘概率 <f2-b22/> 一起描述状态演化。",
                 )
@@ -259,7 +267,6 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_heavy_formula_split_skips_formula_dense_prose_blocks(self):
         load_retrying_translator()
-        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
         from services.translation.llm.shared.control_context import build_translation_control_context
 
         item = make_formula_dense_prose_item()
@@ -268,7 +275,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
         item["translation_unit_protected_source_text"] = expanded
 
         self.assertEqual(
-            fallbacks._heavy_formula_split_reason(
+            heavy_formula_split_reason(
                 item,
                 context=build_translation_control_context(mode="sci"),
             ),
@@ -276,8 +283,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
         )
 
     def test_heavy_formula_block_is_split_before_windowed_route(self):
-        module = load_retrying_translator()
-        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
+        load_retrying_translator()
         from services.translation.llm.shared.control_context import build_translation_control_context
 
         item = {
@@ -327,31 +333,27 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
         def fake_translate(chunk_item, **kwargs):
             seen_chunks.append(chunk_item["translation_unit_protected_source_text"])
-            return {item["item_id"]: module._result_entry("translate", f"已翻译块{len(seen_chunks)}")}
+            return {item["item_id"]: result_entry("translate", f"已翻译块{len(seen_chunks)}")}
 
-        original_plain_retry = fallbacks.translate_single_item_plain_text_with_retries
-        try:
-            fallbacks.translate_single_item_plain_text_with_retries = fake_translate
-            result = fallbacks._translate_heavy_formula_block(
-                item,
-                api_key="",
-                model="deepseek-chat",
-                base_url="https://api.deepseek.com/v1",
-                request_label="unit",
-                context=build_translation_control_context(),
-                diagnostics=None,
-                split_reason="heavy_formula_segment_count",
-            )
-        finally:
-            fallbacks.translate_single_item_plain_text_with_retries = original_plain_retry
+        result = translate_heavy_formula_block(
+            item,
+            api_key="",
+            model="deepseek-chat",
+            base_url="https://api.deepseek.com/v1",
+            request_label="unit",
+            context=build_translation_control_context(),
+            diagnostics=None,
+            split_reason="heavy_formula_segment_count",
+            translate_single_item_fn=fake_translate,
+            deferred_transport_retry_type=DeferredTransportRetry,
+        )
 
         self.assertIsNotNone(result)
         self.assertGreater(len(seen_chunks), 1)
         self.assertEqual(result[item["item_id"]]["translated_text"], "已翻译块1 已翻译块2")
 
-    def test_heavy_formula_split_empty_chunk_degrades_only_current_chunk(self):
-        module = load_retrying_translator()
-        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
+    def test_heavy_formula_split_empty_chunk_marks_block_failed(self):
+        load_retrying_translator()
         from services.translation.llm.shared.control_context import build_translation_control_context
 
         item = {
@@ -402,30 +404,31 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
         def fake_translate(chunk_item, **kwargs):
             seen_chunks.append(chunk_item["translation_unit_protected_source_text"])
             if len(seen_chunks) == 2:
-                return {item["item_id"]: module._result_entry("translate", "")}
-            return {item["item_id"]: module._result_entry("translate", f"已翻译块{len(seen_chunks)}")}
+                return {item["item_id"]: result_entry("translate", "")}
+            return {item["item_id"]: result_entry("translate", f"已翻译块{len(seen_chunks)}")}
 
-        original_plain_retry = fallbacks.translate_single_item_plain_text_with_retries
-        try:
-            fallbacks.translate_single_item_plain_text_with_retries = fake_translate
-            result = fallbacks._translate_heavy_formula_block(
-                item,
-                api_key="",
-                model="deepseek-chat",
-                base_url="https://api.deepseek.com/v1",
-                request_label="unit",
-                context=build_translation_control_context(),
-                diagnostics=None,
-                split_reason="heavy_formula_segment_count",
-            )
-        finally:
-            fallbacks.translate_single_item_plain_text_with_retries = original_plain_retry
+        result = translate_heavy_formula_block(
+            item,
+            api_key="",
+            model="deepseek-chat",
+            base_url="https://api.deepseek.com/v1",
+            request_label="unit",
+            context=build_translation_control_context(),
+            diagnostics=None,
+            split_reason="heavy_formula_segment_count",
+            translate_single_item_fn=fake_translate,
+            deferred_transport_retry_type=DeferredTransportRetry,
+        )
 
         self.assertIsNotNone(result)
         payload = result[item["item_id"]]
-        self.assertEqual(payload["translation_diagnostics"]["final_status"], "partially_translated")
+        self.assertEqual(payload["decision"], "translate")
+        self.assertEqual(payload["translated_text"], "")
+        self.assertEqual(payload["final_status"], "failed")
+        self.assertEqual(payload["translation_diagnostics"]["final_status"], "failed")
         self.assertEqual(payload["translation_diagnostics"]["degraded_chunk_count"], 1)
-        self.assertIn("Sentence", payload["translated_text"])
+        self.assertEqual(payload["translation_diagnostics"]["fallback_to"], "retry_required")
+        self.assertNotIn("Sentence", payload["translated_text"])
 
     def test_single_segmented_failure_falls_back_to_plain_text(self):
         module = load_retrying_translator()
@@ -441,7 +444,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
         def fake_plain(*args, **kwargs):
             calls.append("plain")
-            return {item["item_id"]: module._result_entry("translate", "普通结果 [[FORMULA_1]]")}
+            return {item["item_id"]: result_entry("translate", "普通结果 [[FORMULA_1]]")}
 
         original_single = fallbacks.translate_single_item_formula_segment_text_with_retries
         original_plain = fallbacks.translate_single_item_plain_text
@@ -464,8 +467,8 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
         self.assertEqual(calls, ["single", "plain"])
         self.assertEqual(result[item["item_id"]]["decision"], "translate")
 
-    def test_windowed_formula_translation_allows_local_english_keep_origin_window(self):
-        module = load_retrying_translator()
+    def test_windowed_formula_translation_failed_window_marks_block_failed(self):
+        load_retrying_translator()
         import services.translation.llm.providers.deepseek.client as deepseek_client
         import services.translation.llm.shared.orchestration.segment_routing as segment_routing
 
@@ -491,18 +494,23 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
         try:
             segment_routing.request_chat_content = fake_request
             deepseek_client.request_chat_content = fake_request
-            result = module._translate_single_item_formula_segment_windows_with_retries(item, request_label="unit")
+            result = segment_routing.translate_single_item_formula_segment_windows_with_retries(item, request_label="unit")
         finally:
             segment_routing.request_chat_content = original_request
             deepseek_client.request_chat_content = original_deepseek_request
 
         self.assertGreaterEqual(len(calls), 3)
-        self.assertEqual(result[item["item_id"]]["final_status"], "translated")
-        self.assertIn("clause 9 explaining the result", result[item["item_id"]]["translated_text"])
+        payload = result[item["item_id"]]
+        self.assertEqual(payload["decision"], "translate")
+        self.assertEqual(payload["translated_text"], "")
+        self.assertEqual(payload["final_status"], "failed")
+        self.assertEqual(payload["translation_diagnostics"]["degradation_reason"], "formula_window_translation_failed")
+        self.assertEqual(payload["translation_diagnostics"]["segment_range"], "9-16")
 
     def test_plain_text_retry_uses_raw_single_item_fallback_after_repeated_empty_translation(self):
-        module = load_retrying_translator()
+        load_retrying_translator()
         import services.translation.llm.shared.orchestration.fallbacks as fallbacks
+        from services.translation.llm.shared.control_context import build_translation_control_context
 
         item = {
             "item_id": "body-1",
@@ -519,14 +527,19 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
         def fake_raw(*args, **kwargs):
             calls.append("raw")
-            return {item["item_id"]: module._result_entry("translate", "这段英文正文已经通过原始纯文本回退成功翻译。")}
+            return {item["item_id"]: result_entry("translate", "这段英文正文已经通过原始纯文本回退成功翻译。")}
 
         original_plain = fallbacks.translate_single_item_plain_text
         original_raw = fallbacks.translate_single_item_plain_text_unstructured
         try:
             fallbacks.translate_single_item_plain_text = fake_plain
             fallbacks.translate_single_item_plain_text_unstructured = fake_raw
-            result = module._translate_single_item_plain_text_with_retries(item, request_label="unit")
+            result = fallbacks.translate_single_item_plain_text_with_retries(
+                item,
+                request_label="unit",
+                context=build_translation_control_context(),
+                diagnostics=None,
+            )
         finally:
             fallbacks.translate_single_item_plain_text = original_plain
             fallbacks.translate_single_item_plain_text_unstructured = original_raw
@@ -535,8 +548,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
         self.assertEqual(result[item["item_id"]]["translated_text"], "这段英文正文已经通过原始纯文本回退成功翻译。")
 
     def test_sentence_fallback_chunks_long_group_when_no_sentence_split_exists(self):
-        module = load_retrying_translator()
-        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
+        load_retrying_translator()
         from services.translation.llm.shared.control_context import build_translation_control_context
         item = {
             "item_id": "group-1",
@@ -551,22 +563,18 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
         def fake_plain(*args, **kwargs):
             sentence_item = args[0]
             seen.append(sentence_item["translation_unit_protected_source_text"])
-            return {item["item_id"]: module._result_entry("translate", "已翻译片段")}
+            return {item["item_id"]: result_entry("translate", "已翻译片段")}
 
-        original_plain = fallbacks.translate_single_item_plain_text
-        try:
-            fallbacks.translate_single_item_plain_text = fake_plain
-            result = fallbacks._sentence_level_fallback(
-                item,
-                api_key="",
-                model="deepseek-chat",
-                base_url="https://api.deepseek.com/v1",
-                request_label="unit",
-                context=build_translation_control_context(mode="sci"),
-                diagnostics=None,
-            )
-        finally:
-            fallbacks.translate_single_item_plain_text = original_plain
+        result = sentence_level_fallback(
+            item,
+            api_key="",
+            model="deepseek-chat",
+            base_url="https://api.deepseek.com/v1",
+            request_label="unit",
+            context=build_translation_control_context(mode="sci"),
+            diagnostics=None,
+            translate_plain_fn=fake_plain,
+        )
 
         self.assertGreaterEqual(len(seen), 2)
         self.assertEqual(result[item["item_id"]]["final_status"], "partially_translated")
@@ -598,11 +606,11 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
             seen["count"] += 1
             if seen["count"] == 1:
                 raise fallbacks.EnglishResidueError(item["item_id"])
-            return {item["item_id"]: module._result_entry("translate", "或许更具信息量的是查看该研究。")}
+            return {item["item_id"]: result_entry("translate", "或许更具信息量的是查看该研究。")}
 
         def fake_raw(sentence_item, *args, **kwargs):
             return {
-                item["item_id"]: module._result_entry(
+                item["item_id"]: result_entry(
                     "translate",
                     "Electrochemical oxidations of nickel(II)(aryl)halide complexes result in irreversible oxidation waves ranging from <f1-2ff/> to <f2-05f/> (vs SCE).",
                 )
@@ -614,7 +622,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
             fallbacks.translate_single_item_plain_text = fake_plain
             fallbacks.translate_single_item_plain_text_unstructured = fake_raw
             with self.assertRaises(fallbacks.EnglishResidueError):
-                fallbacks._sentence_level_fallback(
+                sentence_level_fallback(
                     item,
                     api_key="",
                     model="deepseek-chat",
@@ -622,6 +630,8 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
                     request_label="unit",
                     context=build_translation_control_context(mode="sci"),
                     diagnostics=None,
+                    translate_plain_fn=fake_plain,
+                    translate_unstructured_fn=fake_raw,
                 )
         finally:
             fallbacks.translate_single_item_plain_text = original_plain
@@ -629,10 +639,9 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
 
     def test_partial_translation_payload_is_not_cacheable(self):
         load_retrying_translator()
-        import services.translation.llm.shared.orchestration.fallbacks as fallbacks
 
         self.assertFalse(
-            fallbacks._should_store_translation_result(
+            should_store_translation_result(
                 {
                     "decision": "translate",
                     "translated_text": "英文原文。或许更具",
@@ -642,7 +651,7 @@ class RetryingTranslatorFormulaWindowTests(unittest.TestCase):
             )
         )
         self.assertTrue(
-            fallbacks._should_store_translation_result(
+            should_store_translation_result(
                 {
                     "decision": "translate",
                     "translated_text": "完整中文译文。",

@@ -68,6 +68,18 @@ pub async fn stream_file(
     Ok(response)
 }
 
+pub fn file_etag(path: &std::path::Path) -> Option<String> {
+    let metadata = std::fs::metadata(path).ok()?;
+    let len = metadata.len();
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    Some(format!("\"{len:x}-{modified:x}\""))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ByteRange {
     start: u64,
@@ -233,5 +245,17 @@ mod tests {
         assert_eq!(body.as_ref(), b"2345");
 
         let _ = tokio::fs::remove_file(temp_path).await;
+    }
+
+    #[test]
+    fn file_etag_uses_file_metadata() {
+        let path =
+            std::env::temp_dir().join(format!("rust-api-preview-etag-{}.jpg", fastrand::u64(..)));
+        std::fs::write(&path, b"preview-image").expect("write preview");
+        let etag = file_etag(&path).expect("etag");
+        assert!(etag.starts_with('"'));
+        assert!(etag.ends_with('"'));
+        assert!(etag.contains("-"));
+        std::fs::remove_file(path).ok();
     }
 }

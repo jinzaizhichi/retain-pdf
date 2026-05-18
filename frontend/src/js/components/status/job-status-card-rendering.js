@@ -54,8 +54,14 @@ export function setProgress(host, {
   }
   const hasNumbers = Number.isFinite(numericCurrent) && Number.isFinite(numericTotal) && numericTotal > 0;
   if (!hasNumbers) {
+    if (Number.isFinite(numericPercent)) {
+      const safePercent = Math.max(0, Math.min(100, numericPercent));
+      bar.style.width = `${safePercent}%`;
+      text.textContent = progressText || `进度 ${safePercent.toFixed(0)}%`;
+      return;
+    }
     bar.style.width = "0%";
-    text.textContent = fallbackText;
+    text.textContent = progressText || fallbackText;
     return;
   }
   const computedPercent = (numericCurrent / numericTotal) * 100;

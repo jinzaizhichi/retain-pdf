@@ -1,73 +1,20 @@
 from __future__ import annotations
 
-from services.document_schema.semantics import build_role_profile
 from services.translation.classification.rule_engine import is_short_no_trans_candidate
 from services.translation.classification.rule_engine import looks_like_no_trans_code_candidate
-from services.translation.item_reader import item_is_algorithm_like
-from services.translation.item_reader import item_block_kind
 from services.translation.item_reader import item_is_caption_like
 from services.translation.item_reader import item_is_bodylike
 from services.translation.item_reader import item_is_reference_heading_like
 from services.translation.item_reader import item_is_reference_like
 from services.translation.item_reader import item_is_title_like
-from services.translation.item_reader import item_normalized_sub_type
 from services.translation.item_reader import item_policy_translate
-from services.translation.item_reader import item_raw_block_type
 from services.translation.item_reader import item_structure_role
 
 from .common import RESETTABLE_LABEL_PREFIXES
 from .common import clear_translation_fields
-
-
-_FOUNDATIONAL_SKIP_BY_BLOCK_TYPE = {
-    "image_body": ("skip_image_body", "skip_image_body"),
-    "table_body": ("skip_table_body", "skip_table_body"),
-    "code_body": ("code", "code"),
-}
-_DEFAULT_TRANSLATABLE_TEXT_STRUCTURE_ROLES = {
-    "",
-    "body",
-    "abstract",
-    "heading",
-    "title",
-    "footnote",
-    "image_footnote",
-    "table_footnote",
-}
-
-
-def _is_ref_text_like(item: dict) -> bool:
-    if item_is_reference_like(item) or item_raw_block_type(item) == "ref_text":
-        return True
-    return item_normalized_sub_type(item) == "ref_text"
-
-
-def _is_default_translatable_text_item(item: dict) -> bool:
-    explicit_policy = item_policy_translate(item)
-    if explicit_policy is not None:
-        return explicit_policy
-    if item_block_kind(item) != "text":
-        return False
-    role = str(build_role_profile(item).get("structure_role") or "")
-    if item_is_bodylike(item):
-        return True
-    return role in _DEFAULT_TRANSLATABLE_TEXT_STRUCTURE_ROLES
-
-
-def _foundational_skip_defaults(item: dict) -> tuple[str, str] | None:
-    if item_is_algorithm_like(item):
-        return "skip_algorithm", "skip_algorithm"
-    block_type = item_raw_block_type(item)
-    normalized_block_type = block_type.strip().lower()
-    if normalized_block_type in _FOUNDATIONAL_SKIP_BY_BLOCK_TYPE:
-        return _FOUNDATIONAL_SKIP_BY_BLOCK_TYPE[normalized_block_type]
-    if _is_ref_text_like(item):
-        return None
-    if _is_default_translatable_text_item(item):
-        return None
-    if normalized_block_type:
-        return f"skip_{normalized_block_type}", f"skip_{normalized_block_type}"
-    return "skip_non_body_text", "skip_non_body_text"
+from .policy_defaults import foundational_skip_defaults
+from .policy_state import mark_item_skipped
+from .policy_state import preserve_source_as_translation
 
 
 def reset_policy_state(payload: list[dict]) -> int:
@@ -80,7 +27,7 @@ def reset_policy_state(payload: list[dict]) -> int:
                 item["translation_unit_protected_source_text"] = original_protected_source
         item["mixed_literal_action"] = ""
         item["mixed_literal_prefix"] = ""
-        foundational_skip = _foundational_skip_defaults(item)
+        foundational_skip = foundational_skip_defaults(item)
         if foundational_skip is not None:
             label, skip_reason = foundational_skip
             item["classification_label"] = label
@@ -99,23 +46,6 @@ def reset_policy_state(payload: list[dict]) -> int:
         item["skip_reason"] = ""
         reset += 1
     return reset
-
-
-def _mark_item_skipped(item: dict, label: str) -> None:
-    item["classification_label"] = label
-    item["should_translate"] = False
-    item["skip_reason"] = label
-    clear_translation_fields(item)
-    item["final_status"] = "kept_origin"
-
-
-def _preserve_source_as_translation(item: dict) -> None:
-    source_text = str(item.get("source_text", "") or "").strip()
-    protected_source_text = str(item.get("protected_source_text", "") or source_text).strip()
-    item["translation_unit_protected_translated_text"] = protected_source_text
-    item["translation_unit_translated_text"] = source_text
-    item["protected_translated_text"] = protected_source_text
-    item["translated_text"] = source_text
 
 
 def _protect_caption_from_model_skip(item: dict, label_value: str) -> bool:
@@ -173,7 +103,7 @@ def apply_title_skip(payload: list[dict]) -> int:
         item["should_translate"] = False
         item["skip_reason"] = "skip_title"
         clear_translation_fields(item)
-        _preserve_source_as_translation(item)
+        preserve_source_as_translation(item)
         skipped += 1
     return skipped
 
@@ -203,12 +133,12 @@ def apply_reference_zone_skip(
             continue
 
         if item_is_reference_heading_like(item):
-            _mark_item_skipped(item, "skip_reference_heading")
+            mark_item_skipped(item, "skip_reference_heading")
             skipped += 1
             continue
 
         if item_is_reference_like(item):
-            _mark_item_skipped(item, "skip_reference_zone")
+            mark_item_skipped(item, "skip_reference_zone")
             skipped += 1
     return skipped
 
@@ -235,7 +165,7 @@ def apply_reference_tail_skip(
             continue
         if not item.get("should_translate", True):
             continue
-        _mark_item_skipped(item, "skip_reference_tail")
+        mark_item_skipped(item, "skip_reference_tail")
         skipped += 1
     return skipped
 

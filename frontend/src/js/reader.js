@@ -10,7 +10,9 @@ import {
   fetchJobArtifactsManifest,
   fetchJobPayload,
   fetchProtected,
+  fetchReaderMetadata,
   fetchReaderRegions,
+  fetchTranslationItem,
 } from "./network.js";
 import {
   bindReaderRegionHover,
@@ -136,10 +138,11 @@ async function initializeReader() {
 
   try {
     applyReaderBootProgress(14, progressCopy.metadata, "metadata");
-    const [jobPayload, manifestPayload, regionsPayload] = await Promise.all([
+    const [jobPayload, manifestPayload, regionsPayload, readerMetadata] = await Promise.all([
       fetchJobPayload(jobId, API_PREFIX),
       fetchJobArtifactsManifest(jobId, API_PREFIX),
       fetchReaderRegions(jobId, API_PREFIX).catch(() => ({ items: [] })),
+      fetchReaderMetadata(jobId, API_PREFIX).catch(() => null),
     ]);
     progressState.metadataReady = true;
     syncReaderBootProgress();
@@ -186,7 +189,10 @@ async function initializeReader() {
 
     const primary = sourceReady || translatedReady;
     readerState.primaryViewerKey = primary.key;
-    readerState.totalPages = primary.pagesCount || 0;
+    readerState.totalPages = readerMetadata?.source?.page_count
+      || readerMetadata?.translated?.page_count
+      || primary.pagesCount
+      || 0;
     readerState.currentPage = 1;
     bindPrimaryViewer(primary.controller, (pageNumber) => {
       readerState.currentPage = pageNumber || 1;
@@ -196,6 +202,9 @@ async function initializeReader() {
       regions: regionsPayload?.items || [],
       sourceController: sourceReady?.controller,
       translatedController: translatedReady?.controller,
+      jobId,
+      apiPrefix: API_PREFIX,
+      fetchTranslationItem,
     });
     setPageIndicator(1, readerState.totalPages);
     scheduleScaleRefresh();

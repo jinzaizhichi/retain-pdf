@@ -42,13 +42,22 @@
         <div id="upload-progress-panel" class="upload-progress-panel hidden" aria-live="polite">
           <span id="upload-progress-text">上传中</span>
         </div>
+        <div id="inline-page-range" class="inline-page-range hidden" aria-label="翻译页码范围">
+          <label>
+            <span>起始页</span>
+            <input id="page-range-start" type="number" min="1" step="1" inputmode="numeric" autocomplete="off" placeholder="1" />
+          </label>
+          <label>
+            <span>结束页</span>
+            <input id="page-range-end" type="number" min="1" step="1" inputmode="numeric" autocomplete="off" placeholder="总页数" />
+          </label>
+        </div>
         <div id="upload-action-slot" class="upload-action-slot hidden">
           <div class="upload-action-group">
-            <button id="page-range-btn" type="button" class="page-range-mini secondary" aria-label="分页翻译" title="分页翻译">分页翻译</button>
-            <button id="submit-btn" type="submit" disabled>全书翻译</button>
+            <button id="page-range-btn" type="button" class="page-range-mini secondary" aria-label="专业翻译" title="专业翻译">专业翻译</button>
+            <button id="submit-btn" type="submit" disabled>开始翻译</button>
           </div>
         </div>
-      <page-range-summary id="page-range-summary" class="hidden">已选择页码：-</page-range-summary>
       </div>
       <inline-error-box id="error-box-inline" class="hidden">-</inline-error-box>
     </form>
@@ -62,6 +71,12 @@
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.2 7.2 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.49-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.58.22-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .49-.42l.36-2.54c.58-.22 1.13-.54 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58Z" stroke="currentColor" stroke-width="1.45" stroke-linejoin="round"/>
         <circle cx="12" cy="12" r="2.9" stroke="currentColor" stroke-width="1.45"/>
+      </svg>
+    </button>
+    <button id="glossary-btn" type="button" class="icon-button secondary" aria-label="术语表" title="术语表">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M6.5 4.5h8.8c1.2 0 2.2 1 2.2 2.2v12.8H8a2.5 2.5 0 0 1 0-5h9.5" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M6.5 16.4V6.7c0-1.2 1-2.2 2.2-2.2M10 8.5h4M10 11.2h3" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/>
       </svg>
     </button>
   </div>

@@ -17,6 +17,7 @@ export function mountAppActionsFeature({
   workflowNeedsUpload,
   currentRenderSourceJobId,
   collectRunPayload,
+  validateBeforeSubmit,
   getBrowserCredentialsFeature,
   getJobRuntimeFeature,
 }) {
@@ -59,6 +60,9 @@ export function mountAppActionsFeature({
     }
     if (!workflowNeedsUpload(workflow) && !currentRenderSourceJobId()) {
       setText("error-box", "请先在开发者设置里填写 Render 源任务 ID。");
+      return;
+    }
+    if (!validateBeforeSubmit?.()) {
       return;
     }
     if (workflowNeedsCredentials(workflow) && !(await getBrowserCredentialsFeature()?.ensureOcrCredentialsReady({

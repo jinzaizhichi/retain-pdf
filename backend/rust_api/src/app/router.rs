@@ -91,6 +91,19 @@ pub fn build_app(state: AppState) -> Router {
             get(jobs::get_reader_regions),
         )
         .route(
+            "/api/v1/jobs/:job_id/reader/metadata",
+            get(jobs::get_reader_metadata),
+        )
+        .route(
+            "/api/v1/jobs/:job_id/diagnostics",
+            get(jobs::get_job_diagnostics),
+        )
+        .route(
+            "/api/v1/jobs/:job_id/resume-plan",
+            get(jobs::get_resume_plan),
+        )
+        .route("/api/v1/jobs/:job_id/resume", post(jobs::resume_job))
+        .route(
             "/api/v1/jobs/:job_id/translation/diagnostics",
             get(jobs::get_translation_diagnostics),
         )

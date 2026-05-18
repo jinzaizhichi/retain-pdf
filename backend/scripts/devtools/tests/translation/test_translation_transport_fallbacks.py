@@ -31,14 +31,6 @@ def _ensure_package_stubs():
 
 def _load_module(name: str, path: Path):
     _ensure_package_stubs()
-    if not path.exists():
-        remap = {
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py":
-                REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py":
-                REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
-        }
-        path = remap.get(path, path)
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -47,14 +39,14 @@ def _load_module(name: str, path: Path):
 
 
 class TranslationTransportFallbackTests(unittest.TestCase):
-    def test_single_item_transport_failure_degrades_to_keep_origin(self):
+    def test_single_item_transport_failure_marks_failed(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         control_module = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         context = control_module.build_translation_control_context()
         item = {
@@ -79,21 +71,22 @@ class TranslationTransportFallbackTests(unittest.TestCase):
                 context=context,
             )
 
-        self.assertEqual(result["p001-b002"]["decision"], "keep_origin")
+        self.assertEqual(result["p001-b002"]["decision"], "translate")
+        self.assertEqual(result["p001-b002"]["final_status"], "failed")
         self.assertEqual(result["p001-b002"]["error_taxonomy"], "transport")
         self.assertEqual(
             result["p001-b002"]["translation_diagnostics"]["route_path"],
-            ["block_level", "plain_text", "keep_origin"],
+            ["block_level", "plain_text", "failed"],
         )
 
     def test_direct_typst_body_transport_failure_falls_back_to_sentence_level(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         control_module = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         context = control_module.build_translation_control_context()
         item = {
@@ -146,11 +139,11 @@ class TranslationTransportFallbackTests(unittest.TestCase):
     def test_direct_typst_sentence_level_failure_degrades_to_keep_origin(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         control_module = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         context = control_module.build_translation_control_context()
         item = {
@@ -193,21 +186,22 @@ class TranslationTransportFallbackTests(unittest.TestCase):
             )
 
         sentence_fallback.assert_called_once()
-        self.assertEqual(result["p006-b002"]["decision"], "keep_origin")
+        self.assertEqual(result["p006-b002"]["decision"], "translate")
+        self.assertEqual(result["p006-b002"]["final_status"], "failed")
         self.assertEqual(result["p006-b002"]["error_taxonomy"], "transport")
         self.assertEqual(
             result["p006-b002"]["translation_diagnostics"]["route_path"],
-            ["block_level", "direct_typst", "keep_origin"],
+            ["block_level", "direct_typst", "failed"],
         )
 
     def test_batched_transport_failure_falls_back_to_single_item_path(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         control_module = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         context = control_module.build_translation_control_context()
         batch = [
@@ -265,11 +259,11 @@ class TranslationTransportFallbackTests(unittest.TestCase):
     def test_batched_plain_suspicious_keep_origin_only_retries_flagged_items(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "fallbacks.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
         )
         control_module = _load_module(
             "services.translation.llm.shared.control_context",
-            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "control_context.py",
+            REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "control_context.py",
         )
         placeholder_module = _load_module(
             "services.translation.llm.placeholder_guard",

@@ -18,6 +18,7 @@ from foundation.config import fonts
 from services.rendering.layout.payload.blocks import build_render_blocks
 from services.rendering.layout.payload.body_pipeline import apply_body_payload_pipeline
 from services.rendering.layout.payload.collision import mark_adjacent_collision_risk
+from services.rendering.layout.payload.emit import payload_to_render_block
 from services.rendering.layout.payload.first_line_indent import detect_first_line_indent_pt
 from services.rendering.layout.model.models import RenderLayoutBlock
 from services.rendering.layout.model.models import RenderPageSpec
@@ -675,6 +676,49 @@ def test_typst_render_source_does_not_shrink_multiline_markdown_fit_height() -> 
     assert "height: 50.0pt" in source
     assert "fit_height: 24.0pt" in source
     assert "fill: rgb(255, 255, 255)" in source
+
+
+def test_long_plain_fallback_wraps_instead_of_single_line_scaling() -> None:
+    spec = RenderPageSpec(
+        page_index=0,
+        page_width_pt=220.0,
+        page_height_pt=320.0,
+        background_pdf_path=None,
+        blocks=[
+            RenderLayoutBlock(
+                block_id="plain-long",
+                page_index=0,
+                background_rect=[10.0, 20.0, 190.0, 120.0],
+                content_rect=[10.0, 20.0, 190.0, 120.0],
+                content_kind="plain_line",
+                content_text="",
+                plain_text="这是一段从 Typst 兼容性降级而来的很长纯文本，应该保持块宽换行，而不能按整段单行宽度缩放到几乎不可读。",
+                math_map=[],
+                font_size_pt=10.0,
+                leading_em=0.56,
+                first_line_indent_pt=18.0,
+                justify_text=True,
+            )
+        ],
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        background_pdf = root / "background.pdf"
+        doc = fitz.open()
+        doc.new_page(width=220, height=320)
+        doc.save(background_pdf)
+        doc.close()
+
+        source = build_typst_source_from_page_specs(
+            background_pdf_path=background_pdf,
+            page_specs=[spec],
+            work_dir=root,
+        )
+
+    assert "scaled-font" not in source
+    assert "set par(leading: 0.56em, justify: true)" in source
+    assert "h(18.0pt)" in source
 
 
 def test_background_stage_creates_cleaned_pdf() -> None:
@@ -1849,6 +1893,47 @@ def test_body_font_unify_includes_short_dense_body_without_typst_fit() -> None:
     assert short_dense["font_size_pt"] == anchor_a["font_size_pt"] == anchor_b["font_size_pt"]
     assert short_dense["prefer_typst_fit"] is False
     assert short_dense["_body_font_unified"] is True
+
+
+def test_unified_body_font_still_uses_typst_fit_when_estimated_overflow() -> None:
+    payload = {
+        "index": "p024-b007",
+        "item": {
+            "item_id": "p024-b007",
+            "bbox": [33.482, 541.747, 398.284, 613.214],
+            "lines": [{"bbox": [33.482, 541.747, 398.284, 553.0]}],
+            "protected_translated_text": "我们找到的波函数尚未归一化。归一化常数由式(3.93)给出。"
+            "我们有积分近似、求和近似以及多个单元格公式，文本足够长以模拟统一字号后溢出。"
+            * 6,
+        },
+        "bbox": [33.482, 541.747, 398.284, 613.214],
+        "cover_bbox": [33.482, 541.747, 398.284, 613.214],
+        "inner_bbox": [33.482, 542.819, 398.284, 612.142],
+        "translated_text": "我们找到的波函数尚未归一化。归一化常数由式(3.93)给出。"
+        "我们有积分近似、求和近似以及多个单元格公式，文本足够长以模拟统一字号后溢出。"
+        * 6,
+        "formula_map": [],
+        "render_kind": "markdown",
+        "font_size_pt": 10.35,
+        "leading_em": 0.56,
+        "first_line_indent_pt": 18.0,
+        "font_weight": "regular",
+        "page_body_font_size_pt": 10.35,
+        "is_body": True,
+        "dense_small_box": False,
+        "heavy_dense_small_box": False,
+        "prefer_typst_fit": False,
+        "title_fit": None,
+        "adjacent_collision_risk": False,
+        "adjacent_available_height_pt": None,
+        "_body_font_unified": True,
+    }
+
+    block = payload_to_render_block(payload)
+
+    assert block.fit_to_box is True
+    assert block.fit_max_height_pt <= 70.0
+    assert block.fit_min_font_size_pt < block.font_size_pt
 
 
 def test_caption_and_footnote_fonts_use_low_role_anchor() -> None:

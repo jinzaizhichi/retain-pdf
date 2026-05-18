@@ -5,10 +5,10 @@ import time
 from services.translation.diagnostics import TranslationDiagnosticsCollector
 from services.translation.llm.shared.orchestration.common import is_continuation_or_group_unit
 from services.translation.llm.shared.orchestration.common import sentence_level_fallback_allowed
-from services.translation.llm.shared.orchestration.keep_origin import keep_origin_payload_for_transport_error
 from services.translation.llm.shared.orchestration.metadata import attach_result_metadata
 from services.translation.llm.shared.orchestration.metadata import restore_runtime_term_tokens
 from services.translation.llm.shared.orchestration.sentence_level import sentence_level_fallback
+import services.translation.llm.shared.orchestration.terminal_payloads as terminal_payloads
 from services.translation.llm.shared.orchestration.direct_typst_salvage import try_salvage_direct_typst_protocol_shell_error
 from services.translation.llm.shared.orchestration.transport import defer_transport_retry
 from services.translation.llm.shared.orchestration.transport import plain_text_timeout_seconds
@@ -19,7 +19,7 @@ def is_named_validation_exception(exc: Exception, *names: str) -> bool:
     return type(exc).__name__ in set(names)
 
 
-def sentence_level_fallback_or_keep_origin(
+def sentence_level_fallback_or_terminal_failure(
     item: dict,
     *,
     api_key: str,
@@ -32,7 +32,7 @@ def sentence_level_fallback_or_keep_origin(
     translate_plain,
     translate_unstructured,
     sentence_level_fallback_fn,
-    keep_origin_on_failure_fn=keep_origin_payload_for_transport_error,
+    keep_origin_on_failure_fn=terminal_payloads.translation_failed_payload_for_transport,
 ) -> dict[str, dict[str, str]]:
     try:
         fallback_impl = sentence_level_fallback_fn or sentence_level_fallback
@@ -50,14 +50,19 @@ def sentence_level_fallback_or_keep_origin(
     except Exception as sentence_exc:
         if request_label:
             print(
-                f"{request_label}: sentence-level fallback failed, degrade to keep_origin: {type(sentence_exc).__name__}: {sentence_exc}",
+                f"{request_label}: sentence-level fallback failed, mark failed: {type(sentence_exc).__name__}: {sentence_exc}",
                 flush=True,
             )
         return keep_origin_on_failure_fn(
             item,
             context=context,
             route_path=route_path,
+            degradation_reason="sentence_level_fallback_failed",
+            error_code="SENTENCE_LEVEL_FALLBACK_FAILED",
         )
+
+
+sentence_level_fallback_or_keep_origin = sentence_level_fallback_or_terminal_failure
 
 
 def try_protocol_shell_salvage(
@@ -188,11 +193,11 @@ def handle_raw_transport_failure(
 ) -> tuple[dict[str, dict[str, str]], Exception]:
     if request_label:
         print(
-            f"{request_label}: direct_typst raw transport failure after {time.perf_counter() - raw_started:.2f}s, degrade to keep_origin: {type(raw_exc).__name__}: {raw_exc}",
+            f"{request_label}: direct_typst raw transport failure after {time.perf_counter() - raw_started:.2f}s, mark failed: {type(raw_exc).__name__}: {raw_exc}",
             flush=True,
         )
     if should_force_translate_body_text(item) and sentence_level_fallback_allowed(item):
-        return sentence_level_fallback_or_keep_origin(
+        return sentence_level_fallback_or_terminal_failure(
             item,
             api_key=api_key,
             model=model,
@@ -200,7 +205,7 @@ def handle_raw_transport_failure(
             request_label=request_label,
             context=context,
             diagnostics=diagnostics,
-            route_path=route_prefix + ["plain_text_raw", "keep_origin"],
+            route_path=route_prefix + ["plain_text_raw", "failed"],
             translate_plain=translate_plain,
             translate_unstructured=translate_unstructured,
             sentence_level_fallback_fn=sentence_level_fallback_fn,
@@ -213,8 +218,10 @@ def handle_raw_transport_failure(
             request_label=request_label,
             diagnostics=diagnostics,
         )
-    return keep_origin_payload_for_transport_error(
+    return terminal_payloads.translation_failed_payload_for_transport(
         item,
         context=context,
-        route_path=route_prefix + ["plain_text_raw", "keep_origin"],
+        route_path=route_prefix + ["plain_text_raw", "failed"],
+        degradation_reason="transport_timeout_budget_exceeded",
+        error_code="TRANSPORT_ERROR",
     ), raw_exc

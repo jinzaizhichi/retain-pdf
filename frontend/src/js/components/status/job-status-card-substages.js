@@ -1,6 +1,10 @@
 import { TRANSLATION_SUBSTAGES } from "./job-status-card-presets.js";
 
 export function translationSubstageKeyForSnapshot(snapshot = null) {
+  const explicitSubstage = `${snapshot?.substageKey || ""}`.trim();
+  if (explicitSubstage) {
+    return explicitSubstage;
+  }
   const text = `${snapshot?.label || ""} ${snapshot?.value || ""} ${snapshot?.progressText || ""}`.toLowerCase();
   if (text.includes("跨栏") || text.includes("跨页")) {
     return "continuation_review";

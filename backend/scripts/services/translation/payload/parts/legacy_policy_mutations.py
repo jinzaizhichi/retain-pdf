@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import re
 
-from services.translation.item_reader import item_block_kind
-from services.translation.item_reader import item_is_bodylike
 from services.translation.item_reader import item_is_reference_like
 from services.translation.item_reader import item_normalized_sub_type
 from services.translation.item_reader import item_raw_block_type
@@ -12,38 +10,15 @@ from services.translation.policy.metadata_filter import find_metadata_fragment_i
 from services.translation.policy.soft_hints import natural_word_count
 from services.translation.policy.mixed_literal_splitter import split_mixed_literal_items
 
-from .common import clear_translation_fields
-
-
-_CJK_CHAR_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
-_LATIN_CHAR_RE = re.compile(r"[A-Za-z]")
-_EN_WORD_RE = re.compile(r"[A-Za-z]+(?:[-'][A-Za-z]+)?")
-_PROSE_CUE_RE = re.compile(
-    r"\b(if|when|then|thus|are|is|was|were|seen|rules?|vertices?|order|bump|more|governed)\b",
-    re.I,
-)
-_NUMBERED_SUMMARY_RE = re.compile(r"^\s*\d+\.\s+[A-Z]")
-_REFERENCE_ENTRY_RE = re.compile(r"^\s*(?:\[\d+]|[A-Z][^,]{0,40},\s+[A-Z])")
-_NUMBERED_REFERENCE_ENTRY_RE = re.compile(
-    r"^\s*\d+\.\s+(?:[A-Z][A-Za-z'`-]+,\s+[A-Z]|[A-Z][A-Za-z'`-]+(?:\s+[A-Z]\.){1,3}(?:\s+[A-Z][A-Za-z'`-]+)?)"
-)
-
-
-def _mark_item_skipped(item: dict, label: str) -> None:
-    item["classification_label"] = label
-    item["should_translate"] = False
-    item["skip_reason"] = label
-    clear_translation_fields(item)
-    item["final_status"] = "kept_origin"
-
-
-def _preserve_source_as_translation(item: dict) -> None:
-    source_text = str(item.get("source_text", "") or "").strip()
-    protected_source_text = str(item.get("protected_source_text", "") or source_text).strip()
-    item["translation_unit_protected_translated_text"] = protected_source_text
-    item["translation_unit_translated_text"] = source_text
-    item["protected_translated_text"] = protected_source_text
-    item["translated_text"] = source_text
+from .legacy_policy_checks import NUMBERED_REFERENCE_ENTRY_RE
+from .legacy_policy_checks import NUMBERED_SUMMARY_RE
+from .legacy_policy_checks import REFERENCE_ENTRY_RE
+from .legacy_policy_checks import english_words
+from .legacy_policy_checks import looks_like_cjk_dominant_body_text
+from .legacy_policy_checks import prose_cue_match
+from .legacy_policy_checks import should_force_translate_mixed_literal_item
+from .policy_state import mark_item_skipped
+from .policy_state import preserve_source_as_translation
 
 
 def _is_ref_text_like(item: dict) -> bool:
@@ -52,56 +27,7 @@ def _is_ref_text_like(item: dict) -> bool:
     return item_normalized_sub_type(item) == "ref_text"
 
 
-def _should_force_translate_mixed_literal_item(item: dict) -> bool:
-    if item_block_kind(item) != "text":
-        return False
-    if not item_is_bodylike(item):
-        return False
-    text = str(
-        item.get("mixed_original_protected_source_text")
-        or item.get("translation_unit_protected_source_text")
-        or item.get("protected_source_text")
-        or item.get("source_text")
-        or ""
-    )
-    compact = " ".join(text.split())
-    if len(compact) < 48:
-        return False
-    english_words = _EN_WORD_RE.findall(compact)
-    if len(english_words) < 8:
-        return False
-    long_words = sum(1 for word in english_words if len(word) >= 4)
-    if long_words < 5:
-        return False
-    prose_cues = len(_PROSE_CUE_RE.findall(compact))
-    symbol_chars = sum(1 for ch in compact if ch in "=<>+-*/()[]{}")
-    alpha_chars = sum(1 for ch in compact if ch.isalpha())
-    if alpha_chars <= 0:
-        return False
-    symbol_ratio = symbol_chars / max(1, len(compact))
-    return prose_cues >= 2 and symbol_ratio < 0.28 and natural_word_count(compact) >= 8
-
-
-def looks_like_cjk_dominant_body_text(item: dict) -> bool:
-    if item_block_kind(item) != "text":
-        return False
-    if not item_is_bodylike(item):
-        return False
-    source_text = str(
-        item.get("translation_unit_protected_source_text")
-        or item.get("protected_source_text")
-        or item.get("source_text")
-        or ""
-    )
-    compact = " ".join(source_text.split())
-    if len(compact) < 16:
-        return False
-    cjk_chars = len(_CJK_CHAR_RE.findall(compact))
-    if cjk_chars < 10:
-        return False
-    latin_chars = len(_LATIN_CHAR_RE.findall(compact))
-    english_words = len(_EN_WORD_RE.findall(compact))
-    return cjk_chars >= max(10, latin_chars * 2, english_words * 2)
+_should_force_translate_mixed_literal_item = should_force_translate_mixed_literal_item
 
 
 def apply_cjk_source_keep_origin(payload: list[dict]) -> int:
@@ -114,8 +40,7 @@ def apply_cjk_source_keep_origin(payload: list[dict]) -> int:
         item["classification_label"] = "skip_cjk_source_body"
         item["should_translate"] = False
         item["skip_reason"] = "skip_cjk_source_body"
-        clear_translation_fields(item)
-        _preserve_source_as_translation(item)
+        preserve_source_as_translation(item)
         item["final_status"] = "kept_origin"
         skipped += 1
     return skipped
@@ -129,7 +54,7 @@ def apply_shared_literal_block_policy(payload: list[dict]) -> dict[str, int]:
             continue
         label = shared_literal_block_label(item)
         if label == "code":
-            _mark_item_skipped(item, "code")
+            mark_item_skipped(item, "code")
             code_skipped += 1
             continue
         if label == "translate_literal":
@@ -150,19 +75,19 @@ def apply_ref_text_skip(payload: list[dict]) -> int:
         source_text = str(item.get("protected_source_text") or item.get("source_text") or "").strip()
         if not source_text:
             return False
-        if _REFERENCE_ENTRY_RE.match(source_text):
+        if REFERENCE_ENTRY_RE.match(source_text):
             return False
-        if _NUMBERED_REFERENCE_ENTRY_RE.match(source_text):
+        if NUMBERED_REFERENCE_ENTRY_RE.match(source_text):
             return False
         if source_text.lower().startswith(("references", "bibliography")):
             return False
         if " et al." in source_text or re.search(r"\b\d{4}\b", source_text):
             return False
-        word_count = len(_EN_WORD_RE.findall(source_text))
+        word_count = len(english_words(source_text))
         if word_count < 12:
             return False
-        if _NUMBERED_SUMMARY_RE.match(source_text):
-            return bool(_PROSE_CUE_RE.search(source_text))
+        if NUMBERED_SUMMARY_RE.match(source_text):
+            return bool(prose_cue_match(source_text))
         if source_text.endswith((".", "。", "!", "?", ";", "；", ":")) and natural_word_count(source_text) >= 12:
             return True
         return False
@@ -175,7 +100,7 @@ def apply_ref_text_skip(payload: list[dict]) -> int:
             continue
         if _should_preserve_ref_text_for_translation(item):
             continue
-        _mark_item_skipped(item, "skip_ref_text")
+        mark_item_skipped(item, "skip_ref_text")
         skipped += 1
     return skipped
 
@@ -225,7 +150,7 @@ def apply_mixed_literal_split_policy(
         )
         item["mixed_original_protected_source_text"] = original_protected
         if action == "keep_all":
-            _mark_item_skipped(item, "skip_mixed_keep_all")
+            mark_item_skipped(item, "skip_mixed_keep_all")
             keep_all += 1
             continue
         if action == "translate_tail":
@@ -246,7 +171,7 @@ def apply_mixed_literal_split_policy(
                     item["mixed_literal_prefix"] = ""
                     translate_all += 1
                     continue
-                _mark_item_skipped(item, "skip_mixed_keep_all")
+                mark_item_skipped(item, "skip_mixed_keep_all")
                 keep_all += 1
                 continue
             item["protected_source_text"] = tail_protected
@@ -281,7 +206,7 @@ def apply_metadata_fragment_skip(payload: list[dict], *, page_idx: int, max_page
             continue
         if not item.get("should_translate", True):
             continue
-        _mark_item_skipped(item, "skip_metadata_fragment")
+        mark_item_skipped(item, "skip_metadata_fragment")
         skipped += 1
     return skipped
 

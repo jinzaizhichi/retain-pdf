@@ -12,10 +12,11 @@ pub use builders::{job_to_detail, job_to_list_item};
 pub use types::{
     ArtifactDisplayItemView, ArtifactLinksView, BookSummaryView, GlossaryUsageSummaryView,
     InvocationSummaryView, JobArtifactItemView, JobArtifactManifestView, JobContractsView,
-    JobDetailView, JobFailureDiagnosticView, JobListInvocationSummaryView, JobListItemView,
-    JobListView, JobStageContractArtifactView, JobStageContractView, LibraryBatchDeleteInput,
-    LibraryBatchDeleteResultView, LibraryBookDetailView, LibraryBookListItemView,
-    LibraryBookListView, LibraryDeleteQuery, LibraryDeleteResultView, MarkdownArtifactView,
-    NormalizationSummaryView, OcrJobSummaryView, PagePreviewQuery, ReaderRegionBoxView,
-    ReaderRegionItemView, ReaderRegionsView, ResourceLinkView,
+    JobDetailView, JobDiagnosticsView, JobFailureDiagnosticView, JobListInvocationSummaryView,
+    JobListItemView, JobListView, JobResumePlanView, JobStageContractArtifactView,
+    JobStageContractView, LibraryBatchDeleteInput, LibraryBatchDeleteResultView,
+    LibraryBookDetailView, LibraryBookListItemView, LibraryBookListView, LibraryDeleteQuery,
+    LibraryDeleteResultView, MarkdownArtifactView, NormalizationSummaryView, OcrJobSummaryView,
+    PagePreviewQuery, ReaderDocumentMetadataView, ReaderMetadataView, ReaderPageMetadataView,
+    ReaderRegionBoxView, ReaderRegionItemView, ReaderRegionsView, ResourceLinkView,
 };

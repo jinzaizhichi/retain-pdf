@@ -54,6 +54,12 @@ class DeveloperSettingsDialog extends HTMLElement {
                     <span>模型名称</span>
                     <input id="developer-model" type="text" autocomplete="off" placeholder="例如 deepseek-v4-flash" />
                   </label>
+                  <label>
+                    <span>术语表</span>
+                    <select id="developer-glossary-id">
+                      <option value="">不使用术语表</option>
+                    </select>
+                  </label>
                 </div>
               </section>
 

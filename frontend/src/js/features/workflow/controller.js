@@ -11,6 +11,7 @@ import {
   readOcrProviderValue,
   readOcrTokenValue,
   setDeveloperDialogValues,
+  setDeveloperGlossaryOptions,
   setDeveloperWorkflowFormState,
   setSubmitControls,
 } from "./view.js";
@@ -31,6 +32,9 @@ export function mountWorkflowFeature({
   currentPageRanges,
   renderPageRangeSummary,
   getBrowserCredentialsFeature,
+  fetchGlossaries,
+  apiPrefix,
+  setText,
 }) {
   const {
     DEFAULT_WORKERS,
@@ -60,7 +64,9 @@ export function mountWorkflowFeature({
 
   let refreshSubmitControlsRef = null;
   let applyWorkflowModeRef = null;
-  const hasAppliedPageRange = () => workflowNeedsUpload() && `${state.appliedPageRange || ""}`.trim().length > 0;
+  let glossaryOptions = [];
+  let glossaryOptionsLoaded = false;
+  let glossaryOptionsLoading = null;
 
   function positiveInteger(value, fallback) {
     const fallbackNumber = Number(fallback);
@@ -82,6 +88,7 @@ export function mountWorkflowFeature({
       mathMode: normalizeMathMode(saved.mathMode),
       model: saved.model || defaultModelName(),
       baseUrl: saved.baseUrl || defaultModelBaseUrl(),
+      glossaryId: `${saved.glossaryId || saved.glossary_id || ""}`.trim(),
       workers: positiveInteger(saved.workers, DEFAULT_WORKERS),
       batchSize: positiveInteger(saved.batchSize, DEFAULT_BATCH_SIZE),
       classifyBatchSize: positiveInteger(saved.classifyBatchSize, DEFAULT_CLASSIFY_BATCH_SIZE),
@@ -93,8 +100,10 @@ export function mountWorkflowFeature({
 
   function syncDeveloperDialogFromState() {
     const config = developerConfigWithDefaults();
+    setDeveloperGlossaryOptions(glossaryOptions, config.glossaryId);
     setDeveloperDialogValues(config);
     updateDeveloperWorkflowFormState();
+    void loadGlossaryOptions();
   }
 
   function currentWorkflow() {
@@ -124,9 +133,9 @@ export function mountWorkflowFeature({
       case WORKFLOW_TRANSLATE:
         return "开始翻译";
       case WORKFLOW_BOOK:
-        return hasAppliedPageRange() ? "开始翻译" : "全书翻译";
+        return "开始翻译";
       default:
-        return hasAppliedPageRange() ? "开始翻译" : "全书翻译";
+        return "开始翻译";
     }
   }
 
@@ -152,7 +161,7 @@ export function mountWorkflowFeature({
 
   function refreshSubmitControls() {
     const workflow = currentWorkflow();
-    const showPageRangeButton = workflowNeedsUpload(workflow) && !hasAppliedPageRange();
+    const showPageRangeButton = workflowNeedsUpload(workflow);
     if (isMockMode()) {
       setSubmitControls({
         disabled: false,
@@ -192,7 +201,7 @@ export function mountWorkflowFeature({
   function applyWorkflowMode() {
     const workflow = currentWorkflow();
     const needsUpload = workflowNeedsUpload(workflow);
-    const showPageRangeButton = workflowNeedsUpload(workflow) && !hasAppliedPageRange();
+    const showPageRangeButton = workflowNeedsUpload(workflow);
     if (isMockMode()) {
       applyMockUploadView({
         mockScenario: new URLSearchParams(window.location.search).get("mock") || "running",
@@ -213,6 +222,7 @@ export function mountWorkflowFeature({
     renderPageRangeSummary();
     refreshSubmitControls();
     updateCredentialGate();
+    void loadGlossaryOptions();
   }
 
   function saveDeveloperDialog() {
@@ -232,6 +242,7 @@ export function mountWorkflowFeature({
       mathMode: currentConfig.mathMode,
       model: values.model,
       baseUrl: values.baseUrl,
+      glossaryId: values.glossaryId,
       workers: values.workers,
       batchSize: values.batchSize,
       classifyBatchSize: values.classifyBatchSize,
@@ -276,6 +287,9 @@ export function mountWorkflowFeature({
   }
 
   function buildTranslationPayload(developerConfig) {
+    const selectedGlossaryId = $("job-glossary-id")?.value?.trim()
+      || developerConfig.glossaryId
+      || "";
     return {
       mode: DEFAULT_MODE,
       math_mode: developerConfig.mathMode,
@@ -287,10 +301,39 @@ export function mountWorkflowFeature({
       classify_batch_size: developerConfig.classifyBatchSize,
       rule_profile_name: DEFAULT_RULE_PROFILE,
       custom_rules_text: "",
-      glossary_id: "",
+      glossary_id: selectedGlossaryId,
       glossary_entries: [],
       skip_title_translation: !developerConfig.translateTitles,
     };
+  }
+
+  async function loadGlossaryOptions({ force = false, selectedId = "" } = {}) {
+    if ((!force && glossaryOptionsLoaded) || !fetchGlossaries) {
+      const nextSelectedId = `${selectedId || ""}`.trim();
+      if (nextSelectedId) {
+        setDeveloperGlossaryOptions(glossaryOptions, nextSelectedId);
+      }
+      return glossaryOptions;
+    }
+    if (glossaryOptionsLoading) {
+      return glossaryOptionsLoading;
+    }
+    glossaryOptionsLoading = fetchGlossaries(apiPrefix)
+      .then((payload) => {
+        glossaryOptions = Array.isArray(payload?.items) ? payload.items : [];
+        glossaryOptionsLoaded = true;
+        const nextSelectedId = `${selectedId || ""}`.trim() || developerConfigWithDefaults().glossaryId;
+        setDeveloperGlossaryOptions(glossaryOptions, nextSelectedId);
+        return glossaryOptions;
+      })
+      .catch((err) => {
+        setText?.("error-box", err.message || String(err));
+        return glossaryOptions;
+      })
+      .finally(() => {
+        glossaryOptionsLoading = null;
+      });
+    return glossaryOptionsLoading;
   }
 
   function buildRenderPayload(developerConfig) {
@@ -338,6 +381,7 @@ export function mountWorkflowFeature({
     currentRenderSourceJobId,
     currentWorkflow,
     developerConfigWithDefaults,
+    loadGlossaryOptions,
     refreshSubmitControls,
     resetDeveloperDialog,
     saveDeveloperDialog,

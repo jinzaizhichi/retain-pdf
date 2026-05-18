@@ -16,9 +16,10 @@ pub use download::{
     download_ocr_normalized_document, download_page_preview, download_pdf, download_thumbnail,
 };
 pub use query::{
-    get_job, get_job_artifacts, get_job_artifacts_manifest, get_job_events, get_ocr_job,
-    get_ocr_job_artifacts, get_ocr_job_artifacts_manifest, get_ocr_job_events, list_jobs,
-    get_reader_regions, list_ocr_jobs, rerun_job,
+    get_job, get_job_artifacts, get_job_artifacts_manifest, get_job_diagnostics, get_job_events,
+    get_ocr_job, get_ocr_job_artifacts, get_ocr_job_artifacts_manifest, get_ocr_job_events,
+    get_reader_metadata, get_reader_regions, get_resume_plan, list_jobs, list_ocr_jobs, rerun_job,
+    resume_job,
 };
 pub use translation_debug::{
     get_translation_diagnostics, get_translation_item, list_translation_items,

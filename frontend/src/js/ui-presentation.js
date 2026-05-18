@@ -257,7 +257,7 @@ export function renderJob(payload, eventsPayload = null, manifestPayload = null)
       progressCurrent: stagePresentation.progressCurrent,
       progressTotal: stagePresentation.progressTotal,
       progressFallbackText: "-",
-      progressPercent: job.progress_percent,
+      progressPercent: stagePresentation.progressPercent ?? job.progress_percent,
       progressText: stagePresentation.progressText,
       progressIndeterminate: stagePresentation.progressIndeterminate,
       errorText: publicErrorText === "-" ? "" : publicErrorText,

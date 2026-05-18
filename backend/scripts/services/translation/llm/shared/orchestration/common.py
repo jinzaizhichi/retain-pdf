@@ -101,8 +101,6 @@ def looks_like_cjk_dominant_body_text(item: dict) -> bool:
 def should_keep_origin_on_protocol_shell(item: dict) -> bool:
     if looks_like_cjk_dominant_body_text(item):
         return True
-    if is_direct_math_mode(item):
-        return True
     if is_continuation_or_group_unit(item):
         return True
     return not should_force_translate_body_text(item)

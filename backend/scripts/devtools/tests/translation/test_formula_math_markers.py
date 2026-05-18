@@ -323,6 +323,11 @@ def test_direct_typst_sanitizer_rewrites_unsupported_circled_command() -> None:
     assert markdown == r"路径 $\otimes$ 与 $A$ 保持"
 
 
+def test_direct_typst_sanitizer_restores_spreadsheet_cell_pseudo_math() -> None:
+    markdown = sanitize_direct_typst_inline_math(r"目标框输入 $\C\107$，变量框输入 $\B\3$。")
+    assert markdown == "目标框输入 C107，变量框输入 B3。"
+
+
 def test_direct_typst_boundary_module_matches_legacy_passthrough_behavior() -> None:
     text = r"使用 6-310** 基组，并保留 $E=mc^2$ 与 $\mathscr{P}$ 不变。"
     assert build_direct_typst_passthrough_markdown(text) == build_direct_typst_passthrough_text(text)

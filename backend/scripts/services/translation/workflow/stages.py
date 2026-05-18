@@ -76,6 +76,13 @@ def run_continuation_review(
         model=model,
         base_url=base_url,
         workers=workers,
+        progress_callback=lambda current, total: emit_stage_progress(
+            stage="continuation_review",
+            message=f"正在判断跨栏/跨页连续段，第 {current}/{total} 批",
+            progress_current=current,
+            progress_total=total,
+            payload={"progress_unit": "page"},
+        ),
     )
     if run_diagnostics is not None:
         run_diagnostics.mark_phase_end("continuation_review")
@@ -127,6 +134,17 @@ def run_page_policy_stage(
         sci_cutoff_page_idx=sci_cutoff_page_idx,
         sci_cutoff_block_idx=sci_cutoff_block_idx,
         policy_config=policy_config,
+        progress_callback=lambda current, total, page_idx, page_classified: emit_stage_progress(
+            stage="page_policies",
+            message=f"正在执行页面策略，第 {current}/{total} 页",
+            progress_current=current,
+            progress_total=total,
+            payload={
+                "page_idx": page_idx,
+                "page_number": page_idx + 1,
+                "page_classified_items": page_classified,
+            },
+        ),
     )
     if classified_items:
         print(f"book: classified {classified_items} items", flush=True)
@@ -223,8 +241,10 @@ def run_garbled_reconstruction_stage(
     if run_diagnostics is not None:
         run_diagnostics.mark_phase_start("garbled_reconstruction")
     emit_stage_transition(
-        stage="translating",
+        stage="garbled_repair",
         message="开始修复乱码候选段",
+        progress_current=0,
+        progress_total=len(page_payloads),
     )
     summary = reconstruct_garbled_page_payloads(
         page_payloads,
@@ -232,6 +252,16 @@ def run_garbled_reconstruction_stage(
         model=model,
         base_url=base_url,
         workers=workers,
+        progress_callback=lambda current, total, dirty_pages: emit_stage_progress(
+            stage="garbled_repair",
+            message=f"正在修复乱码候选段，第 {current}/{total} 项",
+            progress_current=current,
+            progress_total=total,
+            payload={
+                "progress_unit": "page",
+                "dirty_pages": sorted(dirty_pages),
+            },
+        ),
     )
     if run_diagnostics is not None:
         run_diagnostics.mark_phase_end("garbled_reconstruction")
@@ -241,10 +271,13 @@ def run_garbled_reconstruction_stage(
     if dirty_pages:
         save_pages(page_payloads, translation_paths, dirty_pages)
     emit_stage_progress(
-        stage="translating",
+        stage="garbled_repair",
         message="乱码候选段修复完成",
+        progress_current=len(page_payloads),
+        progress_total=len(page_payloads),
         elapsed_ms=int((time.perf_counter() - reconstruct_started) * 1000),
         payload={
+            "progress_unit": "page",
             "garbled_candidates": garbled_candidates,
             "garbled_reconstructed": reconstructed_items,
             "dirty_pages": sorted(dirty_pages),

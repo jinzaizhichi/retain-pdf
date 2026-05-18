@@ -27,7 +27,7 @@ def _item(item_id: str, text: str, **overrides):
     return item
 
 
-def test_translate_batch_wrapper_degrades_transport_failure_to_keep_origin() -> None:
+def test_translate_batch_wrapper_marks_transport_failure_failed() -> None:
     context = build_translation_control_context()
     batch = [
         _item("a", "This sentence describes antibacterial activity and provides enough body text for translation."),
@@ -48,10 +48,15 @@ def test_translate_batch_wrapper_degrades_transport_failure_to_keep_origin() -> 
             context=context,
         )
 
-    assert result["a"]["decision"] == "keep_origin"
-    assert result["b"]["decision"] == "keep_origin"
+    assert result["a"]["decision"] == "translate"
+    assert result["b"]["decision"] == "translate"
+    assert result["a"]["translated_text"] == ""
+    assert result["b"]["translated_text"] == ""
+    assert result["a"]["final_status"] == "failed"
+    assert result["b"]["final_status"] == "failed"
     assert result["a"]["translation_diagnostics"]["degradation_reason"] == "batch_transport_timeout_budget_exceeded"
-    assert result["a"]["translation_diagnostics"]["route_path"] == ["block_level", "batched_plain", "keep_origin"]
+    assert result["a"]["translation_diagnostics"]["fallback_to"] == "retry_required"
+    assert result["a"]["translation_diagnostics"]["route_path"] == ["block_level", "batched_plain", "failed"]
 
 
 def test_translate_batch_wrapper_appends_relevant_job_memory_to_domain_guidance() -> None:

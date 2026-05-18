@@ -2,12 +2,15 @@ import { buildFrontendPageUrl, isMockMode } from "./config.js";
 import { API_PREFIX } from "./constants.js";
 import { $ } from "./dom.js";
 import {
+  fetchJobDiagnostics,
   fetchJobArtifactsManifest,
   fetchJobEvents,
   fetchJobMarkdown,
   fetchJobPayload,
   fetchProtected,
+  fetchResumePlan,
   rerunJob,
+  resumeJob,
 } from "./network.js";
 import {
   hasReadyManifestArtifact,
@@ -54,6 +57,7 @@ const detailPageState = {
   eventsPayload: null,
   eventsLoadingPromise: null,
   rerunActionUrl: "",
+  resumePlan: null,
 };
 
 function getJobIdFromQuery() {
@@ -76,6 +80,38 @@ function firstJobIdFromPayload(payload) {
     payload?.job?.id,
     payload?.id,
   );
+}
+
+function summarizeResumePlan(plan) {
+  if (!plan) {
+    return "当前任务暂不可恢复。";
+  }
+  if (!plan.can_resume) {
+    return plan.reason || "当前任务暂不可恢复。";
+  }
+  const fromStage = firstNonEmptyText(plan.from_stage, plan.resume_from, "checkpoint");
+  const workflow = firstNonEmptyText(plan.resume_workflow, plan.workflow);
+  const reruns = Array.isArray(plan.reruns_stages) ? plan.reruns_stages.join("、") : "";
+  const bits = [`可从 ${fromStage} 恢复`];
+  if (workflow) {
+    bits.push(`workflow=${workflow}`);
+  }
+  if (reruns) {
+    bits.push(`重跑 ${reruns}`);
+  }
+  return bits.join("，");
+}
+
+function applyDiagnostics(diagnostics, job) {
+  if (!diagnostics) {
+    return;
+  }
+  setText("detail-failure-summary", summarizeRuntimeField(diagnostics.summary || diagnostics.failure_summary || job.final_failure_summary));
+  setText("detail-failure-category", summarizeRuntimeField(diagnostics.category || diagnostics.failure_category || diagnostics.failed_category || job.final_failure_category));
+  setText("detail-failure-stage", summarizeRuntimeField(diagnostics.failed_stage || diagnostics.stage || diagnostics.failed_substage));
+  setText("detail-failure-root-cause", summarizeRuntimeField(diagnostics.root_cause || diagnostics.detail || diagnostics.raw_excerpt));
+  setText("detail-failure-suggestion", summarizeRuntimeField(diagnostics.suggestion));
+  setText("detail-failure-retryable", typeof diagnostics.retryable === "boolean" ? (diagnostics.retryable ? "是" : "否") : "-");
 }
 
 function buildReaderPageUrl(jobId) {
@@ -336,15 +372,16 @@ function bindProtectedDownloadLink(id, fallbackNameFactory) {
 function bindRerunButton() {
   $("detail-rerun-btn")?.addEventListener("click", async () => {
     const button = $("detail-rerun-btn");
+    const jobId = detailPageState.job?.job_id || getJobIdFromQuery();
     const actionUrl = `${detailPageState.rerunActionUrl || ""}`.trim();
-    if (!button || !actionUrl) {
+    if (!button || (!jobId && !actionUrl)) {
       setText("detail-rerun-status", "当前任务暂不可从断点恢复。");
       return;
     }
     button.disabled = true;
     setText("detail-rerun-status", "正在提交恢复任务...");
     try {
-      const payload = await rerunJob(actionUrl);
+      const payload = jobId ? await resumeJob(jobId, API_PREFIX) : await rerunJob(actionUrl);
       const nextJobId = firstJobIdFromPayload(payload);
       if (!nextJobId) {
         setText("detail-rerun-status", "恢复任务已提交，但响应中没有 job_id。");
@@ -379,13 +416,16 @@ async function initializePage() {
     ? "当前为 mock 明细页，可直接分享当前链接。"
     : "当前详情页可直接通过 URL 分享给其他人。");
 
-  const [payloadRaw, manifestPayload] = await Promise.all([
+  const [payloadRaw, manifestPayload, diagnosticsPayload, resumePlan] = await Promise.all([
     fetchJobPayload(jobId, API_PREFIX),
     fetchJobArtifactsManifest(jobId, API_PREFIX),
+    fetchJobDiagnostics(jobId, API_PREFIX).catch(() => null),
+    fetchResumePlan(jobId, API_PREFIX).catch(() => null),
   ]);
   const job = normalizeJobPayload(payloadRaw);
   detailPageState.job = job;
   detailPageState.manifestPayload = manifestPayload;
+  detailPageState.resumePlan = resumePlan;
   const durations = resolveLiveDurations(job);
   const actions = resolveJobActions(job);
   detailPageState.rerunActionUrl = actions.rerun;
@@ -432,16 +472,15 @@ async function initializePage() {
   setText("detail-failure-suggestion", summarizeRuntimeField(failure.suggestion || failureDiagnostic.suggestion || failure.failure_code));
   setText("detail-failure-last-log-line", summarizeRuntimeField(failureLastLogLine));
   setText("detail-failure-retryable", typeof retryable === "boolean" ? (retryable ? "是" : "否") : "-");
+  applyDiagnostics(diagnosticsPayload, job);
   renderFailureDebugContext(job);
-  const rerunEnabled = actions.rerunEnabled && !!actions.rerun;
+  const rerunEnabled = Boolean(resumePlan?.can_resume || (actions.rerunEnabled && actions.rerun));
   if ($("detail-rerun-btn")) {
     $("detail-rerun-btn").disabled = !rerunEnabled;
   }
   setText(
     "detail-rerun-status",
-    rerunEnabled
-      ? "后端支持从当前任务产物创建恢复任务。"
-      : "当前任务暂不可从断点恢复。",
+    summarizeResumePlan(resumePlan),
   );
   setText("detail-error-box", summarizePublicError(job));
   setEventsStatus("尚未加载");

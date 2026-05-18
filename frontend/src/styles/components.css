@@ -158,6 +158,31 @@
     padding-block: 0;
   }
 
+  .professional-glossary-field {
+    display: grid;
+    gap: 8px;
+  }
+
+  .professional-glossary-field span,
+  .page-range-dialog label span {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1d1d1f;
+  }
+
+  .professional-glossary-field select {
+    width: 100%;
+    height: 42px;
+    min-height: 42px;
+    border: 1px solid #d2d2d7;
+    border-radius: 12px;
+    background: #fff;
+    color: #1d1d1f;
+    padding: 0 12px;
+    box-shadow: none;
+    font-size: 14px;
+  }
+
   .translation-debug-content {
     display: grid;
     gap: 16px;

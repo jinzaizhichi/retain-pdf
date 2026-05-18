@@ -17,11 +17,40 @@ export function setDeveloperDialogValues(config) {
   $("developer-render-source-job-id").value = config.renderSourceJobId;
   $("developer-model").value = config.model;
   $("developer-base-url").value = config.baseUrl;
+  if ($("developer-glossary-id")) {
+    $("developer-glossary-id").value = config.glossaryId || "";
+  }
+  if ($("job-glossary-id")) {
+    $("job-glossary-id").value = config.glossaryId || "";
+  }
   $("developer-workers").value = `${config.workers}`;
   $("developer-batch-size").value = `${config.batchSize}`;
   $("developer-classify-batch-size").value = `${config.classifyBatchSize}`;
   $("developer-compile-workers").value = `${config.compileWorkers}`;
   $("developer-timeout-seconds").value = `${config.timeoutSeconds}`;
+}
+
+export function setDeveloperGlossaryOptions(glossaries = [], selectedId = "") {
+  const selects = [$("developer-glossary-id"), $("job-glossary-id")].filter(Boolean);
+  const normalizedSelectedId = `${selectedId || ""}`.trim();
+  for (const select of selects) {
+    select.replaceChildren(new Option("不使用术语表", ""));
+    for (const glossary of Array.isArray(glossaries) ? glossaries : []) {
+      const glossaryId = `${glossary?.glossary_id || ""}`.trim();
+      if (!glossaryId) {
+        continue;
+      }
+      const name = `${glossary?.name || glossaryId}`.trim();
+      const count = Number(glossary?.entry_count);
+      const suffix = Number.isFinite(count) ? ` (${count})` : "";
+      select.append(new Option(`${name}${suffix}`, glossaryId));
+    }
+    select.value = normalizedSelectedId;
+    if (select.value !== normalizedSelectedId && normalizedSelectedId) {
+      select.append(new Option(`已删除或不可用: ${normalizedSelectedId}`, normalizedSelectedId));
+      select.value = normalizedSelectedId;
+    }
+  }
 }
 
 export function readDeveloperDialogValues(defaults) {
@@ -30,6 +59,7 @@ export function readDeveloperDialogValues(defaults) {
     renderSourceJobId: $("developer-render-source-job-id")?.value?.trim() || "",
     model: $("developer-model")?.value?.trim() || defaults.model,
     baseUrl: $("developer-base-url")?.value?.trim() || defaults.baseUrl,
+    glossaryId: $("job-glossary-id")?.value?.trim() || $("developer-glossary-id")?.value?.trim() || "",
     workers: positiveInteger($("developer-workers")?.value, defaults.workers),
     batchSize: positiveInteger($("developer-batch-size")?.value, defaults.batchSize),
     classifyBatchSize: positiveInteger($("developer-classify-batch-size")?.value, defaults.classifyBatchSize),

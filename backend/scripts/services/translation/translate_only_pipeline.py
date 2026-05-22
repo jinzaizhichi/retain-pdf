@@ -181,6 +181,9 @@ def main() -> None:
             debug_index_path,
             result.get("translated_pages_map", {}),
         )
+        review_path = job_dirs.artifacts_dir / "translation_review.json"
+        review_summary = result.get("translation_review", {}) or {}
+        save_json(review_path, review_summary)
         emit_artifact_published(
             artifact_key="translation_diagnostics_json",
             path=diagnostics_path,
@@ -192,6 +195,12 @@ def main() -> None:
             path=debug_index_path,
             stage="saving",
             message="translation debug index 已发布",
+        )
+        emit_artifact_published(
+            artifact_key="translation_review_json",
+            path=review_path,
+            stage="saving",
+            message="translation review 已发布",
         )
 
         schema_validation = build_validation_report_from_path(source_json_path)
@@ -218,6 +227,9 @@ def main() -> None:
                 "total_elapsed": elapsed,
                 "translation_diagnostics_path": str(diagnostics_path) if diagnostics_summary else "",
                 "translation_debug_index_path": str(debug_index_path),
+                "translation_review_path": str(review_path),
+                "translation_review_issue_count": review_summary.get("issue_count", 0),
+                "translation_review_has_errors": review_summary.get("has_errors", False),
                 "translation_provider_family": diagnostics_summary.get("provider_family", ""),
                 "translation_peak_inflight_requests": diagnostics_summary.get("concurrency_observed", {}).get(
                     "peak_inflight_all_llm_requests",

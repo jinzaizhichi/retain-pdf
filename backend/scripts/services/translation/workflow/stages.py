@@ -212,6 +212,12 @@ def run_translation_batch_stage(
             pending_items=batch_summary["pending_items"],
             total_batches=batch_summary["total_batches"],
         )
+        run_diagnostics.set_translation_queue_workers(
+            batched_fast_workers=batch_summary.get("batched_fast_workers", 0),
+            single_fast_workers=batch_summary.get("single_fast_workers", 0),
+            single_slow_workers=batch_summary.get("single_slow_workers", 0),
+            slow_worker_limit=batch_summary.get("slow_worker_limit", 0),
+        )
     emit_stage_progress(
         stage="translating",
         message="翻译批次完成",

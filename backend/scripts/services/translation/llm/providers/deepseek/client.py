@@ -219,7 +219,7 @@ def _build_session() -> requests.Session:
         session.proxies.clear()
     diagnostics = get_active_translation_run_diagnostics()
     pool_size = 10
-    if diagnostics is not None and diagnostics.provider_family == "deepseek_official":
+    if diagnostics is not None:
         pool_size = min(256, max(32, int(diagnostics.configured_workers)))
     adapter = HTTPAdapter(
         pool_connections=pool_size,

@@ -24,6 +24,7 @@ __all__ = [
     "translation_run_diagnostics_scope",
     "write_translation_debug_index",
     "write_translation_diagnostics",
+    "write_translation_review",
 ]
 
 
@@ -47,5 +48,11 @@ def aggregate_payload_diagnostics(*args, **kwargs):
 
 def write_translation_diagnostics(*args, **kwargs):
     from .io import write_translation_diagnostics as _impl
+
+    return _impl(*args, **kwargs)
+
+
+def write_translation_review(*args, **kwargs):
+    from .review import write_translation_review as _impl
 
     return _impl(*args, **kwargs)

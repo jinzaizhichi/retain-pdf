@@ -13,6 +13,10 @@ class TranslationBatchRunStats:
     batched_fast_batches: int
     single_fast_batches: int
     single_slow_batches: int
+    batched_fast_workers: int = 0
+    single_fast_workers: int = 0
+    single_slow_workers: int = 0
+    slow_worker_limit: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -26,6 +30,10 @@ class TranslationBatchRunStats:
             "batched_fast_batches": self.batched_fast_batches,
             "single_fast_batches": self.single_fast_batches,
             "single_slow_batches": self.single_slow_batches,
+            "batched_fast_workers": self.batched_fast_workers,
+            "single_fast_workers": self.single_fast_workers,
+            "single_slow_workers": self.single_slow_workers,
+            "slow_worker_limit": self.slow_worker_limit,
         }
 
 
@@ -64,6 +72,10 @@ def _slow_worker_cap(workers: int) -> int:
     return min(4, max(2, workers // 8))
 
 
+def _adaptive_floor_limit(workers: int) -> int:
+    return max(1, min(8, max(1, workers)))
+
+
 def _fast_queue_targets(*, batched_fast_count: int, single_fast_count: int) -> list[tuple[str, int]]:
     return [
         (name, count)
@@ -98,6 +110,7 @@ def _allocate_translation_queue_workers(
     batched_fast_count: int,
     single_fast_count: int,
     single_slow_count: int,
+    slow_worker_limit: int | None = None,
 ) -> dict[str, int]:
     workers = max(1, total_workers)
     allocation = _empty_worker_allocation()
@@ -109,7 +122,8 @@ def _allocate_translation_queue_workers(
         )
 
     if single_slow_count > 0:
-        allocation["single_slow"] = min(single_slow_count, _slow_worker_cap(workers), max(1, workers - 1))
+        slow_cap = _slow_worker_cap(workers) if slow_worker_limit is None else max(0, int(slow_worker_limit))
+        allocation["single_slow"] = min(single_slow_count, slow_cap, max(1, workers - 1))
 
     remaining = workers - allocation["single_slow"]
     fast_targets = _fast_queue_targets(
@@ -134,6 +148,7 @@ def _allocate_translation_queue_workers(
 
 __all__ = [
     "TranslationBatchRunStats",
+    "_adaptive_floor_limit",
     "_allocate_translation_queue_workers",
     "_distribute_extra_workers",
     "_empty_worker_allocation",

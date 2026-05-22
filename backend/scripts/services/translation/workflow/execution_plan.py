@@ -14,6 +14,7 @@ from services.translation.policy import build_book_translation_policy_config
 from services.translation.session_context import build_translation_context_from_policy
 from services.translation.terms import GlossaryEntry
 from services.translation.terms import normalize_glossary_entries
+from services.translation.workflow.workers import _adaptive_floor_limit
 
 if TYPE_CHECKING:
     from services.translation.workflow.execution import TranslationExecutionRequest
@@ -74,11 +75,16 @@ def build_translation_execution_plan(request: TranslationExecutionRequest) -> Tr
         configured_batch_size=max(1, request.batch_size),
         configured_classify_batch_size=max(1, request.classify_batch_size),
     )
+    effective_workers = max(1, request.workers)
+    run_diagnostics.configure_adaptive_concurrency(
+        initial_limit=effective_workers,
+        floor_limit=_adaptive_floor_limit(effective_workers),
+    )
     run_diagnostics.set_effective_settings(
-        translation_workers=max(1, request.workers),
-        policy_workers=max(1, request.workers),
-        continuation_workers=min(max(1, request.workers), 8),
-        mixed_split_workers=min(max(1, request.workers), 4),
+        translation_workers=effective_workers,
+        policy_workers=effective_workers,
+        continuation_workers=min(effective_workers, 8),
+        mixed_split_workers=min(effective_workers, 4),
         translation_batch_size=max(
             1,
             min(max(1, request.batch_size), translation_context.batch_policy.plain_batch_size),

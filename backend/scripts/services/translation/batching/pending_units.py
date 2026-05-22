@@ -19,6 +19,7 @@ from services.translation.results.applier import TranslationResultApplier
 from services.translation.results.applier import expand_duplicate_results as _expand_duplicate_results
 from services.translation.results.applier import touched_pages_for_batch
 from services.translation.batching.plan import _allocate_translation_queue_workers
+from services.translation.batching.plan import _slow_worker_cap
 from services.translation.batching.plan import _build_translation_batches
 from services.translation.batching.plan import _classify_translation_batches
 from services.translation.batching.plan import _dedupe_pending_items
@@ -126,11 +127,13 @@ def translate_pending_units(
     batched_fast_batches, single_fast_batches, single_slow_batches = _classify_translation_batches(batches)
     total_batches = len(batches)
     flush_interval = _save_flush_interval(workers=workers, total_batches=total_batches)
+    slow_worker_limit = _slow_worker_cap(max(1, workers))
     queue_workers = _allocate_translation_queue_workers(
         workers,
         batched_fast_count=len(batched_fast_batches),
         single_fast_count=len(single_fast_batches),
         single_slow_count=len(single_slow_batches),
+        slow_worker_limit=slow_worker_limit,
     )
     run_stats = TranslationBatchRunStats(
         pending_items=len(pending),
@@ -141,6 +144,10 @@ def translate_pending_units(
         batched_fast_batches=len(batched_fast_batches),
         single_fast_batches=len(single_fast_batches),
         single_slow_batches=len(single_slow_batches),
+        batched_fast_workers=queue_workers["batched_fast"],
+        single_fast_workers=queue_workers["single_fast"],
+        single_slow_workers=queue_workers["single_slow"],
+        slow_worker_limit=slow_worker_limit,
     )
     print(
         f"book: pending items={len(pending)} batches={total_batches} workers={max(1, workers)} "

@@ -6,10 +6,10 @@ from dataclasses import replace
 from collections.abc import Iterable
 
 from services.translation.diagnostics import classify_provider_family
+from services.translation.agents.coordinator import TranslationAgentCoordinator
 from services.translation.terms import AbbreviationEntry
 from services.translation.terms import GlossaryEntry
 from services.translation.terms import build_terms_guidance
-from services.translation.terms import matched_glossary_entries
 
 
 @dataclass(frozen=True)
@@ -159,13 +159,10 @@ class TranslationControlContext:
         return replace(self, request_label=request_label)
 
     def scoped_to_source_texts(self, texts: Iterable[str]) -> "TranslationControlContext":
-        source_text = "\n".join(text for text in texts if text)
-        if not source_text or not self.glossary_entries:
+        text_list = [text for text in texts if text]
+        if not text_list or not self.glossary_entries:
             return self
-        matched_entries = matched_glossary_entries(self.glossary_entries, source_text)
-        if len(matched_entries) == len(self.glossary_entries):
-            return self
-        return replace(self, glossary_entries=matched_entries)
+        return TranslationAgentCoordinator.from_control_context(self).scope_context_to_source_texts(self, text_list)
 
     def scoped_to_item(self, item: dict) -> "TranslationControlContext":
         source_text = str(

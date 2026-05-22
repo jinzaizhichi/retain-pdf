@@ -13,7 +13,9 @@ from services.translation.fast_path.keep_origin import _is_fast_path_keep_origin
 from services.translation.fast_path.keep_origin import _normalized_text_without_placeholders
 from services.translation.fast_path.keep_origin import _plan_item_view
 from services.translation.workflow.workers import TranslationBatchRunStats
+from services.translation.workflow.workers import _adaptive_floor_limit
 from services.translation.workflow.workers import _allocate_translation_queue_workers
+from services.translation.workflow.workers import _slow_worker_cap
 
 
 def _build_translation_batches(
@@ -35,6 +37,7 @@ def _build_translation_batches(
 __all__ = [
     "chunked",
     "TranslationBatchRunStats",
+    "_adaptive_floor_limit",
     "_allocate_translation_queue_workers",
     "_build_translation_batches",
     "_classify_translation_batches",
@@ -46,5 +49,6 @@ __all__ = [
     "_normalized_text_without_placeholders",
     "_plan_item_view",
     "_save_flush_interval",
+    "_slow_worker_cap",
     "_source_text",
 ]

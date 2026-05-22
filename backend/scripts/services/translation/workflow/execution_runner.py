@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from services.translation.diagnostics import aggregate_payload_diagnostics
 from services.translation.diagnostics import translation_run_diagnostics_scope
+from services.translation.diagnostics.review import build_translation_review
 from services.translation.payload import write_translation_manifest
 from services.rendering.source.prewarm import RenderPrewarmHandle
 from services.rendering.source.prewarm import RenderPrewarmSpec
@@ -84,6 +85,10 @@ def run_translation_execution_plan(
         overridden_entry_count=request.glossary_overridden_entry_count,
     )
     _, diagnostics_summary = aggregate_payload_diagnostics(translated_pages_map)
+    review_summary = build_translation_review(
+        translated_pages_map=translated_pages_map,
+        translation_context=plan.translation_context,
+    )
     write_translation_manifest(
         request.output_dir,
         {
@@ -94,6 +99,8 @@ def run_translation_execution_plan(
         summary={
             "math_mode": request.math_mode,
             **diagnostics_summary,
+            "review_issue_count": review_summary.get("issue_count", 0),
+            "review_has_errors": review_summary.get("has_errors", False),
             **({"invocation": request.invocation} if request.invocation else {}),
         },
     )
@@ -111,6 +118,7 @@ def run_translation_execution_plan(
         "custom_rules_text": plan.policy_config.custom_rules_text,
         "glossary": glossary_summary,
         "diagnostics_summary": diagnostics_summary,
+        "translation_review": review_summary,
         "invocation": request.invocation or {},
         "math_mode": request.math_mode,
         "translation_context": plan.translation_context,

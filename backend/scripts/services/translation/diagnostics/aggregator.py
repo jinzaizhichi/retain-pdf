@@ -108,6 +108,7 @@ class TranslationRunDiagnostics:
     _adaptive_inflight: int = field(default=0, init=False, repr=False)
     _adaptive_limit: int = field(default=0, init=False, repr=False)
     _adaptive_peak_limit: int = field(default=0, init=False, repr=False)
+    _adaptive_floor_limit: int = field(default=0, init=False, repr=False)
     _adaptive_success_streak: int = field(default=0, init=False, repr=False)
     _adaptive_recent_failure_count: int = field(default=0, init=False, repr=False)
 
@@ -115,6 +116,7 @@ class TranslationRunDiagnostics:
         initial_limit = max(1, int(self.configured_workers))
         self._adaptive_limit = initial_limit
         self._adaptive_peak_limit = initial_limit
+        self._adaptive_floor_limit = max(1, min(8, initial_limit))
 
     def set_effective_settings(
         self,
@@ -147,6 +149,29 @@ class TranslationRunDiagnostics:
     def set_effective_translation_batch_size(self, value: int) -> None:
         with self._lock:
             self._effective["effective_batch_size_translation"] = int(max(1, value))
+
+    def set_translation_queue_workers(
+        self,
+        *,
+        batched_fast_workers: int,
+        single_fast_workers: int,
+        single_slow_workers: int,
+        slow_worker_limit: int,
+    ) -> None:
+        with self._lock:
+            self._effective["effective_workers_batched_fast"] = int(max(0, batched_fast_workers))
+            self._effective["effective_workers_single_fast"] = int(max(0, single_fast_workers))
+            self._effective["effective_workers_single_slow"] = int(max(0, single_slow_workers))
+            self._effective["slow_worker_limit"] = int(max(0, slow_worker_limit))
+
+    def configure_adaptive_concurrency(self, *, initial_limit: int, floor_limit: int | None = None) -> None:
+        limit = max(1, min(max(1, self.configured_workers), int(initial_limit or 1)))
+        floor = max(1, min(limit, int(floor_limit if floor_limit is not None else min(8, limit))))
+        with self._adaptive_condition:
+            self._adaptive_limit = limit
+            self._adaptive_peak_limit = max(self._adaptive_peak_limit, limit)
+            self._adaptive_floor_limit = floor
+            self._adaptive_condition.notify_all()
 
     def mark_phase_start(self, phase: str) -> None:
         if not phase:
@@ -209,8 +234,6 @@ class TranslationRunDiagnostics:
             return request_id
 
     def acquire_request_slot(self) -> None:
-        if self.provider_family != "deepseek_official":
-            return
         with self._adaptive_condition:
             while self._adaptive_inflight >= self._adaptive_limit:
                 self._adaptive_condition.wait(timeout=0.25)
@@ -224,8 +247,6 @@ class TranslationRunDiagnostics:
         status_code: int | None = None,
         error_class: str = "",
     ) -> None:
-        if self.provider_family != "deepseek_official":
-            return
         with self._adaptive_condition:
             self._adaptive_inflight = max(0, self._adaptive_inflight - 1)
             self._rebalance_adaptive_limit(
@@ -244,7 +265,7 @@ class TranslationRunDiagnostics:
         status_code: int | None,
         error_class: str,
     ) -> None:
-        min_limit = max(1, min(8, self.configured_workers))
+        min_limit = max(1, min(self._adaptive_floor_limit, self.configured_workers))
         max_limit = max(1, self.configured_workers)
         timeout_like = error_class in {"ReadTimeout", "ConnectTimeout", "Timeout", "ConnectionError"}
         overloaded_status = status_code in {408, 429, 500, 502, 503, 504}
@@ -340,10 +361,8 @@ class TranslationRunDiagnostics:
         timeout_attempts = self._request_counts["timeout_attempts"]
         peak_translation = self._peak_inflight_by_stage.get("translation", 0)
         p95 = int(self._latency_summary().get("p95", 0))
-        if self.provider_family == "other":
-            recommendations.append("Current provider is not DeepSeek; compare with DeepSeek official for baseline stability.")
         if timeout_attempts > 0 and peak_translation >= 32:
-            recommendations.append("Timeouts under high inflight translation suggest provider saturation; reduce workers for this provider.")
+            recommendations.append("Timeouts under high inflight translation suggest upstream saturation; reduce workers or keep adaptive concurrency enabled.")
         if timeout_attempts > 0 and p95 >= 60000:
             recommendations.append("High p95 latency plus timeouts suggests upstream queueing; inspect provider-side rate limits and retry budget.")
         if not recommendations and peak_translation > 0:
@@ -375,9 +394,10 @@ class TranslationRunDiagnostics:
                     "peak_inflight_all_llm_requests": self._peak_inflight_by_stage.get("__all__", 0),
                 },
                 "adaptive_concurrency": {
-                    "enabled": self.provider_family == "deepseek_official",
+                    "enabled": True,
                     "current_limit": self._adaptive_limit,
                     "peak_limit": self._adaptive_peak_limit,
+                    "floor_limit": self._adaptive_floor_limit,
                 },
                 "phase_elapsed_ms": self._phase_elapsed_summary(),
                 "slow_request_samples": list(self._slow_requests),

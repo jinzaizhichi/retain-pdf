@@ -244,6 +244,41 @@ class TranslationRunDiagnosticsTests(unittest.TestCase):
         self.assertEqual(summary["retry_summary"]["max_http_attempt"], 2)
         self.assertLess(summary["adaptive_concurrency"]["current_limit"], 16)
 
+    def test_adaptive_concurrency_applies_to_any_provider_family(self):
+        run = TranslationRunDiagnostics(
+            provider_family="other",
+            model="qwen-plus",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            configured_workers=16,
+            configured_batch_size=4,
+            configured_classify_batch_size=8,
+        )
+        run.configure_adaptive_concurrency(initial_limit=16, floor_limit=4)
+
+        run.acquire_request_slot()
+        request_id = run.record_request_start(
+            stage="translation",
+            request_label="book: batch 1/1 item 1/1",
+            timeout_s=120,
+            attempt=1,
+        )
+        run.record_request_end(
+            request_id,
+            success=False,
+            elapsed_ms=120000,
+            error_class="ReadTimeout",
+        )
+        run.release_request_slot(
+            success=False,
+            elapsed_ms=120000,
+            error_class="ReadTimeout",
+        )
+
+        summary = run.build_summary()
+        self.assertTrue(summary["adaptive_concurrency"]["enabled"])
+        self.assertEqual(summary["adaptive_concurrency"]["floor_limit"], 4)
+        self.assertLess(summary["adaptive_concurrency"]["current_limit"], 16)
+
     def test_request_chat_content_retries_dns_failures_even_when_max_attempts_is_one(self):
         deepseek_client = load_deepseek_client()
         session = _DnsRetryingSession()

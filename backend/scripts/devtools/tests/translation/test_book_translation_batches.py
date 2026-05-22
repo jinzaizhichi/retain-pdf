@@ -10,6 +10,7 @@ from services.translation.batching.plan import _build_translation_batches
 from services.translation.batching.plan import _classify_translation_batches
 from services.translation.batching.plan import _dedupe_pending_items
 from services.translation.batching.plan import _effective_translation_batch_size
+from services.translation.batching.plan import TranslationBatchRunStats
 from services.translation.llm.shared.control_context import build_translation_control_context
 from services.translation.llm.shared.control_context import resolve_engine_profile
 from services.translation.orchestration.units import finalize_payload_orchestration_metadata
@@ -443,6 +444,30 @@ def test_queue_worker_allocation_reserves_small_tail_pool() -> None:
         single_fast_count=0,
         single_slow_count=5,
     ) == {"batched_fast": 0, "single_fast": 0, "single_slow": 12}
+
+
+def test_translation_batch_run_stats_reports_queue_worker_split() -> None:
+    stats = TranslationBatchRunStats(
+        pending_items=12,
+        total_batches=7,
+        effective_batch_size=4,
+        flush_interval=2,
+        effective_workers=16,
+        batched_fast_batches=3,
+        single_fast_batches=2,
+        single_slow_batches=2,
+        batched_fast_workers=9,
+        single_fast_workers=5,
+        single_slow_workers=2,
+        slow_worker_limit=2,
+    ).as_dict()
+
+    assert stats["fast_queue_batches"] == 5
+    assert stats["slow_queue_batches"] == 2
+    assert stats["batched_fast_workers"] == 9
+    assert stats["single_fast_workers"] == 5
+    assert stats["single_slow_workers"] == 2
+    assert stats["slow_worker_limit"] == 2
 
 
 def test_direct_typst_singleton_uses_single_fast_queue() -> None:

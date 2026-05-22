@@ -567,6 +567,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn retry_stage_route_applies_overrides_for_in_place_render() {
+        let state = test_state("retry-stage-render-in-place-overrides");
+        let mut source_job = source_job_with_artifacts(
+            "job-retry-stage-render-in-place-overrides",
+            JobArtifacts {
+                source_pdf: Some("jobs/source/source/input.pdf".to_string()),
+                normalized_document_json: Some("jobs/source/ocr/document.v1.json".to_string()),
+                translations_dir: Some("jobs/source/translated".to_string()),
+                output_pdf: Some("jobs/source/output/old.pdf".to_string()),
+                ..JobArtifacts::default()
+            },
+        );
+        source_job.status = JobStatusKind::Succeeded;
+        source_job.request_payload.render.compile_workers = 1;
+        source_job.request_payload.render.render_mode = "overlay".to_string();
+        source_job.request_payload.runtime.timeout_seconds = 10;
+        state.db.save_job(&source_job).expect("save source job");
+
+        let response = build_app(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/jobs/job-retry-stage-render-in-place-overrides/retry-stage")
+                    .header("X-API-Key", "test-key")
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "stage": "render",
+                            "create_new_job": false,
+                            "overrides": {
+                                "render": {
+                                    "render_mode": "typst",
+                                    "compile_workers": 8
+                                },
+                                "runtime": {
+                                    "timeout_seconds": 120
+                                }
+                            }
+                        })
+                        .to_string(),
+                    ))
+                    .expect("retry render in place request"),
+            )
+            .await
+            .expect("retry render in place response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = read_json(response).await;
+        assert_eq!(
+            payload["data"]["job_id"],
+            "job-retry-stage-render-in-place-overrides"
+        );
+        let retry_job = state
+            .db
+            .get_job("job-retry-stage-render-in-place-overrides")
+            .expect("retry job");
+        assert_eq!(retry_job.request_payload.render.render_mode, "typst");
+        assert_eq!(retry_job.request_payload.render.compile_workers, 8);
+        assert_eq!(retry_job.request_payload.runtime.timeout_seconds, 120);
+        assert_eq!(
+            retry_job.request_payload.runtime.job_id,
+            "job-retry-stage-render-in-place-overrides"
+        );
+    }
+
+    #[tokio::test]
     async fn diagnostics_route_exposes_stable_failure_summary() {
         let state = test_state("diagnostics-route");
         let mut job = JobSnapshot::new(

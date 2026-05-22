@@ -3,8 +3,9 @@ use serde_json::{json, Value};
 use crate::error::AppError;
 use crate::models::{
     build_job_actions, build_job_links_with_workflow, CreateJobInput, JobArtifacts, JobSnapshot,
-    JobSourceInput, JobStatusKind, RetryStageKind, RetryStageRequest, RetryStageSubmissionView,
-    StageActionsView, StageRetryActionLinkView, StageRetryActionView, WorkflowKind,
+    JobSourceInput, JobStatusKind, ResolvedJobSpec, RetryStageKind, RetryStageRequest,
+    RetryStageSubmissionView, StageActionsView, StageRetryActionLinkView, StageRetryActionView,
+    WorkflowKind,
 };
 use crate::services::job_launcher::start_job_execution;
 
@@ -45,7 +46,10 @@ impl<'a> JobsFacade<'a> {
         let request_input = if request.create_new_job {
             build_retry_request(&source_job, &request.stage)?
         } else if matches!(request.stage, RetryStageKind::Render) {
-            let job = prepare_in_place_render_job(source_job)?;
+            let mut job = prepare_in_place_render_job(source_job)?;
+            apply_retry_overrides_to_resolved_spec(&mut job.request_payload, &request.overrides)?;
+            job.request_payload.runtime.job_id = job.job_id.clone();
+            job.sync_runtime_state();
             let job = start_job_execution(&self.command.submit.launcher, job)?;
             return Ok(build_retry_stage_submission_view(
                 base_url,
@@ -254,6 +258,80 @@ fn build_retry_request(
 }
 
 fn apply_retry_overrides(input: &mut CreateJobInput, overrides: &Value) -> Result<(), AppError> {
+    apply_retry_overrides_to_sections(
+        overrides,
+        |patch| {
+            let patched = merge_json(to_json_value(&input.ocr)?, patch)?;
+            input.ocr = serde_json::from_value(patched)
+                .map_err(|err| AppError::bad_request(format!("invalid ocr overrides: {err}")))?;
+            Ok(())
+        },
+        |patch| {
+            let patched = merge_json(to_json_value(&input.translation)?, patch)?;
+            input.translation = serde_json::from_value(patched).map_err(|err| {
+                AppError::bad_request(format!("invalid translation overrides: {err}"))
+            })?;
+            Ok(())
+        },
+        |patch| {
+            let patched = merge_json(to_json_value(&input.render)?, patch)?;
+            input.render = serde_json::from_value(patched)
+                .map_err(|err| AppError::bad_request(format!("invalid render overrides: {err}")))?;
+            Ok(())
+        },
+        |patch| {
+            let patched = merge_json(to_json_value(&input.runtime)?, patch)?;
+            input.runtime = serde_json::from_value(patched).map_err(|err| {
+                AppError::bad_request(format!("invalid runtime overrides: {err}"))
+            })?;
+            input.runtime.job_id.clear();
+            Ok(())
+        },
+    )
+}
+
+fn apply_retry_overrides_to_resolved_spec(
+    spec: &mut ResolvedJobSpec,
+    overrides: &Value,
+) -> Result<(), AppError> {
+    apply_retry_overrides_to_sections(
+        overrides,
+        |patch| {
+            let patched = merge_json(to_json_value(&spec.ocr)?, patch)?;
+            spec.ocr = serde_json::from_value(patched)
+                .map_err(|err| AppError::bad_request(format!("invalid ocr overrides: {err}")))?;
+            Ok(())
+        },
+        |patch| {
+            let patched = merge_json(to_json_value(&spec.translation)?, patch)?;
+            spec.translation = serde_json::from_value(patched).map_err(|err| {
+                AppError::bad_request(format!("invalid translation overrides: {err}"))
+            })?;
+            Ok(())
+        },
+        |patch| {
+            let patched = merge_json(to_json_value(&spec.render)?, patch)?;
+            spec.render = serde_json::from_value(patched)
+                .map_err(|err| AppError::bad_request(format!("invalid render overrides: {err}")))?;
+            Ok(())
+        },
+        |patch| {
+            let patched = merge_json(to_json_value(&spec.runtime)?, patch)?;
+            spec.runtime = serde_json::from_value(patched).map_err(|err| {
+                AppError::bad_request(format!("invalid runtime overrides: {err}"))
+            })?;
+            Ok(())
+        },
+    )
+}
+
+fn apply_retry_overrides_to_sections(
+    overrides: &Value,
+    mut apply_ocr: impl FnMut(Value) -> Result<(), AppError>,
+    mut apply_translation: impl FnMut(Value) -> Result<(), AppError>,
+    mut apply_render: impl FnMut(Value) -> Result<(), AppError>,
+    mut apply_runtime: impl FnMut(Value) -> Result<(), AppError>,
+) -> Result<(), AppError> {
     if overrides.is_null() {
         return Ok(());
     }
@@ -262,31 +340,10 @@ fn apply_retry_overrides(input: &mut CreateJobInput, overrides: &Value) -> Resul
     };
     for (section, patch) in object {
         match section.as_str() {
-            "ocr" => {
-                let patched = merge_json(to_json_value(&input.ocr)?, patch.clone())?;
-                input.ocr = serde_json::from_value(patched).map_err(|err| {
-                    AppError::bad_request(format!("invalid ocr overrides: {err}"))
-                })?;
-            }
-            "translation" => {
-                let patched = merge_json(to_json_value(&input.translation)?, patch.clone())?;
-                input.translation = serde_json::from_value(patched).map_err(|err| {
-                    AppError::bad_request(format!("invalid translation overrides: {err}"))
-                })?;
-            }
-            "render" => {
-                let patched = merge_json(to_json_value(&input.render)?, patch.clone())?;
-                input.render = serde_json::from_value(patched).map_err(|err| {
-                    AppError::bad_request(format!("invalid render overrides: {err}"))
-                })?;
-            }
-            "runtime" => {
-                let patched = merge_json(to_json_value(&input.runtime)?, patch.clone())?;
-                input.runtime = serde_json::from_value(patched).map_err(|err| {
-                    AppError::bad_request(format!("invalid runtime overrides: {err}"))
-                })?;
-                input.runtime.job_id.clear();
-            }
+            "ocr" => apply_ocr(patch.clone())?,
+            "translation" => apply_translation(patch.clone())?,
+            "render" => apply_render(patch.clone())?,
+            "runtime" => apply_runtime(patch.clone())?,
             other => {
                 return Err(AppError::bad_request(format!(
                     "unsupported overrides section: {other}"

@@ -7,9 +7,8 @@ from services.translation.core.ocr.json_extractor import get_page_count
 from services.translation.services.policy import TranslationPolicyConfig
 from services.translation.core.payload import ensure_translation_template
 from services.translation.core.payload import load_translations
-from services.translation.core.payload import save_translations
 from services.translation.core.payload import write_translation_manifest
-from services.translation.core.payload.parts.translation_units import refresh_payload_translation_units
+from services.translation.services.results.page_io import save_pages
 from services.translation.workflow.translation_workflow import default_page_translation_name
 from services.translation.workflow.translation_workflow import translate_items_to_path
 
@@ -86,12 +85,4 @@ def load_page_payloads(
     return translation_paths, page_payloads
 
 
-def save_pages(
-    page_payloads: dict[int, list[dict]],
-    translation_paths: dict[int, Path],
-    page_indices: set[int] | None = None,
-) -> None:
-    targets = sorted(page_payloads) if page_indices is None else sorted(page_indices)
-    for page_idx in targets:
-        refresh_payload_translation_units(page_payloads[page_idx])
-        save_translations(translation_paths[page_idx], page_payloads[page_idx])
+__all__ = ["load_page_payloads", "save_pages", "translate_book_pages"]

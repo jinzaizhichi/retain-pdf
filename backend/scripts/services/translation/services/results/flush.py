@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from services.translation.workflow.pages import save_pages
+from services.translation.services.results.page_io import save_pages
 
 
 class TranslationFlushState:

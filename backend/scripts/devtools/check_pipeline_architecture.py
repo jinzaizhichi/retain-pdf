@@ -123,7 +123,6 @@ TRANSLATION_LAYER_IMPORT_RULES: dict[str, tuple[str, ...]] = {
         "services.translation.core.item_reader",
         "services.translation.llm",
         "services.translation.artifacts",
-        "services.translation.workflow",
     ),
     "artifacts": (
         "services.translation.artifacts",

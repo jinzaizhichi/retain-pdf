@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from services.translation.artifacts import aggregate_payload_diagnostics
 from services.translation.artifacts import translation_run_diagnostics_scope
-from services.translation.artifacts.review import build_translation_review
+from services.translation.services.agents.review_artifact import build_translation_review
 from services.translation.core.payload import write_translation_manifest
 from services.rendering.source.prewarm import RenderPrewarmHandle
 from services.rendering.source.prewarm import RenderPrewarmSpec

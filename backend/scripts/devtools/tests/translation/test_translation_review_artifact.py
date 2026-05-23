@@ -8,8 +8,8 @@ REPO_SCRIPTS_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 
-from services.translation.artifacts.review import build_translation_review
 from services.translation.artifacts.review import write_translation_review
+from services.translation.services.agents.review_artifact import build_translation_review
 from services.translation.llm.shared.control_context import GlossaryEntry
 from services.translation.llm.shared.control_context import build_translation_control_context
 
@@ -65,7 +65,7 @@ def test_write_translation_review_round_trips_json() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "translation_review.json"
 
-        review = write_translation_review(path, translated_pages_map=payload)
+        review = write_translation_review(path, build_translation_review(translated_pages_map=payload))
         loaded = json.loads(path.read_text(encoding="utf-8"))
 
     assert loaded == review

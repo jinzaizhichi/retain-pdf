@@ -93,6 +93,7 @@ TRANSLATION_LAYER_IMPORT_RULES: dict[str, tuple[str, ...]] = {
         "services.translation.core.ocr",
         "services.translation.core.orchestration",
         "services.translation.core.payload",
+        "services.translation.services.agents",
         "services.translation.services.policy",
         "services.translation.services.postprocess",
         "services.translation.services.results",

@@ -139,7 +139,7 @@ artifacts
 - `artifacts` 不再读取 `services/agents` 或 LLM control context；review 摘要构造在 `services/agents/review_artifact.py`
 - `services` 可以组合 `core`、`llm` 和 `artifacts`，但不反向依赖 `workflow`
 
-当前兼容 shim：
+已删除的兼容 shim：
 
 - `translation/from_ocr_pipeline.py` -> `translation/entrypoints/from_ocr_pipeline.py`
 - `translation/translate_only_pipeline.py` -> `translation/entrypoints/translate_only_pipeline.py`
@@ -152,8 +152,7 @@ artifacts
 - `translation/services/terms/injection.py` -> `translation/core/terms/injection.py`
 - `translation/services/quality/checks.py` -> `translation/llm/validation/quality.py`
 
-这些 shim 是为了避免一次性改动外部 entrypoint、rendering 和历史脚本。translation 内部新代码不要再引用 shim，
-应直接引用真实路径。
+这些 shim 已经退出主线。架构门禁会拒绝继续引用这些旧路径；新代码应直接引用真实路径。
 
 ### payload/parts 边界
 
@@ -164,6 +163,7 @@ artifacts
 - `translations.py` 负责翻译结果回填和状态字段。
 - `formula_protection.py` 负责 payload 内公式保护标记。
 - `template_contract.py`、`template_records.py`、`template_sync.py` 负责模板 contract、记录和同步。
+- `parts/` 负责 payload 内部拆分后的纯数据处理，例如 apply、result entry、group split、result status、summary、translation units。
 
 policy 相关 mutation/check/default/state 已迁到 `services/policy/payload_rules/`：
 

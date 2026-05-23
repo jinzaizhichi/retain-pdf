@@ -1,8 +1,8 @@
-from services.translation.services.quality.checks import TranslationQualityIssue
-from services.translation.services.quality.checks import TranslationQualityReport
-from services.translation.services.quality.checks import review_translation_batch
-from services.translation.services.quality.checks import review_translation_item
-from services.translation.services.quality.checks import should_reject_keep_origin
+from services.translation.llm.validation.quality import TranslationQualityIssue
+from services.translation.llm.validation.quality import TranslationQualityReport
+from services.translation.llm.validation.quality import review_translation_batch
+from services.translation.llm.validation.quality import review_translation_item
+from services.translation.llm.validation.quality import should_reject_keep_origin
 
 __all__ = [
     "TranslationQualityIssue",

@@ -62,11 +62,7 @@ TRANSLATION_ALLOWED_ROOT_DIRS = {
 }
 TRANSLATION_ALLOWED_ROOT_FILES = {
     "__init__.py",
-    "from_ocr_pipeline.py",
-    "item_reader.py",
     "README.md",
-    "session_context.py",
-    "translate_only_pipeline.py",
 }
 TRANSLATION_LAYER_IMPORT_RULES: dict[str, tuple[str, ...]] = {
     "entrypoints": (
@@ -215,11 +211,17 @@ TRANSLATION_SHARED_COMPAT_IMPORTS = (
     "services.translation.core.item_reader",
     "services.translation.services.context.session_context",
 )
-TRANSLATION_ROOT_SHIM_IMPORTS = (
+TRANSLATION_REMOVED_COMPAT_IMPORTS = (
     "services.translation.from_ocr_pipeline",
     "services.translation.translate_only_pipeline",
     "services.translation.item_reader",
     "services.translation.session_context",
+    "services.translation.services.context.models",
+    "services.translation.services.context.unit_context",
+    "services.translation.services.terms.glossary",
+    "services.translation.services.terms.abbreviations",
+    "services.translation.services.terms.injection",
+    "services.translation.services.quality.checks",
 )
 TRANSLATION_STAGE_PIPELINE = PIPELINE_ROOT / "translation_stage.py"
 RENDER_STAGE_PIPELINE = PIPELINE_ROOT / "render_stage.py"
@@ -936,19 +938,11 @@ def check_translation_internal_boundaries(errors: list[str]) -> None:
         "from runtime.pipeline",
         "import runtime.pipeline",
     )
-    shim_files = {
-        TRANSLATION_ROOT / "from_ocr_pipeline.py",
-        TRANSLATION_ROOT / "translate_only_pipeline.py",
-        TRANSLATION_ROOT / "item_reader.py",
-        TRANSLATION_ROOT / "session_context.py",
-    }
     for path in scan_py_files(SCRIPTS_ROOT):
-        if path in shim_files:
-            continue
         for module in imported_modules(path):
-            if module_allowed(module, TRANSLATION_ROOT_SHIM_IMPORTS):
+            if module_allowed(module, TRANSLATION_REMOVED_COMPAT_IMPORTS):
                 errors.append(
-                    f"{rel(path)}: import translation implementation through its real layer path, not root shim '{module}'"
+                    f"{rel(path)}: removed translation compat import '{module}'; use the real core/entrypoints/llm path"
                 )
                 break
 

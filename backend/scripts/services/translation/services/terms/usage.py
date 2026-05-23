@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.translation.services.terms.glossary import GlossaryEntry
-from services.translation.services.terms.glossary import normalize_glossary_entries
+from services.translation.core.terms.glossary import GlossaryEntry
+from services.translation.core.terms.glossary import normalize_glossary_entries
 
 
 def summarize_glossary_usage(

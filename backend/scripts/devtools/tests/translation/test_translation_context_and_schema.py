@@ -10,11 +10,11 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 
 from services.translation.services.continuation import review as continuation_review
+from services.translation.core.context import build_item_context
 from services.translation.llm import domain_context
 from services.translation.llm.shared import control_context
-from services.translation.services.context import models as context_models
 from services.translation.services.postprocess import garbled_reconstruction
-from services.translation import session_context
+from services.translation.services.context import session_context
 
 
 def test_continuation_review_uses_strict_json_schema_format() -> None:
@@ -155,7 +155,7 @@ def test_build_translation_context_uses_model_profile_overrides() -> None:
 
 
 def test_translation_item_context_normalizes_prompt_context() -> None:
-    context = context_models.build_item_context(
+    context = build_item_context(
         {
             "item_id": "p006-b056",
             "page_idx": 5,

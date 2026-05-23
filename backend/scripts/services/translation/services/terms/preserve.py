@@ -4,8 +4,8 @@ import re
 from collections import Counter
 from typing import Iterable
 
-from services.translation.services.terms.glossary import GlossaryEntry
-from services.translation.services.terms.glossary import normalize_glossary_entries
+from services.translation.core.terms.glossary import GlossaryEntry
+from services.translation.core.terms.glossary import normalize_glossary_entries
 
 
 TECH_TERM_RE = re.compile(

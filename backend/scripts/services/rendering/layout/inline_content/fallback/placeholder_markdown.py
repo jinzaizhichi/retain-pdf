@@ -6,7 +6,7 @@ from services.rendering.layout.inline_content.core.markdown import build_markdow
 from services.rendering.layout.inline_content.core.markdown import looks_like_citation
 from services.rendering.layout.inline_content.core.markdown import normalize_plain_citation
 from services.rendering.layout.inline_content.fallback.latex_normalizer import normalize_formula_for_latex_math
-from services.translation.core.payload.formula_protection import re_protect_restored_formulas
+from services.translation.public import re_protect_restored_formulas
 
 
 def formula_map_lookup(formula_map: list[dict]) -> dict[str, str]:

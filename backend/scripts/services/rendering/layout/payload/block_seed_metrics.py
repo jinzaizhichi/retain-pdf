@@ -12,7 +12,7 @@ from services.rendering.layout.font_fit import page_baseline_font_size
 from services.rendering.layout.font_fit import percentile_value
 from services.rendering.layout.payload.geometry_adjustments import build_effective_inner_bboxes
 from services.rendering.layout.typography.measurement import bbox_width
-from services.translation.core.item_reader import item_block_kind
+from services.translation.public import item_block_kind
 
 
 BODY_PAGE_FONT_ANCHOR_PERCENTILE = 0.46

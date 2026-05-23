@@ -20,9 +20,9 @@ from services.rendering.layout.typography.line_metrics import local_line_pitch
 from services.rendering.layout.typography.line_metrics import median_line_height
 from services.rendering.layout.typography.line_metrics import median_line_pitch
 from services.rendering.layout.typography.scalars import percentile_value
-from services.translation.core.item_reader import item_block_kind
-from services.translation.core.item_reader import item_is_caption_like
-from services.translation.core.item_reader import item_is_footnote_like
+from services.translation.public import item_block_kind
+from services.translation.public import item_is_caption_like
+from services.translation.public import item_is_footnote_like
 
 
 def candidate_text_items(items: list[dict]) -> list[dict]:

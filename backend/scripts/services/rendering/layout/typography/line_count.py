@@ -17,8 +17,8 @@ from services.rendering.layout.typography.line_metrics import bbox_height
 from services.rendering.layout.typography.line_metrics import bbox_width
 from services.rendering.layout.typography.line_metrics import median_line_height
 from services.rendering.layout.typography.scalars import clamp
-from services.translation.core.item_reader import item_is_bodylike
-from services.translation.core.item_reader import item_semantic_role
+from services.translation.public import item_is_bodylike
+from services.translation.public import item_semantic_role
 
 
 def _predicted_wrapped_line_count(item: dict, *, width: float, text_len: int) -> int:

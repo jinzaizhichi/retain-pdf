@@ -6,7 +6,7 @@ from services.rendering.layout.inline_content.core.markdown import build_plain_t
 from services.rendering.layout.model.render_text import get_render_formula_map
 from services.rendering.layout.model.render_text import get_render_protected_text
 from services.rendering.layout.model.render_text import restore_render_protected_text
-from services.translation.core.item_reader import item_is_bodylike
+from services.translation.public import item_is_bodylike
 
 
 FORMULA_TOKEN_PATTERN = r"<[futnvc]\d+-[0-9a-z]{3}/>|\[\[FORMULA_\d+]]|\$(?!\s)(?:\\.|[^$\n]){1,240}?\$"

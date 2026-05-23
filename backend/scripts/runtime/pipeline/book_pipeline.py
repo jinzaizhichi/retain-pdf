@@ -12,9 +12,9 @@ from runtime.pipeline.render_stage import build_book_pipeline
 from runtime.pipeline.render_stage import run_render_stage
 from runtime.pipeline.translation_stage import translate_book_pipeline
 from services.rendering.source.prewarm import prewarm_manifest_path_from_artifacts_dir
-from services.translation.artifacts import write_translation_debug_index
-from services.translation.artifacts import write_translation_diagnostics
-from services.translation.services.terms import GlossaryEntry
+from services.translation.public import write_translation_debug_index
+from services.translation.public import write_translation_diagnostics
+from services.translation.public import GlossaryEntry
 
 
 ALLOWED_UNTRANSLATED_ROUTE_NAMES = {

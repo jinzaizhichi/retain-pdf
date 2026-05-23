@@ -5,15 +5,15 @@ import re
 from services.rendering.layout.typography.measurement import bbox_width
 from services.rendering.layout.typography.measurement import formula_ratio
 from services.rendering.layout.typography.measurement import source_visual_line_count
-from services.translation.core.item_reader import item_block_kind
-from services.translation.core.item_reader import item_is_bodylike
-from services.translation.core.item_reader import item_is_caption_like
-from services.translation.core.item_reader import item_is_footnote_like
-from services.translation.core.item_reader import item_is_plain_text_block
-from services.translation.core.item_reader import item_is_textual
-from services.translation.core.item_reader import item_is_title_like
-from services.translation.core.item_reader import item_layout_role
-from services.translation.core.item_reader import item_semantic_role
+from services.translation.public import item_block_kind
+from services.translation.public import item_is_bodylike
+from services.translation.public import item_is_caption_like
+from services.translation.public import item_is_footnote_like
+from services.translation.public import item_is_plain_text_block
+from services.translation.public import item_is_textual
+from services.translation.public import item_is_title_like
+from services.translation.public import item_layout_role
+from services.translation.public import item_semantic_role
 
 
 BODY_FORMULA_RATIO_MAX = 0.5

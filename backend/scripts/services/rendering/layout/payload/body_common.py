@@ -11,7 +11,7 @@ from services.rendering.layout.payload.metrics import estimated_render_height_pt
 from services.rendering.layout.payload.metrics import estimated_required_lines
 from services.rendering.layout.payload.metrics import text_demand_units
 from services.rendering.policy import typography_policy as typography
-from services.translation.core.item_reader import item_block_kind
+from services.translation.public import item_block_kind
 
 
 BODY_DENSITY_TARGET_MIN = 0.82

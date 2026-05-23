@@ -12,7 +12,7 @@ from services.rendering.layout.payload.body_common import payload_height
 from services.rendering.layout.payload.body_common import payload_width
 from services.rendering.layout.payload.body_common import required_lines
 from services.rendering.layout.payload.body_common import same_body_column
-from services.translation.core.item_reader import item_block_kind
+from services.translation.public import item_block_kind
 
 
 SHORT_BODY_INHERIT_MIN_ANCHORS = 2

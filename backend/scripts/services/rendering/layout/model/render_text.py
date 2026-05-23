@@ -8,19 +8,19 @@ MODEL_KEEP_ORIGIN_REASONS = {"skip_model_keep_origin"}
 
 
 def _protected_map_from_formula_map(formula_map: list[dict]) -> list[dict]:
-    from services.translation.core.payload.formula_protection import protected_map_from_formula_map
+    from services.translation.public import protected_map_from_formula_map
 
     return protected_map_from_formula_map(formula_map)
 
 
 def _restore_protected_tokens(text: str, protected_map: list[dict]) -> str:
-    from services.translation.core.payload.formula_protection import restore_protected_tokens
+    from services.translation.public import restore_protected_tokens
 
     return restore_protected_tokens(text, protected_map)
 
 
 def _has_protected_token(text: str) -> bool:
-    from services.translation.core.payload.formula_protection import PROTECTED_TOKEN_RE
+    from services.translation.public import PROTECTED_TOKEN_RE
 
     return bool(PROTECTED_TOKEN_RE.search(text))
 

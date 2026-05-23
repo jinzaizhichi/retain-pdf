@@ -26,7 +26,7 @@ from services.rendering.layout.payload.shared import split_protected_text_for_bo
 from services.rendering.layout.payload.suspicious_ocr import detect_and_drop_suspicious_ocr_glued_blocks
 from services.rendering.layout.typography.geometry import inner_bbox
 from services.rendering.layout.typography.measurement import bbox_width
-from services.translation.core.item_reader import item_block_kind
+from services.translation.public import item_block_kind
 
 
 CONTINUATION_NARROW_BOX_MIN_NEIGHBOR_RATIO = 0.78

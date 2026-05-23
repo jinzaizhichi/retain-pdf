@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from services.translation.core.payload import load_translations
-from services.translation.core.payload import load_translation_manifest
-from services.translation.core.payload import load_translation_manifest_file
-from services.translation.core.payload import translation_manifest_path
+from services.translation.public import load_translations
+from services.translation.public import load_translation_manifest
+from services.translation.public import load_translation_manifest_file
+from services.translation.public import translation_manifest_path
 
 def load_translated_pages(
     translations_dir: Path,

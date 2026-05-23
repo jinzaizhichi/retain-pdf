@@ -57,6 +57,7 @@ TRANSLATION_ALLOWED_ROOT_DIRS = {
     "core",
     "entrypoints",
     "llm",
+    "public",
     "services",
     "workflow",
 }
@@ -112,6 +113,15 @@ TRANSLATION_LAYER_IMPORT_RULES: dict[str, tuple[str, ...]] = {
         "services.translation.artifacts",
         "services.translation.core",
         "services.translation.core.payload",
+    ),
+    "public": (
+        "services.translation.public",
+        "services.translation.artifacts",
+        "services.translation.core",
+        "services.translation.core.payload",
+        "services.translation.core.terms",
+        "services.translation.llm.shared.provider_runtime",
+        "services.translation.workflow",
     ),
     "policy": (
         "services.translation.services.policy",
@@ -590,18 +600,21 @@ def check_stage_spec_contract_checker(errors: list[str]) -> None:
 def check_translation_pipeline_facade_boundary(errors: list[str]) -> None:
     text = read_text(TRANSLATION_STAGE_PIPELINE)
     required = (
-        "from services.translation.workflow import TranslationExecutionRequest",
-        "from services.translation.workflow import execute_translation_request",
+        "from services.translation.public import TranslationExecutionRequest",
+        "from services.translation.public import execute_translation_request",
     )
     for item in required:
         if item not in text:
             errors.append(
-                f"runtime/pipeline/translation_stage.py: must call translation workflow facade via '{item}'"
+                f"runtime/pipeline/translation_stage.py: must call translation public facade via '{item}'"
             )
     forbidden = (
+        "from services.translation.workflow import",
         "from services.translation.services.policy import",
         "from services.translation.services.context.session_context import",
         "from services.translation.artifacts import",
+        "from services.translation.core import",
+        "from services.translation.llm import",
         "from runtime.pipeline.book_translation_flow import",
     )
     for item in forbidden:
@@ -609,6 +622,35 @@ def check_translation_pipeline_facade_boundary(errors: list[str]) -> None:
             errors.append(
                 f"runtime/pipeline/translation_stage.py: must not import workflow internals directly: '{item}'"
             )
+
+
+def check_translation_public_surface_usage(errors: list[str]) -> None:
+    guarded_roots = (
+        PIPELINE_ROOT,
+        OCR_PROVIDER_ROOT,
+        RENDERING_ROOT,
+    )
+    allowed_prefixes = (
+        "services.translation.public",
+        "services.translation.entrypoints",
+    )
+    forbidden_prefixes = (
+        "services.translation.artifacts",
+        "services.translation.core",
+        "services.translation.llm",
+        "services.translation.services",
+        "services.translation.workflow",
+    )
+    for root in guarded_roots:
+        for path in scan_py_files(root):
+            for module in imported_modules(path):
+                if module_allowed(module, allowed_prefixes):
+                    continue
+                if module_allowed(module, forbidden_prefixes):
+                    errors.append(
+                        f"{rel(path)}: production code outside translation must import translation contracts through services.translation.public, not '{module}'"
+                    )
+                    break
 
 
 def check_render_pipeline_facade_boundary(errors: list[str]) -> None:
@@ -1033,6 +1075,7 @@ def main() -> int:
     check_translation_worker_protocol(errors)
     check_stage_spec_contract_checker(errors)
     check_translation_pipeline_facade_boundary(errors)
+    check_translation_public_surface_usage(errors)
     check_render_pipeline_facade_boundary(errors)
     check_rendering_internal_boundaries(errors)
     check_translation_rendering_separation(errors)

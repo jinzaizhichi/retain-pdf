@@ -11,7 +11,7 @@ from services.rendering.source.items import get_item_formula_map
 from services.rendering.source.items import iter_valid_translated_items
 from services.rendering.layout.inline_content.fallback.png_renderer import compile_formula_png
 from services.rendering.layout.inline_content.mode_router import is_direct_typst_math_mode
-from services.translation.core.payload import re_protect_restored_formulas
+from services.translation.public import re_protect_restored_formulas
 
 
 DIRECT_MATH_TOKEN_RE = re.compile(r"(?<!\\)\$(?:\\.|[^$\\\n])+(?<!\\)\$|\s+|[^\s]+")

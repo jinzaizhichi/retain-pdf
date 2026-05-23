@@ -6,7 +6,7 @@ from services.document_schema.semantics import is_bodylike_block
 from services.rendering.layout.font_roles import is_title_like_block
 from services.rendering.layout.payload.render_item import get_render_inner_bbox
 from services.rendering.layout.typography.geometry import inner_bbox
-from services.translation.core.item_reader import item_block_kind
+from services.translation.public import item_block_kind
 
 
 BODY_TIGHT_GAP_MAX_INSET_RATIO = 0.03

@@ -21,7 +21,7 @@ from services.rendering.layout.payload.block_seed_metrics import collect_page_se
 from services.rendering.layout.payload.prepare import prepare_render_payloads_by_page
 from services.rendering.layout.payload.render_item import get_render_first_line_indent_pt
 from services.rendering.policy import apply_render_pages_policy_fields
-from services.translation.core.item_reader import item_block_kind
+from services.translation.public import item_block_kind
 
 
 RENDER_PREWARM_DIR_NAME = "render_prewarm"

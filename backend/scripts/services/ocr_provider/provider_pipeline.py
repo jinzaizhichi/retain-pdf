@@ -49,10 +49,10 @@ from services.pipeline_shared.events import pipeline_event_writer_scope
 from services.pipeline_shared.io import save_json
 from services.pipeline_shared.summary import print_pipeline_summary
 from services.pipeline_shared.summary import write_pipeline_summary
-from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL
-from services.translation.llm.shared.provider_runtime import get_api_key
-from services.translation.llm.shared.provider_runtime import normalize_base_url
-from services.translation.services.terms import parse_glossary_json
+from services.translation.public import DEFAULT_BASE_URL
+from services.translation.public import get_api_key
+from services.translation.public import normalize_base_url
+from services.translation.public import parse_glossary_json
 
 _SOURCE_DOWNLOAD_SESSION = direct_session(pool_connections=4, pool_maxsize=4)
 

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from services.translation.services.terms import GlossaryEntry
-from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL
-from services.translation.llm.shared.provider_runtime import DEFAULT_MODEL
-from services.translation.workflow import TranslationExecutionRequest
-from services.translation.workflow import execute_translation_request
+from services.translation.public import GlossaryEntry
+from services.translation.public import DEFAULT_BASE_URL
+from services.translation.public import DEFAULT_MODEL
+from services.translation.public import TranslationExecutionRequest
+from services.translation.public import execute_translation_request
 
 
 def translate_book_pipeline(

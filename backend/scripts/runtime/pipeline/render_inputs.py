@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from services.translation.core.payload import TRANSLATION_MANIFEST_FILE_NAME
+from services.translation.public import TRANSLATION_MANIFEST_FILE_NAME
 
 
 RENDER_INPUT_ERROR_PREFIX = "Render-only input error"

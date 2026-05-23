@@ -7,7 +7,7 @@ from services.rendering.policy.geometry import item_rect
 from services.rendering.policy.geometry import x_overlap_ratio
 from services.rendering.policy.models import RenderItemPolicy
 from services.rendering.policy.models import RenderPagePolicy
-from services.translation.core.item_reader import item_block_kind
+from services.translation.public import item_block_kind
 
 
 FORMULA_NEIGHBOR_X_OVERLAP_RATIO = 0.18

@@ -4,7 +4,7 @@ from services.document_schema.semantics import is_bodylike_block
 from services.document_schema.semantics import is_caption_like_block
 from services.document_schema.semantics import is_footnote_like_block
 from services.document_schema.semantics import is_title_like_block
-from services.translation.core.item_reader import item_block_kind
+from services.translation.public import item_block_kind
 
 
 COVER_EXPAND_BODY_RATIO = 0.01

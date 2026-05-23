@@ -97,8 +97,8 @@ Rust API 对应暴露了：
 
 一级目录按稳定职责划分。新代码优先放入这些目录，不要在根目录继续增加大文件。
 
-根目录只保留兼容入口和薄 shim。新代码不要再新增 `translation/*.py`
-大文件，也不要继续依赖根目录 shim；优先使用下表里的真实目录。
+根目录只保留 `README.md` 和包初始化。新代码不要再新增 `translation/*.py`
+大文件；外部模块需要 translation 能力时，优先走 `public/`。
 
 | 目录 | 职责 | 不该做的事 |
 | --- | --- | --- |
@@ -108,6 +108,26 @@ Rust API 对应暴露了：
 | `services/` | 翻译业务能力：policy、continuation、classification、context、terms、memory、quality、agents、postprocess、results。 | 不做外部入口解析；不直接依赖 runtime pipeline。 |
 | `llm/` | LLM provider、prompt 协议、缓存、响应解析、重试和校验入口。 | 不读取 OCR 文件；不决定页面级 workflow。 |
 | `artifacts/` | 结构化诊断、debug index、review artifact、运行统计输出。 | 不承担业务决策；不调用 provider。 |
+| `public/` | 给 runtime、rendering、ocr_provider 等 translation 外部生产代码使用的稳定门面。 | 不写业务逻辑；不把内部临时 helper 随手暴露出去。 |
+
+### 外部公开入口
+
+production 代码在 translation 外部引用本模块时，默认只允许：
+
+- `services.translation.public`
+  runtime、rendering、ocr_provider 共享的稳定 contract，例如 glossary entry、provider runtime 默认值、translation manifest 读取、item role helper、公式保护 helper、diagnostics writer。
+- `services.translation.entrypoints.*`
+  CLI/worker 入口脚本使用。
+
+`runtime/pipeline/**`、`services/rendering/**`、`services/ocr_provider/**` 不应直接 import：
+
+- `services.translation.core`
+- `services.translation.services`
+- `services.translation.llm`
+- `services.translation.workflow`
+- `services.translation.artifacts`
+
+如果这些外部模块确实需要新的 translation 能力，先把它设计成稳定 contract 后加到 `public/`，再由外部调用。
 
 ### 依赖方向
 
@@ -126,6 +146,8 @@ llm
   -> core / artifacts
 artifacts
   -> core
+public
+  -> core / workflow / llm provider runtime / artifacts
 ```
 
 当前仍有少量过渡例外：

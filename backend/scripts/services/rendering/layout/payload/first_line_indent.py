@@ -10,8 +10,8 @@ from services.rendering.layout.font_roles import is_footnote_like_block
 from services.rendering.layout.font_roles import is_title_like_block
 from services.rendering.layout.typography.measurement import bbox_height
 from services.rendering.layout.typography.measurement import bbox_width
-from services.translation.core.item_reader import item_layout_role
-from services.translation.core.item_reader import item_semantic_role
+from services.translation.public import item_layout_role
+from services.translation.public import item_semantic_role
 
 
 INDENT_RENDER_SCALE = 2.0

@@ -9,7 +9,7 @@ from services.rendering.policy.geometry import item_rect
 from services.rendering.policy.geometry import merge_rects
 from services.rendering.policy.geometry import rect_list
 from services.rendering.policy.geometry import x_overlap_ratio
-from services.translation.core.item_reader import item_block_kind
+from services.translation.public import item_block_kind
 
 
 FORMULA_GUARD_VERTICAL_PAD_PT = 12.0

@@ -15,8 +15,8 @@ from services.translation.llm.validation.errors import PlaceholderInventoryError
 from services.translation.llm.validation.errors import SuspiciousKeepOriginError
 from services.translation.llm.validation.errors import TranslationProtocolError
 from services.translation.llm.validation.errors import UnexpectedPlaceholderError
-from services.translation.services.policy.metadata_filter import looks_like_url_fragment
-from services.translation.services.policy.soft_hints import looks_like_code_literal_text_value
+from services.translation.core.text_rules import looks_like_code_literal_text_value
+from services.translation.core.text_rules import looks_like_url_fragment
 from services.translation.services.quality import TranslationQualityIssue
 from services.translation.services.quality import review_translation_item
 from services.translation.services.quality import should_reject_keep_origin

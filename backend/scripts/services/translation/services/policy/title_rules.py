@@ -1,12 +1,7 @@
 from __future__ import annotations
 
 from services.translation.core.item_reader import item_is_title_like
-
-
-TITLE_STYLE_HINT = (
-    "Title rule: translate titles as concise formal headings. Preserve numbering, "
-    "formula placeholders, symbols, and proper nouns; do not expand into body prose."
-)
+from services.translation.core.text_rules import TITLE_STYLE_HINT
 
 
 def is_title_translation_candidate(item: dict | None) -> bool:

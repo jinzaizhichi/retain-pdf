@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from services.translation.services.policy.title_rules import TITLE_STYLE_HINT
+from services.translation.core.text_rules import TITLE_STYLE_HINT
 
 STYLE_HINTS_BY_ROLE = {
     "abstract": "This block is an abstract sentence or paragraph. Translate it as compact academic summary prose.",

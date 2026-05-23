@@ -16,9 +16,9 @@ from services.translation.llm.validation.text_features import english_chunk_word
 from services.translation.llm.validation.text_features import english_word_count
 from services.translation.llm.validation.text_features import looks_like_short_fragment_text
 from services.translation.llm.validation.text_features import zh_char_count
-from services.translation.services.policy.metadata_filter import looks_like_url_fragment
-from services.translation.services.policy.reference_section import looks_like_reference_entry_text
-from services.translation.services.policy.soft_hints import looks_like_code_literal_text_value
+from services.translation.core.text_rules import looks_like_code_literal_text_value
+from services.translation.core.text_rules import looks_like_reference_entry_text
+from services.translation.core.text_rules import looks_like_url_fragment
 
 
 def normalize_inline_whitespace(text: str) -> str:

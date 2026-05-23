@@ -12,7 +12,7 @@ from services.translation.llm.validation.english_residue import is_direct_math_m
 from services.translation.llm.validation.english_residue import should_force_translate_body_text
 from services.translation.llm.validation.placeholder_tokens import placeholder_sequence
 from services.translation.core.payload.parts.common import item_source_text
-from services.translation.services.policy.metadata_filter import looks_like_hard_nontranslatable_metadata
+from services.translation.core.text_rules import looks_like_hard_nontranslatable_metadata
 
 
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?;:])\s+")

@@ -5,84 +5,21 @@ import re
 from services.translation.core.item_reader import item_block_kind
 from services.translation.core.item_reader import item_is_plain_text_block
 from services.translation.core.item_reader import item_is_bodylike
+from services.translation.core.text_rules import looks_like_code_literal_text_value
+from services.translation.core.text_rules import natural_word_count
 
 
-EN_WORD_RE = re.compile(r"[A-Za-z]+(?:[-'][A-Za-z]+)?")
 FLAG_TOKEN_RE = re.compile(r"^-{1,2}[A-Za-z0-9][\w.-]*$")
 FILE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,8}$")
 NUMBER_TOKEN_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
 COMMAND_HEAD_RE = re.compile(r"^[A-Za-z][\w.-]{0,31}$")
 ARG_TOKEN_RE = re.compile(r"^<[^<>\n]+>$")
-PROSE_CUE_RE = re.compile(
-    r"\b(a|an|the|this|that|these|those|is|are|was|were|be|been|being|has|have|had|do|does|did|"
-    r"can|could|may|might|must|should|would|will|our|their|its|during|through|within|than|"
-    r"therefore|however|because|while|where|which|whose|method|function|equation|theory|"
-    r"energy|calculation|model|procedure|results|using|used|shows|demonstrates)\b",
-    re.I,
-)
-FORTRAN_LOOP_RE = re.compile(r"\bDO\d+[A-Z]\s*=", re.I)
-FORTRAN_FLOAT_RE = re.compile(r"\b\d+(?:\.\d+)?D[+-]?\d+\b", re.I)
-INDEXED_SYMBOL_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\([A-Za-z0-9_,]+\)")
-ALL_CAPS_CODE_TOKEN_RE = re.compile(r"^[A-Z][A-Z0-9_.-]{3,}$")
-MIXED_ALNUM_TOKEN_RE = re.compile(r"(?=.*[A-Za-z])(?=.*\d)")
-CODE_OPERATOR_CHARS = set("(){}[]=*<>+/,;:")
 
 _COMMAND_OPERATORS = {">", "<", "|", "||", "&&", "2>", "1>", ">>", "=", ":"}
 
 
 def normalized_source_text(item: dict) -> str:
     return " ".join((item.get("source_text") or "").split())
-
-
-def looks_like_code_literal_text_value(text: str) -> bool:
-    normalized = " ".join((text or "").split())
-    if not normalized:
-        return False
-    if len(normalized) < 24:
-        return False
-    if any("\u4e00" <= ch <= "\u9fff" for ch in normalized):
-        return False
-    tokens = normalized.split()
-    if not 2 <= len(tokens) <= 64:
-        return False
-
-    codeish_tokens = 0
-    for token in tokens:
-        stripped = token.strip()
-        if not stripped:
-            continue
-        if INDEXED_SYMBOL_RE.search(stripped):
-            codeish_tokens += 1
-            continue
-        if FORTRAN_FLOAT_RE.search(stripped):
-            codeish_tokens += 1
-            continue
-        if any(ch in CODE_OPERATOR_CHARS for ch in stripped):
-            codeish_tokens += 1
-            continue
-        if ALL_CAPS_CODE_TOKEN_RE.fullmatch(stripped):
-            codeish_tokens += 1
-            continue
-        if "_" in stripped or MIXED_ALNUM_TOKEN_RE.search(stripped):
-            codeish_tokens += 1
-
-    alpha_chars = sum(ch.isalpha() for ch in normalized)
-    uppercase_alpha_chars = sum(ch.isupper() for ch in normalized if ch.isalpha())
-    uppercase_ratio = uppercase_alpha_chars / max(1, alpha_chars)
-    operator_char_count = sum(1 for ch in normalized if ch in CODE_OPERATOR_CHARS)
-    prose_cues = bool(PROSE_CUE_RE.search(normalized))
-    prose_words = natural_word_count(normalized)
-
-    if FORTRAN_LOOP_RE.search(normalized) and codeish_tokens >= 2:
-        return True
-    if codeish_tokens >= max(3, len(tokens) // 2):
-        if prose_words <= 4:
-            return True
-        if uppercase_ratio >= 0.55 and not prose_cues:
-            return True
-        if operator_char_count >= max(6, len(normalized) // 18):
-            return True
-    return False
 
 
 def looks_like_code_literal_text(item: dict) -> bool:
@@ -107,10 +44,6 @@ def extract_line_texts(item: dict) -> list[str]:
         if text:
             lines.append(text)
     return lines
-
-
-def natural_word_count(text: str) -> int:
-    return len([word for word in EN_WORD_RE.findall(text or "") if len(word) >= 3])
 
 
 def _looks_like_command_head(token: str) -> bool:

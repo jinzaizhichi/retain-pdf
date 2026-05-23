@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from services.translation.core.ocr.normalized_reader import is_normalized_document
+from services.translation.core.text_rules import looks_like_reference_entry_text
 
 
 REFERENCE_HEADING_SET = {
@@ -84,30 +85,6 @@ def resolve_reference_cutoff(data: dict) -> tuple[int | None, int | None]:
                         return page_idx, block_idx
                 stack[0:0] = list(current.get("blocks", []) or [])
     return None, None
-
-
-def looks_like_reference_entry_text(text: str) -> bool:
-    normalized = _normalize_spaces(text)
-    if not normalized:
-        return False
-    comma_count = normalized.count(",") + normalized.count(";")
-    year = bool(YEAR_RE.search(normalized))
-    doi = bool(DOI_RE.search(normalized))
-    journal = bool(JOURNAL_RE.search(normalized))
-    page_range = bool(PAGE_RANGE_RE.search(normalized))
-    indexed = bool(REF_INDEX_RE.match(normalized))
-    author_start = bool(AUTHOR_START_RE.match(normalized))
-    if doi and (year or comma_count >= 1):
-        return True
-    if indexed and (year or doi or journal or page_range or comma_count >= 2):
-        return True
-    if author_start and (year or doi or journal or page_range or comma_count >= 2):
-        return True
-    if year and journal and comma_count >= 1:
-        return True
-    if year and page_range and comma_count >= 1:
-        return True
-    return False
 
 
 def looks_like_reference_continuation_text(text: str) -> bool:

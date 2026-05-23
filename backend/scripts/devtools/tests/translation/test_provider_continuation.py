@@ -16,7 +16,7 @@ from services.translation.core.ocr.json_extractor import extract_text_items
 from services.translation.core.ocr.models import TextItem
 from services.translation.core.payload.translations import export_translation_template
 from services.translation.core.payload.translations import load_translations
-from services.translation.core.orchestration.document_orchestrator import _filter_boundary_candidate_pairs
+from services.translation.services.continuation.orchestrator import _filter_boundary_candidate_pairs
 
 
 def _ensure_package_stubs() -> None:

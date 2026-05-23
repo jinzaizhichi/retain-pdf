@@ -4,9 +4,9 @@ from pathlib import Path
 
 from services.translation.services.continuation import annotate_continuation_context_global
 from services.translation.services.continuation import summarize_continuation_decisions
-from services.translation.core.orchestration.document_orchestrator import annotate_layout_zones_by_page
-from services.translation.core.orchestration.document_orchestrator import finalize_orchestration_metadata_by_page
-from services.translation.core.orchestration.document_orchestrator import review_candidate_continuation_pairs
+from services.translation.services.continuation.orchestrator import annotate_layout_zones_by_page
+from services.translation.services.continuation.orchestrator import finalize_orchestration_metadata_by_page
+from services.translation.services.continuation.orchestrator import review_candidate_continuation_pairs
 from services.translation.services.policy import TranslationPolicyConfig
 from services.translation.services.policy.flow import apply_translation_policies
 from services.translation.core.payload import summarize_payload

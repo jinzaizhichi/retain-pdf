@@ -7,11 +7,11 @@ from typing import Callable
 from services.translation.core.orchestration.units import finalize_orchestration_metadata_by_page
 from services.translation.core.orchestration.units import finalize_payload_orchestration_metadata
 from services.translation.core.orchestration.zones import annotate_payload_layout_zones
-from services.translation.services.continuation import apply_candidate_pair_joins
-from services.translation.services.continuation import candidate_continuation_pairs
-from services.translation.services.continuation import pair_break_score
-from services.translation.services.continuation import pair_join_score
-from services.translation.services.continuation import review_candidate_pairs
+from services.translation.services.continuation.pairs import apply_candidate_pair_joins
+from services.translation.services.continuation.pairs import candidate_continuation_pairs
+from services.translation.services.continuation.review import review_candidate_pairs
+from services.translation.services.continuation.rules import pair_break_score
+from services.translation.services.continuation.rules import pair_join_score
 
 
 def annotate_layout_zones_by_page(page_payloads: dict[int, list[dict]]) -> None:

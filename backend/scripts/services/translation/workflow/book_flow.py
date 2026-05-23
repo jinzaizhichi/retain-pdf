@@ -13,7 +13,7 @@ from services.translation.workflow.pages import save_pages
 from services.translation.workflow.page_policies import build_page_summaries
 from services.translation.artifacts import TranslationRunDiagnostics
 from services.translation.services.context.windows import annotate_translation_context_windows
-from services.translation.core.orchestration.document_orchestrator import finalize_orchestration_metadata_by_page
+from services.translation.services.continuation.orchestrator import finalize_orchestration_metadata_by_page
 from services.translation.llm.shared.control_context import TranslationControlContext
 from services.translation.services.policy import TranslationPolicyConfig
 from services.translation.core.payload import load_translations

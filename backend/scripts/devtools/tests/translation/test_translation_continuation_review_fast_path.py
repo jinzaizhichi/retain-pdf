@@ -9,7 +9,7 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 from services.translation.services.continuation import pairs as continuation_pairs
 from services.translation.services.continuation import rules as continuation_rules
-from services.translation.core.orchestration import document_orchestrator
+from services.translation.services.continuation import orchestrator
 
 
 def _install_minimal_continuation_stub() -> None:
@@ -58,7 +58,7 @@ def test_continuation_review_short_circuits_high_confidence_pairs() -> None:
         {"prev_item_id": "a", "next_item_id": "b"},
         {"prev_item_id": "c", "next_item_id": "d"},
     ]
-    auto_join, review = document_orchestrator._split_high_confidence_continuation_pairs(
+    auto_join, review = orchestrator._split_high_confidence_continuation_pairs(
         flat_payload,
         pairs,
     )
@@ -87,7 +87,7 @@ def test_continuation_review_keeps_mid_confidence_pairs_for_review() -> None:
     ]
     pairs = [{"prev_item_id": "a", "next_item_id": "b"}]
 
-    auto_join, review = document_orchestrator._split_high_confidence_continuation_pairs(
+    auto_join, review = orchestrator._split_high_confidence_continuation_pairs(
         flat_payload,
         pairs,
     )

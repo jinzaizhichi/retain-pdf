@@ -3,8 +3,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from services.translation.core.orchestration.document_orchestrator import annotate_payload_layout_zones
-from services.translation.core.orchestration.document_orchestrator import finalize_payload_orchestration_metadata
+from services.translation.services.continuation.orchestrator import annotate_payload_layout_zones
+from services.translation.services.continuation.orchestrator import finalize_payload_orchestration_metadata
 from services.translation.core.payload import apply_translated_text_map
 from services.translation.core.payload import pending_translation_items
 from services.translation.core.payload import summarize_payload

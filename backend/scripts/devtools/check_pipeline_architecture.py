@@ -218,10 +218,6 @@ TRANSLATION_LAYER_IMPORT_RULES: dict[str, tuple[str, ...]] = {
     ),
 }
 TRANSLATION_LAYER_IMPORT_EXCEPTIONS: dict[Path, tuple[str, ...]] = {
-    # Transitional orchestration code still constructs concrete payload records.
-    Path("core/orchestration/document_orchestrator.py"): (
-        "services.translation.services.policy",
-    ),
     # Current llm orchestration still bridges workflow-ish retry behavior until T04-T10 migrate runtime flow.
     Path("llm/shared/orchestration/fallbacks.py"): (
         "services.translation.services.postprocess",

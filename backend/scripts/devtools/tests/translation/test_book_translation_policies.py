@@ -10,9 +10,9 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 from services.translation.workflow.page_policies import finalize_page_payloads
 from services.translation.services.policy.flow import apply_translation_policies
 from services.translation.services.policy.config import build_translation_policy_config
-from services.translation.core.payload.parts.legacy_policy_mutations import apply_mixed_literal_split_policy
-from services.translation.core.payload.parts.legacy_policy_mutations import apply_cjk_source_keep_origin
-from services.translation.core.payload.parts.policy_mutations import apply_title_skip
+from services.translation.services.policy.payload_rules.legacy_policy_mutations import apply_mixed_literal_split_policy
+from services.translation.services.policy.payload_rules.legacy_policy_mutations import apply_cjk_source_keep_origin
+from services.translation.services.policy.payload_rules.policy_mutations import apply_title_skip
 from services.translation.services.context import TranslationDocumentContext
 from services.translation.services.policy.planner import TranslationPlanner
 

@@ -6,10 +6,10 @@ REPO_SCRIPTS_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 
-from services.translation.core.payload.parts.legacy_policy_mutations import apply_cjk_source_keep_origin
-from services.translation.core.payload.parts.legacy_policy_mutations import apply_mixed_literal_split_policy
-from services.translation.core.payload.parts.policy_mutations import reset_policy_state
-from services.translation.core.payload.parts.policy_mutations import apply_title_skip
+from services.translation.services.policy.payload_rules.legacy_policy_mutations import apply_cjk_source_keep_origin
+from services.translation.services.policy.payload_rules.legacy_policy_mutations import apply_mixed_literal_split_policy
+from services.translation.services.policy.payload_rules.policy_mutations import reset_policy_state
+from services.translation.services.policy.payload_rules.policy_mutations import apply_title_skip
 from services.translation.services.policy.config import build_translation_policy_config
 from services.translation.services.policy.flow import apply_translation_policies
 
@@ -327,7 +327,7 @@ def test_apply_mixed_literal_split_policy_forces_bad_ocr_prose_to_translate_all(
     ]
 
     monkeypatch.setattr(
-        "services.translation.core.payload.parts.legacy_policy_mutations.split_mixed_literal_items",
+        "services.translation.services.policy.payload_rules.legacy_policy_mutations.split_mixed_literal_items",
         lambda *args, **kwargs: {"p005-b005": ("keep_all", "")},
     )
 

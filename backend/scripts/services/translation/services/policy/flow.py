@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from services.translation.services.context import TranslationDocumentContext
-from services.translation.core.payload import ops as payload_ops
 from services.translation.services.policy.config import TranslationPolicyConfig
 from services.translation.services.policy.config import build_translation_policy_config
 from services.translation.services.policy.hints import apply_policy_hints
+from services.translation.services.policy.payload_rules import apply_classification_labels
+from services.translation.services.policy.payload_rules import apply_reference_tail_skip
+from services.translation.services.policy.payload_rules import apply_title_skip
+from services.translation.services.policy.payload_rules import reset_policy_state
 from services.translation.services.policy.planner import TranslationPlanner
 from services.translation.services.policy.structured_technical_blocks import collect_structured_technical_hints
 from services.translation.services.policy.title_rules import apply_title_translation_rule
@@ -59,7 +62,7 @@ def apply_translation_policies(
             sci_cutoff_block_idx=sci_cutoff_block_idx,
         )
 
-    payload_ops.reset_policy_state(payload)
+    reset_policy_state(payload)
     title_translation_candidates = apply_title_translation_rule(payload)
     structured_technical_blocks = apply_policy_hints(payload, collect_structured_technical_hints(payload))
     classified_items = 0
@@ -90,11 +93,11 @@ def apply_translation_policies(
                 flush=True,
             )
             labels = {}
-        classified_items = payload_ops.apply_classification_labels(payload, labels)
+        classified_items = apply_classification_labels(payload, labels)
 
     if policy_config.enable_reference_tail_skip:
-        title_skipped = payload_ops.apply_title_skip(payload)
-        reference_tail_skipped = payload_ops.apply_reference_tail_skip(
+        title_skipped = apply_title_skip(payload)
+        reference_tail_skipped = apply_reference_tail_skip(
             payload,
             page_idx=page_idx,
             cutoff_page_idx=policy_config.sci_cutoff_page_idx,
@@ -106,7 +109,7 @@ def apply_translation_policies(
         )
     elif policy_config.enable_title_skip:
         skip_summary = _build_skip_summary(
-            title_skipped=payload_ops.apply_title_skip(payload),
+            title_skipped=apply_title_skip(payload),
             reference_tail_skipped=0,
         )
 

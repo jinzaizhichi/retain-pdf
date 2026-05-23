@@ -10,8 +10,8 @@ from services.translation.core.item_reader import item_is_title_like
 from services.translation.core.item_reader import item_policy_translate
 from services.translation.core.item_reader import item_structure_role
 
-from .common import RESETTABLE_LABEL_PREFIXES
-from .common import clear_translation_fields
+from services.translation.core.payload.parts.common import RESETTABLE_LABEL_PREFIXES
+from services.translation.core.payload.parts.common import clear_translation_fields
 from .policy_defaults import foundational_skip_defaults
 from .policy_state import mark_item_skipped
 from .policy_state import preserve_source_as_translation

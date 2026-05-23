@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .common import clear_translation_fields
+from services.translation.core.payload.parts.common import clear_translation_fields
 
 
 def mark_item_skipped(item: dict, label: str) -> None:

@@ -18,6 +18,7 @@ DOCUMENT_SCHEMA_ROOT = SCRIPTS_ROOT / "services" / "document_schema"
 TRANSLATION_ROOT = SCRIPTS_ROOT / "services" / "translation"
 RENDERING_ROOT = SCRIPTS_ROOT / "services" / "rendering"
 STAGE_SPEC_CONTRACT_CHECK = SCRIPTS_ROOT / "devtools" / "check_stage_specs_contract.py"
+DEVTOOLS_ROOT = SCRIPTS_ROOT / "devtools"
 
 PROVIDER_PRIVATE_IMPORT_PATTERNS = (
     "from services.ocr_provider",
@@ -364,6 +365,17 @@ ENTRYPOINT_IMPORT_ALLOWLIST: dict[Path, tuple[str, ...]] = {
     ),
     Path("validate_document_schema.py"): ("from services.document_schema import",),
 }
+DEVTOOLS_TRANSLATION_INTERNAL_IMPORT_ALLOWLIST = {
+    Path("job_debug_runner.py"),
+    Path("replay_translation_item.py"),
+    Path("run_golden_flow.py"),
+    Path("translation_repair_runner.py"),
+}
+DEVTOOLS_TRANSLATION_INTERNAL_DIR_ALLOWLIST = {
+    "experiments",
+    "promptfoo",
+    "tests",
+}
 
 
 def scan_py_files(root: Path) -> list[Path]:
@@ -651,6 +663,33 @@ def check_translation_public_surface_usage(errors: list[str]) -> None:
                         f"{rel(path)}: production code outside translation must import translation contracts through services.translation.public, not '{module}'"
                     )
                     break
+
+
+def check_devtools_translation_internal_usage(errors: list[str]) -> None:
+    forbidden_prefixes = (
+        "services.translation.artifacts",
+        "services.translation.core",
+        "services.translation.llm",
+        "services.translation.services",
+        "services.translation.workflow",
+    )
+    for path in scan_py_files(DEVTOOLS_ROOT):
+        rel_path = path.relative_to(DEVTOOLS_ROOT)
+        if rel_path.parts and rel_path.parts[0] in DEVTOOLS_TRANSLATION_INTERNAL_DIR_ALLOWLIST:
+            continue
+        if path == Path(__file__).resolve():
+            continue
+        uses_translation_internal = any(
+            module_allowed(module, forbidden_prefixes)
+            for module in imported_modules(path)
+        )
+        if not uses_translation_internal:
+            continue
+        if rel_path in DEVTOOLS_TRANSLATION_INTERNAL_IMPORT_ALLOWLIST:
+            continue
+        errors.append(
+            f"{rel(path)}: devtools script imports translation internals; add it to DEVTOOLS_TRANSLATION_INTERNAL_IMPORT_ALLOWLIST or use services.translation.public"
+        )
 
 
 def check_render_pipeline_facade_boundary(errors: list[str]) -> None:
@@ -1091,6 +1130,7 @@ def main() -> int:
     check_stage_spec_contract_checker(errors)
     check_translation_pipeline_facade_boundary(errors)
     check_translation_public_surface_usage(errors)
+    check_devtools_translation_internal_usage(errors)
     check_render_pipeline_facade_boundary(errors)
     check_rendering_internal_boundaries(errors)
     check_translation_rendering_separation(errors)

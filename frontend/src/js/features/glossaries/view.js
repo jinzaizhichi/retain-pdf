@@ -122,6 +122,9 @@ export function appendGlossaryEntryRow(entry = {}) {
   const targetCell = document.createElement("td");
   targetCell.append(createTextInput(entry.target, "glossary-entry-target", "可留空"));
 
+  const noteCell = document.createElement("td");
+  noteCell.append(createTextInput(entry.note, "glossary-entry-note", "可选"));
+
   const levelCell = document.createElement("td");
   levelCell.append(createSelect(ENTRY_LEVEL_OPTIONS, entry.level || "preserve", "glossary-entry-level"));
 
@@ -136,7 +139,7 @@ export function appendGlossaryEntryRow(entry = {}) {
   removeButton.textContent = "×";
   actionCell.append(removeButton);
 
-  tr.append(sourceCell, targetCell, levelCell, matchCell, actionCell);
+  tr.append(sourceCell, targetCell, noteCell, levelCell, matchCell, actionCell);
   tbody.append(tr);
   empty?.classList.add("hidden");
 }
@@ -162,7 +165,7 @@ export function readGlossaryEditorPayload() {
       level,
       match_mode: row.querySelector(".glossary-entry-match")?.value || "case_insensitive",
       context: "",
-      note: "",
+      note: row.querySelector(".glossary-entry-note")?.value?.trim() || "",
     });
   });
   return {
@@ -195,6 +198,7 @@ export function bindGlossaryViewEvents({
   addRow,
   save,
   deleteCurrent,
+  exportCurrent,
   showImport,
   hideImport,
   applyImport,
@@ -205,6 +209,7 @@ export function bindGlossaryViewEvents({
   $("glossary-add-row-btn")?.addEventListener("click", addRow);
   $("glossary-save-btn")?.addEventListener("click", save);
   $("glossary-delete-btn")?.addEventListener("click", deleteCurrent);
+  $("glossary-export-btn")?.addEventListener("click", exportCurrent);
   $("glossary-import-btn")?.addEventListener("click", showImport);
   $("glossary-import-cancel-btn")?.addEventListener("click", hideImport);
   $("glossary-import-apply-btn")?.addEventListener("click", applyImport);

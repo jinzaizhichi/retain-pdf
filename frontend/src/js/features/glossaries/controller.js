@@ -1,4 +1,15 @@
 import {
+  completeDownloadToast,
+  failDownloadToast,
+  showDownloadPreparing,
+  updateDownloadProgress,
+} from "../../download-feedback.js";
+import {
+  fileNameFromDisposition,
+  prepareDownloadTarget,
+  saveResponseDownload,
+} from "../../downloads.js";
+import {
   appendGlossaryEntryRow,
   bindGlossaryViewEvents,
   clearGlossaryCsvText,
@@ -19,6 +30,7 @@ export function mountGlossariesFeature({
   createGlossary,
   updateGlossary,
   deleteGlossary,
+  exportGlossaryCsv,
   parseGlossaryCsv,
   refreshWorkflowGlossaries,
 }) {
@@ -152,6 +164,45 @@ export function mountGlossariesFeature({
     }
   }
 
+  async function exportCurrent() {
+    if (!state.selectedId || state.draftOnly) {
+      setGlossaryStatus("请先保存术语表再导出。", "error");
+      return;
+    }
+    if (typeof exportGlossaryCsv !== "function") {
+      setGlossaryStatus("当前环境未接入术语表导出。", "error");
+      return;
+    }
+    const fallbackName = `${state.currentDetail?.name || state.selectedId || "glossary"}.csv`;
+    const downloadTarget = await prepareDownloadTarget(fallbackName);
+    if (downloadTarget.kind === "aborted") {
+      return;
+    }
+    setGlossaryStatus("正在导出 CSV...");
+    try {
+      showDownloadPreparing(fallbackName);
+      const resp = await exportGlossaryCsv(apiPrefix, state.selectedId);
+      const disposition = resp.headers.get("content-disposition") || "";
+      const filename = fileNameFromDisposition(disposition, fallbackName);
+      await saveResponseDownload(resp, {
+        target: downloadTarget,
+        filename,
+        onProgress: ({ receivedBytes, totalBytes, percent, done }) => {
+          if (done) {
+            completeDownloadToast(filename);
+            return;
+          }
+          updateDownloadProgress({ filename, receivedBytes, totalBytes, percent });
+        },
+      });
+      setGlossaryStatus(`已导出 ${filename}。`, "valid");
+    } catch (err) {
+      const message = err.message || String(err);
+      setGlossaryStatus(message, "error");
+      failDownloadToast(message);
+    }
+  }
+
   async function applyImport() {
     const csvText = readGlossaryCsvText();
     if (!csvText.trim()) {
@@ -183,6 +234,7 @@ export function mountGlossariesFeature({
       addRow: () => appendGlossaryEntryRow(),
       save,
       deleteCurrent,
+      exportCurrent,
       showImport: () => setGlossaryImportVisible(true),
       hideImport: () => setGlossaryImportVisible(false),
       applyImport,

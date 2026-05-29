@@ -3,6 +3,7 @@ import { mountGlossariesFeature } from "../features/glossaries/controller.js";
 import {
   createGlossary,
   deleteGlossary,
+  exportGlossaryCsv,
   fetchGlossaries,
   fetchGlossary,
   parseGlossaryCsv,
@@ -17,6 +18,7 @@ export function mountGlossaryFeature(features) {
     createGlossary,
     updateGlossary,
     deleteGlossary,
+    exportGlossaryCsv,
     parseGlossaryCsv,
     refreshWorkflowGlossaries: (options) => features.workflowFeature?.loadGlossaryOptions(options),
   });

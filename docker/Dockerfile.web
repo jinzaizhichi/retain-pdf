@@ -5,6 +5,7 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
+COPY desktop/package.json /app/desktop/package.json
 COPY frontend/ ./
 RUN npm run build && \
   : > ./runtime-config.local.js

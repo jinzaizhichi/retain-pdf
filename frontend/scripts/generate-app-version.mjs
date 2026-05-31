@@ -39,7 +39,7 @@ function readGitVersion() {
 }
 
 const desktopPackage = JSON.parse(fs.readFileSync(desktopPackagePath, "utf8"));
-const appVersion = readGitVersion() || desktopPackage.version || "0.0.0";
+const appVersion = desktopPackage.version || readGitVersion() || "0.0.0";
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(
   outputPath,

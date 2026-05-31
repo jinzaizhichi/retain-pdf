@@ -5,12 +5,19 @@ import fitz
 from services.rendering.source.rects import rect_area
 
 
+TILED_BACKGROUND_IMAGE_MIN_COUNT = 8
+TILED_BACKGROUND_IMAGE_COVERAGE_RATIO = 0.65
+TILED_BACKGROUND_IMAGE_MIN_WIDTH_RATIO = 0.60
+
+
 def page_has_large_background_image(
     page: fitz.Page,
     *,
     coverage_ratio_threshold: float = 0.75,
 ) -> bool:
-    return pick_primary_background_image(page, coverage_ratio_threshold=coverage_ratio_threshold) is not None
+    if pick_primary_background_image(page, coverage_ratio_threshold=coverage_ratio_threshold) is not None:
+        return True
+    return page_has_tiled_background_images(page)
 
 
 def pick_primary_background_image(
@@ -47,7 +54,69 @@ def pick_primary_background_image(
     return best[1], best[2]
 
 
+def page_has_tiled_background_images(
+    page: fitz.Page,
+    *,
+    coverage_ratio_threshold: float = TILED_BACKGROUND_IMAGE_COVERAGE_RATIO,
+    min_image_count: int = TILED_BACKGROUND_IMAGE_MIN_COUNT,
+    min_width_ratio: float = TILED_BACKGROUND_IMAGE_MIN_WIDTH_RATIO,
+) -> bool:
+    page_area = max(rect_area(page.rect), 1.0)
+    page_width = max(float(page.rect.width), 1.0)
+    image_rects = _image_rects(page)
+    if len(image_rects) < min_image_count:
+        return False
+
+    page_wide_rects = [
+        rect
+        for rect in image_rects
+        if (rect & page.rect).width / page_width >= min_width_ratio
+    ]
+    if len(page_wide_rects) < min_image_count:
+        return False
+
+    merged = _merge_vertical_image_bands(page_wide_rects)
+    covered_area = sum(rect_area(rect & page.rect) for rect in merged)
+    return covered_area / page_area >= coverage_ratio_threshold
+
+
+def _image_rects(page: fitz.Page) -> list[fitz.Rect]:
+    rects: list[fitz.Rect] = []
+    try:
+        images = page.get_images(full=True)
+    except Exception:
+        return rects
+    for image in images:
+        if not image:
+            continue
+        xref = image[0]
+        try:
+            image_rects = page.get_image_rects(xref)
+        except Exception:
+            continue
+        for rect in image_rects:
+            inter = rect & page.rect
+            if not inter.is_empty:
+                rects.append(inter)
+    return rects
+
+
+def _merge_vertical_image_bands(rects: list[fitz.Rect], *, y_tolerance: float = 1.0) -> list[fitz.Rect]:
+    merged: list[fitz.Rect] = []
+    for rect in sorted(rects, key=lambda r: (round(r.y0, 3), round(r.x0, 3))):
+        if not merged:
+            merged.append(fitz.Rect(rect))
+            continue
+        previous = merged[-1]
+        if rect.y0 <= previous.y1 + y_tolerance:
+            previous.include_rect(rect)
+        else:
+            merged.append(fitz.Rect(rect))
+    return merged
+
+
 __all__ = [
     "page_has_large_background_image",
+    "page_has_tiled_background_images",
     "pick_primary_background_image",
 ]

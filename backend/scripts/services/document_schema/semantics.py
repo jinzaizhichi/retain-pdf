@@ -13,6 +13,7 @@ BODYLIKE_SEMANTIC_ROLES = {"body", "abstract"}
 BODYLIKE_STRUCTURE_ROLES = {"", "body", "abstract", "example_line", "option_header", "option_description", "example_intro"}
 TITLE_LIKE_LAYOUT_ROLES = {"title", "heading"}
 TITLE_LIKE_STRUCTURE_ROLES = {"title", "heading", "section_heading"}
+TEXTUAL_LAYOUT_ROLES = {"title", "heading", "paragraph", "list_item", "caption"}
 
 
 def normalize_tags(tags: list[str] | set[str] | tuple[str, ...] | None) -> set[str]:
@@ -40,6 +41,14 @@ def layout_role(payload: dict | None) -> str:
 def semantic_role(payload: dict | None) -> str:
     source = payload or {}
     return str(source.get("semantic_role", "") or "").strip().lower()
+
+
+def block_kind(payload: dict | None) -> str:
+    source = payload or {}
+    explicit = str(source.get("block_kind", "") or "").strip()
+    if explicit:
+        return explicit.lower()
+    return str(source.get("block_type", "") or "unknown").strip().lower() or "unknown"
 
 
 def policy_translate(payload: dict | None) -> bool | None:
@@ -150,6 +159,25 @@ def is_bodylike_block(payload: dict | None) -> bool:
     )
 
 
+def is_textual_block(payload: dict | None) -> bool:
+    if block_kind(payload) == "text":
+        return True
+    return layout_role(payload) in TEXTUAL_LAYOUT_ROLES
+
+
+def is_plain_text_block(payload: dict | None) -> bool:
+    return block_kind(payload) == "text" and not (
+        is_caption_like_block(payload)
+        or is_footnote_like_block(payload)
+        or is_reference_entry_semantic(payload)
+        or is_title_like_block(payload)
+    )
+
+
+def is_plain_bodylike_block(payload: dict | None) -> bool:
+    return is_plain_text_block(payload) and is_bodylike_block(payload)
+
+
 def build_role_profile(payload: dict | None) -> dict[str, object]:
     source = payload or {}
     return {
@@ -158,6 +186,7 @@ def build_role_profile(payload: dict | None) -> dict[str, object]:
         "structure_role": structure_role(source),
         "normalized_sub_type": normalized_sub_type(source),
         "policy_translate": policy_translate(source),
+        "block_kind": block_kind(source),
         "is_caption_like": is_caption_like_block(source),
         "is_footnote_like": is_footnote_like_block(source),
         "is_reference_heading": is_reference_heading_semantic(source),
@@ -166,6 +195,9 @@ def build_role_profile(payload: dict | None) -> dict[str, object]:
         "is_metadata": is_metadata_semantic(source),
         "is_title_like": is_title_like_block(source),
         "is_bodylike": is_bodylike_block(source),
+        "is_textual": is_textual_block(source),
+        "is_plain_text": is_plain_text_block(source),
+        "is_plain_bodylike": is_plain_bodylike_block(source),
     }
 
 

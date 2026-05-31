@@ -1,4 +1,8 @@
 import { $ } from "./dom.js";
+import {
+  setStatusAreaVisible,
+  statusCardElement,
+} from "./status-area-view.js";
 
 export function setTextView(id, value) {
   const el = $(id);
@@ -15,12 +19,12 @@ export function setInputValueView(id, value) {
 }
 
 export function statusSectionStatus() {
-  return $("status-section")?.getAttribute("data-status") || "";
+  return statusCardElement()?.getAttribute("data-status") || "";
 }
 
 export function setStatusView(status) {
   const normalized = status || "idle";
-  $("status-section")?.setAttribute("data-status", normalized);
+  statusCardElement()?.setAttribute("data-status", normalized);
   const el = $("job-status");
   if (el) {
     el.textContent = normalized;
@@ -29,7 +33,7 @@ export function setStatusView(status) {
 }
 
 export function setStatusCardElapsed(value) {
-  const statusCard = document.querySelector("job-status-card");
+  const statusCard = statusCardElement();
   if (statusCard?.setElapsed && !statusCard?.renderSnapshot) {
     statusCard.setElapsed(value);
     return;
@@ -39,19 +43,13 @@ export function setStatusCardElapsed(value) {
 
 export function setWorkflowSectionsView({ hasJob, processing }) {
   const shell = $("app-shell");
-  $("status-section")?.classList.toggle("hidden", !hasJob);
-  if (!hasJob) {
-    shell?.classList.remove("processing-mode", "result-mode");
-    setBackHomeVisible(false);
-    return;
-  }
-  shell?.classList.toggle("processing-mode", processing);
-  shell?.classList.toggle("result-mode", !processing);
-  setBackHomeVisible(!processing);
+  setStatusAreaVisible(hasJob);
+  shell?.classList.remove("processing-mode", "result-mode");
+  setBackHomeVisible(hasJob && !processing);
 }
 
 export function setBackHomeVisible(visible) {
-  const statusCard = document.querySelector("job-status-card");
+  const statusCard = statusCardElement();
   if (statusCard?.setBackHomeVisible && !statusCard?.renderSnapshot) {
     statusCard.setBackHomeVisible(visible);
     return;
@@ -70,7 +68,7 @@ export function renderStatusRingFallback({
   pdfReady,
   readerReady,
 }) {
-  const statusCard = document.querySelector("job-status-card");
+  const statusCard = statusCardElement();
   if (statusCard?.setStagePresentation && !statusCard?.renderSnapshot) {
     statusCard.setStagePresentation({ label, value, stageKey });
   } else {
@@ -97,7 +95,7 @@ export function statusActionReady(id) {
 }
 
 export function renderStatusCardSnapshot(snapshot) {
-  const statusCard = document.querySelector("job-status-card");
+  const statusCard = statusCardElement();
   if (!statusCard?.renderSnapshot) {
     return false;
   }

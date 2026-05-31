@@ -3,15 +3,16 @@ from __future__ import annotations
 import json
 import os
 import re
+from typing import Callable
 
 from services.rendering.layout.payload.shared import get_render_formula_map
 from services.rendering.layout.payload.shared import get_render_protected_text
-from services.translation.public import request_chat_content
 
 
 TYPST_REPAIR_MODEL_ENV = "TYPST_REPAIR_MODEL"
 TYPST_REPAIR_BASE_URL_ENV = "TYPST_REPAIR_BASE_URL"
 TYPST_REPAIR_ENABLED_ENV = "TYPST_REPAIR_LLM_ENABLED"
+TypstRepairRequestFn = Callable[..., str]
 _FENCED_BLOCK_RE = re.compile(r"^\s*```[^\n]*\n(?P<body>.*)\n```\s*$", re.DOTALL)
 _PROTECTED_TEXT_BLOCK_RE = re.compile(
     r"<<<PROTECTED_TEXT>>>\s*(?P<content>.*?)\s*<<<END_PROTECTED_TEXT>>>",
@@ -126,7 +127,10 @@ def _repair_item_with_llm_for_typst(
     api_key: str,
     model: str,
     base_url: str,
+    request_chat_content_fn: TypstRepairRequestFn | None,
 ) -> dict:
+    if request_chat_content_fn is None:
+        return item
     repair_request = _resolve_typst_repair_request(
         api_key=api_key,
         model=model,
@@ -180,7 +184,7 @@ def _repair_item_with_llm_for_typst(
         },
     ]
     try:
-        content = request_chat_content(
+        content = request_chat_content_fn(
             messages,
             api_key=repair_api_key,
             model=repair_model,
@@ -218,6 +222,7 @@ def repair_items_with_llm_for_typst(
     api_key: str,
     model: str,
     base_url: str,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> list[dict]:
     patched: list[dict] = []
     bad_index_set = set(bad_indices)
@@ -232,6 +237,7 @@ def repair_items_with_llm_for_typst(
                 api_key=api_key,
                 model=model,
                 base_url=base_url,
+                request_chat_content_fn=request_chat_content_fn,
             )
         )
     return patched

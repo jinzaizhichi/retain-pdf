@@ -3,13 +3,16 @@ import { unwrapEnvelope } from "../job.js";
 import { getMockJobList } from "../mock.js";
 import { buildApiEndpoint } from "./http.js";
 
-export async function fetchLibraryBookList(apiPrefix, { limit = 40, offset = 0 } = {}) {
+export async function fetchLibraryBookList(apiPrefix, { limit = 40, offset = 0, q = "" } = {}) {
   if (isMockMode()) {
     return getMockJobList();
   }
   const params = new URLSearchParams();
   params.set("limit", `${limit}`);
   params.set("offset", `${offset}`);
+  if (`${q || ""}`.trim()) {
+    params.set("q", `${q || ""}`.trim());
+  }
   const resp = await fetch(`${buildApiEndpoint(apiPrefix, "library/books")}?${params.toString()}`, {
     headers: buildApiHeaders(),
   });

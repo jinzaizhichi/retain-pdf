@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 import fitz
 
@@ -15,8 +16,9 @@ from services.rendering.layout.model.models import RenderLayoutBlock
 from services.rendering.layout.model.models import RenderPageSpec
 from services.rendering.layout.title_fit import apply_title_fit_budget_to_render_blocks
 from services.rendering.policy import apply_render_pages_policy_fields
-from services.pipeline_shared.events import emit_render_page_progress
 from foundation.config import layout
+
+RenderPageSpecProgressCallback = Callable[[int, int, int], None]
 
 
 def _layout_block_from_render_block(block, *, page_index: int) -> RenderLayoutBlock:
@@ -96,6 +98,7 @@ def build_render_page_specs(
     translated_pages: dict[int, list[dict]],
     background_pdf_path: Path | None = None,
     prepared: bool = False,
+    on_page_spec_built: RenderPageSpecProgressCallback | None = None,
 ) -> list[RenderPageSpec]:
     prepared_pages = (
         apply_render_pages_policy_fields(translated_pages)
@@ -130,16 +133,8 @@ def build_render_page_specs(
                     background_pdf_path=background_pdf_path,
                 )
             )
-            emit_render_page_progress(
-                current=completed,
-                total=total_pages,
-                message=f"正在准备渲染页面，第 {completed}/{total_pages} 页",
-                payload={
-                    "render_stage": "layout_page_specs",
-                    "page_index": page_index,
-                    "substage": "render_pages",
-                },
-            )
+            if on_page_spec_built is not None:
+                on_page_spec_built(completed, total_pages, page_index)
         return page_specs
     finally:
         source_doc.close()

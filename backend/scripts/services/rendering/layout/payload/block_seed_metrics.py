@@ -12,7 +12,7 @@ from services.rendering.layout.font_fit import page_baseline_font_size
 from services.rendering.layout.font_fit import percentile_value
 from services.rendering.layout.payload.geometry_adjustments import build_effective_inner_bboxes
 from services.rendering.layout.typography.measurement import bbox_width
-from services.translation.public import item_block_kind
+from services.document_schema.semantics import block_kind
 
 
 BODY_PAGE_FONT_ANCHOR_PERCENTILE = 0.46
@@ -43,7 +43,7 @@ def collect_page_seed_metrics(
     page_width: float | None = None,
 ) -> PageSeedMetrics:
     page_font_size, page_line_pitch, page_line_height, density_baseline = page_baseline_font_size(translated_items)
-    text_widths = [bbox_width(item) for item in translated_items if item_block_kind(item) == "text" and not is_annotation_like(item)]
+    text_widths = [bbox_width(item) for item in translated_items if block_kind(item) == "text" and not is_annotation_like(item)]
     page_text_width_med = median(text_widths) if text_widths else 0.0
     body_base_sizes: list[float] = []
     body_flags: dict[int, bool] = {}

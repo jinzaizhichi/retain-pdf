@@ -15,6 +15,14 @@ class DeferredTransportRetry(Exception):
         super().__init__(f"deferred transport retry for {item.get('item_id', '')}: {type(cause).__name__}: {cause}")
 
 
+class DeferredValidationRetry(Exception):
+    def __init__(self, *, item: dict, route_path: list[str], cause: Exception) -> None:
+        self.item = item
+        self.route_path = list(route_path)
+        self.cause = cause
+        super().__init__(f"deferred validation retry for {item.get('item_id', '')}: {type(cause).__name__}: {cause}")
+
+
 def plain_text_timeout_seconds(
     item: dict,
     *,
@@ -52,6 +60,31 @@ def defer_transport_retry(
             flush=True,
         )
     raise DeferredTransportRetry(item=item, route_path=route_path, cause=cause)
+
+
+def defer_validation_retry(
+    item: dict,
+    *,
+    route_path: list[str],
+    cause: Exception,
+    request_label: str = "",
+    diagnostics: TranslationDiagnosticsCollector | None = None,
+) -> None:
+    if diagnostics is not None:
+        diagnostics.emit(
+            kind="validation_tail_retry_deferred",
+            item_id=str(item.get("item_id", "") or ""),
+            page_idx=item.get("page_idx"),
+            severity="warning",
+            message=f"Deferred validation retry to tail pass: {type(cause).__name__}",
+            retryable=True,
+        )
+    if request_label:
+        print(
+            f"{request_label}: validation failure deferred to tail queue: {type(cause).__name__}: {cause}",
+            flush=True,
+        )
+    raise DeferredValidationRetry(item=item, route_path=route_path, cause=cause)
 
 
 def build_transport_tail_retry_context(context):

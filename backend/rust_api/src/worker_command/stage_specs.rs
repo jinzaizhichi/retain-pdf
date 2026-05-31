@@ -39,18 +39,6 @@ fn ensure_specs_dir(job_paths: &JobPaths) -> Result<()> {
         .with_context(|| format!("create specs dir: {}", job_paths.specs_dir.display()))
 }
 
-fn translated_pdf_name(request: &ResolvedJobSpec, source_pdf_path: &Path) -> String {
-    let explicit = request.render.translated_pdf_name.trim();
-    if !explicit.is_empty() {
-        return explicit.to_string();
-    }
-    let stem = source_pdf_path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("translated");
-    format!("{stem}-translated.pdf")
-}
-
 pub(crate) fn write_normalize_stage_spec(
     request: &ResolvedJobSpec,
     job_paths: &JobPaths,
@@ -104,9 +92,6 @@ pub(crate) fn write_translate_stage_spec(
     } else {
         format!("env:{TRANSLATION_API_KEY_ENV_NAME}")
     };
-    let render_prewarm_output_pdf_path = job_paths
-        .rendered_dir
-        .join(translated_pdf_name(request, source_pdf_path));
     let payload = json!({
         "schema_version": TRANSLATE_STAGE_SCHEMA_VERSION,
         "stage": "translate",
@@ -143,10 +128,6 @@ pub(crate) fn write_translate_stage_spec(
             "model": request.translation.model,
             "base_url": request.translation.base_url,
             "credential_ref": credential_ref,
-            "render_prewarm_output_pdf_path": render_prewarm_output_pdf_path,
-            "render_prewarm_mode": request.render.render_mode,
-            "render_prewarm_pdf_compress_dpi": request.render.pdf_compress_dpi,
-            "render_prewarm_source_cleanup_strategy": request.render.source_cleanup_strategy,
         },
     });
     let content = serde_json::to_string_pretty(&payload)?;

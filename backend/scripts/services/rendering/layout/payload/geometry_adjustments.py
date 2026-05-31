@@ -6,7 +6,7 @@ from services.document_schema.semantics import is_bodylike_block
 from services.rendering.layout.font_roles import is_title_like_block
 from services.rendering.layout.payload.render_item import get_render_inner_bbox
 from services.rendering.layout.typography.geometry import inner_bbox
-from services.translation.public import item_block_kind
+from services.document_schema.semantics import block_kind as schema_block_kind
 
 
 BODY_TIGHT_GAP_MAX_INSET_RATIO = 0.03
@@ -200,8 +200,8 @@ def _previous_region_anchors(
 def _is_body_region_text_item(item: dict) -> bool:
     if is_title_like_block(item):
         return False
-    block_kind = item_block_kind(item)
-    if block_kind != "text" and not is_bodylike_block(item):
+    item_kind = schema_block_kind(item)
+    if item_kind != "text" and not is_bodylike_block(item):
         return False
     layout_role = str(item.get("layout_role", "") or "").strip().lower()
     semantic_role = str(item.get("semantic_role", "") or "").strip().lower()

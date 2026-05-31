@@ -32,8 +32,10 @@ def build_bbox_text_stripped_pdf_copy(
     page_protected_rects = candidates.fitz_page_protected_rects()
     skipped_complex = candidates.pages_skipped_complex
     skipped_no_text_overlap = candidates.pages_skipped_no_text_overlap
+    skipped_visual_background = candidates.pages_skipped_visual_background
     skipped_complex_page_indices = candidates.skipped_complex_page_indices
     skipped_no_text_overlap_page_indices = candidates.skipped_no_text_overlap_page_indices
+    skipped_visual_background_page_indices = candidates.skipped_visual_background_page_indices
     candidate_elapsed = time.perf_counter() - candidate_started
 
     if not page_rects:
@@ -42,8 +44,10 @@ def build_bbox_text_stripped_pdf_copy(
             candidates=candidates,
             pages_skipped_complex=skipped_complex,
             pages_skipped_no_text_overlap=skipped_no_text_overlap,
+            pages_skipped_visual_background=skipped_visual_background,
             skipped_complex_page_indices=frozenset(skipped_complex_page_indices),
             skipped_no_text_overlap_page_indices=frozenset(skipped_no_text_overlap_page_indices),
+            skipped_visual_background_page_indices=frozenset(skipped_visual_background_page_indices),
         )
 
     result = strip_bbox_text_rects_from_pdf_copy(
@@ -54,8 +58,10 @@ def build_bbox_text_stripped_pdf_copy(
         recurse_forms=recurse_forms,
         skipped_complex=skipped_complex,
         skipped_no_text_overlap=skipped_no_text_overlap,
+        skipped_visual_background=skipped_visual_background,
         skipped_complex_page_indices=skipped_complex_page_indices,
         skipped_no_text_overlap_page_indices=skipped_no_text_overlap_page_indices,
+        skipped_visual_background_page_indices=skipped_visual_background_page_indices,
         candidate_elapsed=candidate_elapsed,
     )
     return replace(result, candidates=candidates)

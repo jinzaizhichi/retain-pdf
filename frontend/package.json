@@ -4,14 +4,17 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build": "npm run prepare:vendor && npm run build:css",
+    "build": "npm run prepare:vendor && npm run generate:version && npm run build:css && npm run build:js",
     "build:css": "tailwindcss -c tailwind.config.js -i ./src/input.css -o ./styles.css --minify",
+    "build:js": "node ./scripts/build-js-bundle.mjs",
+    "generate:version": "node ./scripts/generate-app-version.mjs",
     "prepare:vendor": "node ./scripts/prepare-runtime-deps.mjs",
     "smoke:desktop-first-run": "node ./scripts/desktop-first-run-smoke.mjs",
     "smoke:status": "node ./scripts/frontend-status-smoke.mjs",
     "watch:css": "tailwindcss -c tailwind.config.js -i ./src/input.css -o ./styles.css --watch"
   },
   "devDependencies": {
+    "esbuild": "^0.28.0",
     "tailwindcss": "^3.4.17"
   },
   "dependencies": {

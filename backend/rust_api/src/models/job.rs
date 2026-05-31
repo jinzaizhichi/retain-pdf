@@ -20,7 +20,11 @@ pub use failure::{JobAiDiagnostic, JobFailureInfo, JobRawDiagnostic};
 pub use process::ProcessResult;
 pub use record::{JobRecord, JobRuntimeState, JobSnapshot};
 pub use runtime::{JobRuntimeInfo, JobStageTiming};
-pub use stage::{job_stage_detail, job_stage_str, normalize_job_stage, JobStage};
+pub use stage::{
+    event_progress_unit, job_progress_unit, job_stage_detail, job_stage_rank, job_stage_str,
+    job_user_stage, normalize_event_substage, normalize_event_user_stage, normalize_job_stage,
+    public_stage_for_raw_stage, public_stage_for_substage, JobStage,
+};
 
 #[cfg(test)]
 mod tests {

@@ -3,6 +3,8 @@ export function createCredentialState() {
     validatedOcrProvider: "",
     validatedOcrToken: "",
     ocrValidationStatus: "",
+    deepseekBalanceCny: null,
+    deepseekBalanceChecked: false,
   };
 }
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import time
+from typing import Callable
 
 import fitz
 
@@ -28,9 +29,24 @@ from services.rendering.output.typst.overlay_ops import overlay_translated_items
 from services.rendering.output.typst.overlay_ops import overlay_translated_pages_on_doc
 from services.rendering.output.typst.sanitize import sanitize_page_specs_for_typst_book_background
 from services.pipeline_shared.events import emit_render_compile_progress
+from services.pipeline_shared.events import emit_render_page_progress
 
 
 _BACKGROUND_SANITIZE_ALL_THRESHOLD = 64
+TypstRepairRequestFn = Callable[..., str]
+
+
+def _emit_page_spec_progress(completed: int, total_pages: int, page_index: int) -> None:
+    emit_render_page_progress(
+        current=completed,
+        total=total_pages,
+        message=f"正在准备渲染页面，第 {completed}/{total_pages} 页",
+        payload={
+            "render_stage": "layout_page_specs",
+            "page_index": page_index,
+            "substage": "render_pages",
+        },
+    )
 
 
 def _apply_background_page_color_adapt(
@@ -136,6 +152,7 @@ def _compile_render_pages_pdf_resilient(
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
     font_paths: list[Path] | None = None,
     work_dir: Path,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> tuple[Path, dict[str, object]]:
     diagnostics: dict[str, object] = {
         "background_compile_retried": False,
@@ -220,6 +237,7 @@ def _compile_render_pages_pdf_resilient(
             font_paths=font_paths,
             work_dir=work_dir,
             page_indices=sanitize_page_indices,
+            request_chat_content_fn=request_chat_content_fn,
         )
         diagnostics["background_sanitize_elapsed_seconds"] = time.perf_counter() - sanitize_started
         emit_render_compile_progress(
@@ -237,6 +255,7 @@ def _compile_render_pages_pdf_resilient(
             source_pdf_path=source_pdf_path,
             translated_pages=sanitized_pages,
             prepared=True,
+            on_page_spec_built=_emit_page_spec_progress,
         )
         sanitized_compile_started = time.perf_counter()
         compiled_path = compile_typst_render_pages_pdf(
@@ -272,6 +291,7 @@ def build_single_page_typst_pdf(
     temp_root: Path | None = None,
     cover_only: bool = False,
     redaction_strategy: str | None = None,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> None:
     prepared_items = prepare_single_page_items(translated_items, page_idx, source_pdf_path=source_pdf_path)
     temp_source_path = resolve_typst_temp_root(output_pdf_path, temp_root) / f"page-{page_idx + 1}-source.pdf"
@@ -298,6 +318,7 @@ def build_single_page_typst_pdf(
         temp_root=resolve_typst_temp_root(output_pdf_path, temp_root),
         cover_only=cover_only,
         redaction_strategy=redaction_strategy,
+        request_chat_content_fn=request_chat_content_fn,
     )
     save_optimized_pdf(temp_doc, output_pdf_path)
     temp_doc.close()
@@ -325,6 +346,7 @@ def build_book_typst_pdf(
     prebuilt_source_path: Path | None = None,
     source_cleanup_strategy: str = "typst_fill",
     precomputed_colors_by_item_id: dict[str, dict[str, tuple[float, float, float]]] | None = None,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> dict[str, object]:
     doc = _build_overlay_base_doc(source_pdf_path)
     try:
@@ -353,6 +375,7 @@ def build_book_typst_pdf(
             precomputed_colors_by_item_id=precomputed_colors_by_item_id,
             pikepdf_output_pdf_path=output_pdf_path,
             source_cleanup_strategy=source_cleanup_strategy,
+            request_chat_content_fn=request_chat_content_fn,
         )
         overlay_elapsed = time.perf_counter() - overlay_started
         print(
@@ -405,6 +428,7 @@ def build_dual_book_pdf(
     indent_detection_pdf_path: Path | None = None,
     first_line_indent_lookup: dict[str, float] | None = None,
     effective_inner_bbox_lookup: dict[str, list[float]] | None = None,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> None:
     source_doc = fitz.open(source_pdf_path)
     translated_doc = fitz.open(source_pdf_path)
@@ -427,6 +451,7 @@ def build_dual_book_pdf(
             source_pdf_path=indent_detection_pdf_path or source_pdf_path,
             first_line_indent_lookup=first_line_indent_lookup,
             effective_inner_bbox_lookup=effective_inner_bbox_lookup,
+            request_chat_content_fn=request_chat_content_fn,
         )
         build_dual_doc_pages(
             source_doc,
@@ -461,6 +486,7 @@ def build_book_typst_background_pdf(
     source_text_precleaned_page_indices: frozenset[int] = frozenset(),
     prebuilt_page_specs: list[RenderPageSpec] | None = None,
     precomputed_colors_by_item_id: dict[str, dict[str, tuple[float, float, float]]] | None = None,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> dict[str, object]:
     del compile_workers
     diagnostics: dict[str, object] = {"mode": "typst"}
@@ -494,6 +520,7 @@ def build_book_typst_background_pdf(
             source_pdf_path=source_pdf_path,
             translated_pages=translated_pages,
             prepared=True,
+            on_page_spec_built=_emit_page_spec_progress,
         )
         diagnostics["background_page_specs_elapsed_seconds"] = time.perf_counter() - specs_started
         diagnostics["background_page_specs_prewarm_hit"] = False
@@ -520,6 +547,7 @@ def build_book_typst_background_pdf(
         font_family=font_family,
         font_paths=font_paths,
         work_dir=work_dir,
+        request_chat_content_fn=request_chat_content_fn,
     )
     diagnostics.update(compile_diagnostics)
     save_started = time.perf_counter()

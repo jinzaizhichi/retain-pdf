@@ -15,9 +15,9 @@ from services.rendering.source.preparation.bbox_text_strip_engine import strip_b
 from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripResult
 
 
-BBOX_TEXT_STRIP_PARALLEL_PAGE_THRESHOLD = 80
-BBOX_TEXT_STRIP_PARALLEL_MAX_WORKERS = 8
-BBOX_TEXT_STRIP_PAGES_PER_WORKER = 50
+BBOX_TEXT_STRIP_PARALLEL_PAGE_THRESHOLD = 12
+BBOX_TEXT_STRIP_PARALLEL_MAX_WORKERS = 6
+BBOX_TEXT_STRIP_PAGES_PER_WORKER = 6
 
 
 def strip_bbox_text_rects_from_pdf_copy(
@@ -29,8 +29,10 @@ def strip_bbox_text_rects_from_pdf_copy(
     recurse_forms: bool | None = None,
     skipped_complex: int = 0,
     skipped_no_text_overlap: int = 0,
+    skipped_visual_background: int = 0,
     skipped_complex_page_indices: frozenset[int] = frozenset(),
     skipped_no_text_overlap_page_indices: frozenset[int] = frozenset(),
+    skipped_visual_background_page_indices: frozenset[int] = frozenset(),
     candidate_elapsed: float = 0.0,
 ) -> BBoxTextStripResult:
     page_protected_rects = page_protected_rects or {}
@@ -39,8 +41,10 @@ def strip_bbox_text_rects_from_pdf_copy(
             changed=False,
             pages_skipped_complex=skipped_complex,
             pages_skipped_no_text_overlap=skipped_no_text_overlap,
+            pages_skipped_visual_background=skipped_visual_background,
             skipped_complex_page_indices=frozenset(skipped_complex_page_indices),
             skipped_no_text_overlap_page_indices=frozenset(skipped_no_text_overlap_page_indices),
+            skipped_visual_background_page_indices=frozenset(skipped_visual_background_page_indices),
         )
 
     output_pdf_path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,9 +87,11 @@ def strip_bbox_text_rects_from_pdf_copy(
                 changed=False,
                 pages_skipped_complex=skipped_complex,
                 pages_skipped_no_text_overlap=skipped_no_text_overlap,
+                pages_skipped_visual_background=skipped_visual_background,
                 pages_strip_no_effect=len(attempted_page_indices),
                 skipped_complex_page_indices=frozenset(skipped_complex_page_indices),
                 skipped_no_text_overlap_page_indices=frozenset(skipped_no_text_overlap_page_indices),
+                skipped_visual_background_page_indices=frozenset(skipped_visual_background_page_indices),
                 strip_no_effect_page_indices=frozenset(attempted_page_indices),
             )
 
@@ -102,6 +108,7 @@ def strip_bbox_text_rects_from_pdf_copy(
         f"bbox text strip: mode=strip pages={pages_changed} text_show_ops={removed_total} "
         f"forms={forms_changed_total} skipped_complex_pages={skipped_complex} "
         f"skipped_no_text_overlap_pages={skipped_no_text_overlap} "
+        f"skipped_visual_background_pages={skipped_visual_background} "
         f"strip_no_effect_pages={len(attempted_page_indices - changed_page_indices)} "
         f"copy={copy_elapsed:.2f}s candidates={candidate_elapsed:.2f}s parse={parse_elapsed:.2f}s save={save_elapsed:.2f}s "
         f"output={output_pdf_path}",
@@ -114,11 +121,13 @@ def strip_bbox_text_rects_from_pdf_copy(
         text_show_ops_removed=removed_total,
         pages_skipped_complex=skipped_complex,
         pages_skipped_no_text_overlap=skipped_no_text_overlap,
+        pages_skipped_visual_background=skipped_visual_background,
         pages_strip_no_effect=len(attempted_page_indices - changed_page_indices),
         forms_changed=forms_changed_total,
         changed_page_indices=frozenset(changed_page_indices),
         skipped_complex_page_indices=frozenset(skipped_complex_page_indices),
         skipped_no_text_overlap_page_indices=frozenset(skipped_no_text_overlap_page_indices),
+        skipped_visual_background_page_indices=frozenset(skipped_visual_background_page_indices),
         strip_no_effect_page_indices=frozenset(attempted_page_indices - changed_page_indices),
     )
 

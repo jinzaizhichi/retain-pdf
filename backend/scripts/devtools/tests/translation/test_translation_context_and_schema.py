@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -184,6 +185,18 @@ def test_domain_context_raw_response_round_trip() -> None:
         output_dir = Path(tmp)
         path = domain_context.save_domain_context_raw(output_dir, "raw model response")
         assert path.read_text(encoding="utf-8") == "raw model response"
+
+
+def test_domain_context_deadline_interrupts_slow_call() -> None:
+    started = time.perf_counter()
+    try:
+        with domain_context._domain_context_deadline(1):
+            time.sleep(5)
+    except domain_context.DomainContextTimeoutError:
+        elapsed = time.perf_counter() - started
+        assert elapsed < 2.5
+    else:
+        raise AssertionError("domain context deadline did not interrupt slow call")
 
 
 def test_body_text_flow_ignores_ocr_visual_line_breaks() -> None:

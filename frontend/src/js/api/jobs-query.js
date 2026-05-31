@@ -32,6 +32,7 @@ export async function fetchJobList(
     workflow = "",
     provider = "",
     scope = "jobs",
+    q = "",
   } = {},
 ) {
   if (isMockMode()) {
@@ -49,6 +50,9 @@ export async function fetchJobList(
   }
   if (provider) {
     params.set("provider", provider);
+  }
+  if (`${q || ""}`.trim()) {
+    params.set("q", `${q || ""}`.trim());
   }
   const resp = await fetch(`${buildJobsEndpoint(apiPrefix, scope)}?${params.toString()}`, {
     headers: buildApiHeaders(),

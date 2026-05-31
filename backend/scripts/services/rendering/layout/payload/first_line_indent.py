@@ -11,8 +11,8 @@ from services.rendering.layout.font_roles import is_footnote_like_block
 from services.rendering.layout.font_roles import is_title_like_block
 from services.rendering.layout.typography.measurement import bbox_height
 from services.rendering.layout.typography.measurement import bbox_width
-from services.translation.public import item_layout_role
-from services.translation.public import item_semantic_role
+from services.document_schema.semantics import layout_role as schema_layout_role
+from services.document_schema.semantics import semantic_role as schema_semantic_role
 
 
 INDENT_RENDER_SCALE = 2.0
@@ -29,11 +29,11 @@ MAX_INDENT_EM = 2.2
 def _is_body_paragraph(item: dict, *, page_text_width_med: float) -> bool:
     if is_caption_like_block(item) or is_footnote_like_block(item) or is_title_like_block(item):
         return False
-    layout_role = item_layout_role(item)
-    semantic_role = item_semantic_role(item)
-    if layout_role not in {"paragraph", "list_item"} and not is_body_text_candidate(item, page_text_width_med):
+    item_layout_role = schema_layout_role(item)
+    item_semantic_role = schema_semantic_role(item)
+    if item_layout_role not in {"paragraph", "list_item"} and not is_body_text_candidate(item, page_text_width_med):
         return False
-    return semantic_role in {"", "body", "abstract", "unknown"}
+    return item_semantic_role in {"", "body", "abstract", "unknown"}
 
 
 def _border_background(samples: bytes, width: int, height: int) -> int:

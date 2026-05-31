@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from foundation.config import fonts
 from services.rendering.output.typst.compiler import compile_typst_overlay_pdf
@@ -8,6 +9,8 @@ from services.rendering.output.typst.compiler import TypstCompileError
 from services.rendering.output.typst.repair import repair_items_with_llm_for_typst
 from services.rendering.output.typst.shared import force_plain_text_item_at_index
 from services.rendering.output.typst.shared import strip_formula_commands_for_item_at_index
+
+TypstRepairRequestFn = Callable[..., str]
 
 
 def find_bad_item_indices(
@@ -94,6 +97,7 @@ def try_selective_llm_repair(
     font_paths: list[Path] | None = None,
     work_dir: Path | None = None,
     diagnostics: dict | None = None,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> list[dict] | None:
     patched_items = repair_items_with_llm_for_typst(
         translated_items,
@@ -102,6 +106,7 @@ def try_selective_llm_repair(
         api_key=api_key,
         model=model,
         base_url=base_url,
+        request_chat_content_fn=request_chat_content_fn,
     )
     if patched_items == translated_items:
         return None

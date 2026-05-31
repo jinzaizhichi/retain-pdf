@@ -25,6 +25,9 @@ export function summarizeStageProgressText(payload) {
   if (stage.key === "render" && subtype === "render_compile") {
     return `编译 ${current}/${total}`;
   }
+  if (stage.key === "render" && subtype === "render_prewarm") {
+    return `预热 ${current}/${total}`;
+  }
   if (stage.key === "render" && subtype === "render_prepare") {
     return `准备 ${current}/${total}`;
   }
@@ -44,6 +47,9 @@ export function summarizeStageProgressText(payload) {
     return `第 ${current}/${total} 批`;
   }
   if (progressUnit === "step") {
+    if (stage.key === "render") {
+      return `准备 ${current}/${total}`;
+    }
     return `进度 ${current}/${total}`;
   }
   if (progressUnit === "percent") {

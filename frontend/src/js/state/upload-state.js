@@ -5,6 +5,7 @@ export function createUploadState() {
     uploadedPageCount: 0,
     uploadedBytes: 0,
     appliedPageRange: "",
+    submitBusy: false,
   };
 }
 

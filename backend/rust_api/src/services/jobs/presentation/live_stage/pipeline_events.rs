@@ -5,7 +5,9 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::models::JobEventRecord;
+use crate::models::{
+    event_progress_unit, job_user_stage, normalize_event_user_stage, JobEventRecord,
+};
 
 #[derive(Debug, Deserialize)]
 struct PipelineEventJsonlRecord {
@@ -31,6 +33,10 @@ struct PipelineEventJsonlRecord {
     event: Option<String>,
     #[serde(default)]
     event_type: Option<String>,
+    #[serde(default)]
+    raw_event_type: Option<String>,
+    #[serde(default)]
+    semantic_event_type: Option<String>,
     #[serde(default)]
     message: Option<String>,
     #[serde(default)]
@@ -76,12 +82,18 @@ pub(super) fn load_pipeline_events_jsonl(
                 return None;
             }
             let event = normalized_event_name(&parsed);
+            let raw_event_type = parsed
+                .raw_event_type
+                .clone()
+                .or_else(|| parsed.event_type.clone())
+                .or_else(|| Some(event.clone()));
             Some(JobEventRecord {
                 job_id: job_id.to_string(),
                 seq: base_seq + index as i64 + 1,
                 ts: parsed.ts.clone().unwrap_or_default(),
                 created_at: parsed.ts.unwrap_or_default(),
                 level: parsed.level.unwrap_or_else(|| "info".to_string()),
+                lane: None,
                 user_stage: parsed
                     .user_stage
                     .map(normalize_user_stage)
@@ -97,7 +109,15 @@ pub(super) fn load_pipeline_events_jsonl(
                 stage_detail: parsed.stage_detail,
                 provider: parsed.provider,
                 provider_stage: parsed.provider_stage,
-                event_type: Some(parsed.event_type.unwrap_or_else(|| event.clone())),
+                event_type: Some(
+                    parsed
+                        .semantic_event_type
+                        .clone()
+                        .or_else(|| parsed.event_type.clone())
+                        .unwrap_or_else(|| event.clone()),
+                ),
+                raw_event_type,
+                progress: None,
                 event,
                 message: parsed.message.unwrap_or_default(),
                 progress_current: parsed.progress_current,
@@ -111,52 +131,17 @@ pub(super) fn load_pipeline_events_jsonl(
 }
 
 fn user_stage_for_event(stage: Option<&str>) -> Option<String> {
-    match stage.map(str::trim).unwrap_or_default() {
-        "ocr_upload" | "ocr_processing" | "ocr_result_ready" | "normalizing" => {
-            Some("ocr".to_string())
-        }
-        "translation_prepare"
-        | "translating"
-        | "translation_batches"
-        | "continuation_review"
-        | "page_policies"
-        | "domain_inference"
-        | "garbled_repair" => Some("translation".to_string()),
-        "render_prepare" | "rendering" | "compile" | "overlay" | "saving" => {
-            Some("render".to_string())
-        }
-        "finished" | "done" => Some("done".to_string()),
-        _ => None,
-    }
+    job_user_stage(stage).map(str::to_string)
 }
 
 fn normalize_user_stage(value: String) -> String {
-    if value.trim() == "translate" {
-        "translation".to_string()
-    } else {
-        value
-    }
+    normalize_event_user_stage(&value)
+        .unwrap_or_else(|| value.trim())
+        .to_string()
 }
 
 fn progress_unit_for_event(stage: Option<&str>, event: &str) -> Option<String> {
-    let unit = match stage.map(str::trim).unwrap_or_default() {
-        "translating" | "translation_batches" => "batch",
-        "ocr_processing"
-        | "continuation_review"
-        | "page_policies"
-        | "domain_inference"
-        | "garbled_repair"
-        | "rendering" => "page",
-        "compile"
-        | "overlay"
-        | "saving"
-        | "render_prepare"
-        | "translation_prepare"
-        | "normalizing" => "step",
-        _ if event == "stage_progress" => "step",
-        _ => "none",
-    };
-    Some(unit.to_string())
+    Some(event_progress_unit(stage, event).to_string())
 }
 
 fn normalized_event_name(parsed: &PipelineEventJsonlRecord) -> String {

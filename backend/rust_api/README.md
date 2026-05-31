@@ -20,11 +20,13 @@
    [`STAGE_EXECUTION_CONTRACT.md`](STAGE_EXECUTION_CONTRACT.md)
 7. 阶段事件与失败协议：
    [`../doc/core/rust_api/11-阶段事件与失败协议.md`](../../doc/core/rust_api/11-%E9%98%B6%E6%AE%B5%E4%BA%8B%E4%BB%B6%E4%B8%8E%E5%A4%B1%E8%B4%A5%E5%8D%8F%E8%AE%AE.md)
-8. OCR provider 边界：
+8. job_runner 运行态边界：
+   [`../doc/core/rust_api/12-job_runner 边界.md`](../../doc/core/rust_api/12-job_runner%20%E8%BE%B9%E7%95%8C.md)
+9. OCR provider 边界：
    [`OCR_PROVIDER_CONTRACT.md`](OCR_PROVIDER_CONTRACT.md)
-9. Paddle OCR 异步 API 摘要：
+10. Paddle OCR 异步 API 摘要：
    [`src/ocr_provider/paddle/API_SUMMARY.md`](src/ocr_provider/paddle/API_SUMMARY.md)
-10. Paddle Markdown / artifact 边界：
+11. Paddle Markdown / artifact 边界：
    [`../doc/core/paddle_ocr_api/06_job_artifact_boundary.md`](../../doc/core/paddle_ocr_api/06_job_artifact_boundary.md)
 
 ## 每篇文档解决什么问题
@@ -44,7 +46,9 @@
 - [`STAGE_EXECUTION_CONTRACT.md`](STAGE_EXECUTION_CONTRACT.md)
   只看 stage worker 的 spec 协议，重点回答“Rust 如何给 Python 传执行输入”。
 - [`../doc/core/rust_api/11-阶段事件与失败协议.md`](../../doc/core/rust_api/11-%E9%98%B6%E6%AE%B5%E4%BA%8B%E4%BB%B6%E4%B8%8E%E5%A4%B1%E8%B4%A5%E5%8D%8F%E8%AE%AE.md)
-  只看状态/失败收口方向，重点回答“前后端与 Rust/Python 应该围绕哪套正式字段对齐”。
+  只看状态/事件/失败正式协议，重点回答“Python 怎么发事件、Rust 怎么 canonicalize、前端该消费哪些字段”。
+- [`../doc/core/rust_api/12-job_runner 边界.md`](../../doc/core/rust_api/12-job_runner%20%E8%BE%B9%E7%95%8C.md)
+  只看运行态执行层边界，重点回答“改 job_runner 时逻辑应该放在哪个模块”。
 - [`OCR_PROVIDER_CONTRACT.md`](OCR_PROVIDER_CONTRACT.md)
   只看 provider adapter 边界，重点回答“MinerU / Paddle 在哪一层分发和收口”。
 - [`src/ocr_provider/paddle/API_SUMMARY.md`](src/ocr_provider/paddle/API_SUMMARY.md)

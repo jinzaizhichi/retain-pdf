@@ -79,7 +79,7 @@ class TranslationTransportFallbackTests(unittest.TestCase):
             ["block_level", "plain_text", "failed"],
         )
 
-    def test_direct_typst_body_transport_failure_falls_back_to_sentence_level(self):
+    def test_direct_typst_body_transport_failure_marks_failed_without_inline_sentence_fallback(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
             REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
@@ -108,21 +108,7 @@ class TranslationTransportFallbackTests(unittest.TestCase):
             module,
             "translate_single_item_plain_text",
             side_effect=requests.ConnectionError("Read timed out"),
-        ), mock.patch.object(
-            module,
-            "_sentence_level_fallback",
-            return_value={
-                "p006-b001": {
-                    "decision": "translate",
-                    "translated_text": "在氨基香豆素中，增强氮的给电子能力也会导致荧光红移。",
-                    "final_status": "partially_translated",
-                    "translation_diagnostics": {
-                        "route_path": ["block_level", "sentence_level"],
-                        "fallback_to": "sentence_level",
-                    },
-                }
-            },
-        ) as sentence_fallback:
+        ), mock.patch.object(module, "_sentence_level_fallback") as sentence_fallback:
             result = module.translate_single_item_plain_text_with_retries(
                 item,
                 api_key="sk-test",
@@ -132,11 +118,12 @@ class TranslationTransportFallbackTests(unittest.TestCase):
                 context=context,
             )
 
-        sentence_fallback.assert_called_once()
+        sentence_fallback.assert_not_called()
         self.assertEqual(result["p006-b001"]["decision"], "translate")
-        self.assertIn("在氨基香豆素中", result["p006-b001"]["translated_text"])
+        self.assertEqual(result["p006-b001"]["final_status"], "failed")
+        self.assertEqual(result["p006-b001"]["error_taxonomy"], "transport")
 
-    def test_direct_typst_sentence_level_failure_degrades_to_keep_origin(self):
+    def test_direct_typst_transport_failure_does_not_run_sentence_level_degrade_path(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
             REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
@@ -185,7 +172,7 @@ class TranslationTransportFallbackTests(unittest.TestCase):
                 context=context,
             )
 
-        sentence_fallback.assert_called_once()
+        sentence_fallback.assert_not_called()
         self.assertEqual(result["p006-b002"]["decision"], "translate")
         self.assertEqual(result["p006-b002"]["final_status"], "failed")
         self.assertEqual(result["p006-b002"]["error_taxonomy"], "transport")
@@ -194,7 +181,7 @@ class TranslationTransportFallbackTests(unittest.TestCase):
             ["block_level", "direct_typst", "failed"],
         )
 
-    def test_batched_transport_failure_falls_back_to_single_item_path(self):
+    def test_batched_transport_failure_queues_single_item_tail_retry(self):
         module = _load_module(
             "services.translation.llm.shared.orchestration.fallbacks",
             REPO_SCRIPTS_ROOT / "services" / "translation" / "llm" / "shared" / "orchestration" / "fallbacks.py",
@@ -246,15 +233,9 @@ class TranslationTransportFallbackTests(unittest.TestCase):
                         context=context,
                     )
 
-        self.assertEqual(result["p001-b001"]["decision"], "translate")
-        self.assertEqual(result["p001-b002"]["decision"], "translate")
-        self.assertEqual(result["p001-b001"]["translated_text"], "第一条已翻译")
-        self.assertEqual(result["p001-b002"]["translated_text"], "第二条已翻译")
-        self.assertEqual(single_mock.call_count, 2)
-        self.assertEqual(
-            single_mock.call_args_list[0].kwargs["request_label"],
-            "test batch transport item 1/2 p001-b001",
-        )
+        self.assertEqual(result, {})
+        self.assertEqual(single_mock.call_count, 0)
+        self.assertEqual(len(context.translation_tail_queue), 2)
 
     def test_batched_plain_suspicious_keep_origin_only_retries_flagged_items(self):
         module = _load_module(
@@ -317,13 +298,14 @@ class TranslationTransportFallbackTests(unittest.TestCase):
                         context=context,
                     )
 
-        self.assertEqual(retried_items, ["p001-b001"])
+        self.assertEqual(retried_items, [])
         self.assertEqual(result["p001-b002"]["translated_text"], "这一段应该直接接受。")
         self.assertEqual(
             result["p001-b002"]["translation_diagnostics"]["route_path"],
             ["block_level", "batched_plain"],
         )
-        self.assertEqual(result["p001-b001"]["translated_text"], "这段通过单条补跑得到译文。")
+        self.assertNotIn("p001-b001", result)
+        self.assertEqual(len(context.translation_tail_queue), 1)
 
 
 if __name__ == "__main__":

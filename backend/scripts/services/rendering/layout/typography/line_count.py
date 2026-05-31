@@ -17,8 +17,8 @@ from services.rendering.layout.typography.line_metrics import bbox_height
 from services.rendering.layout.typography.line_metrics import bbox_width
 from services.rendering.layout.typography.line_metrics import median_line_height
 from services.rendering.layout.typography.scalars import clamp
-from services.translation.public import item_is_bodylike
-from services.translation.public import item_semantic_role
+from services.document_schema.semantics import is_plain_bodylike_block
+from services.document_schema.semantics import semantic_role as schema_semantic_role
 
 
 def _predicted_wrapped_line_count(item: dict, *, width: float, text_len: int) -> int:
@@ -37,8 +37,8 @@ def _predicted_wrapped_line_count(item: dict, *, width: float, text_len: int) ->
         approx_chars_per_line = geometric_chars_per_line
     if formula_ratio(item) > 0:
         approx_chars_per_line *= FORMULA_CHARS_PER_LINE_PENALTY
-    semantic_role = item_semantic_role(item)
-    if semantic_role in {"body", "abstract"} or item_is_bodylike(item):
+    item_semantic_role = schema_semantic_role(item)
+    if item_semantic_role in {"body", "abstract"} or is_plain_bodylike_block(item):
         approx_chars_per_line *= 0.96
     effective_chars_per_line = max(8.0, approx_chars_per_line * 1.02)
     return max(1, ceil(text_len / effective_chars_per_line))

@@ -283,8 +283,9 @@ Rust 侧关键落点：
 补充约束：
 
 - publish/materialize 可以做“防冲突包装”，例如多页任务下给图片路径增加 `page-N/`
+- markdown 内图片路径必须指向已发布目录 `md/images/`
 - 但不能重写 provider 返回的内部相对路径结构
-- 例如 Paddle 返回 `<img src="imgs/foo.jpg">` 时，发布后可以是 `page-6/imgs/foo.jpg`
+- 例如 Paddle 返回 `<img src="imgs/foo.jpg">` 时，发布后可以是 `images/page-6/imgs/foo.jpg`
 - 不能变成我们自定义拍板的固定模式，比如 `assets/foo.jpg` 或其他仓库私有命名
 
 这样做的原因很简单：

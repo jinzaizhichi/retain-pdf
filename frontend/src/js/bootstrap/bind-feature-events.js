@@ -7,6 +7,7 @@ export function bindFeatureEvents(features) {
   bindMainEvents({
     developerFeature: features.developerFeature,
     glossariesFeature: features.glossariesFeature,
+    homeFeature: features.homeFeature,
     artifactDownloadsFeature: features.artifactDownloadsFeature,
     statusDetailFeature: features.statusDetailFeature,
     appShellFeature: features.appShellFeature,

@@ -403,6 +403,34 @@ def test_body_direct_typst_prompt_does_not_preserve_ocr_visual_lines() -> None:
     assert "For large $ CN_{A}^{\\prime}\n$ values" not in messages[1]["content"]
 
 
+def test_toc_prompt_asks_model_to_translate_each_list_line() -> None:
+    messages = deepseek_client.build_single_item_fallback_messages(
+        {
+            "item_id": "p008-b001",
+            "source_text": "FIGURE 11.7 Long figure title 370\nTABLE 8.4 Long table title 279",
+            "protected_source_text": "FIGURE 11.7 Long figure title 370\nTABLE 8.4 Long table title 279",
+            "source_line_texts": [
+                "FIGURE 11.7 Long figure title 370",
+                "TABLE 8.4 Long table title 279",
+            ],
+            "text_flow": "preserve_lines",
+            "math_mode": "direct_typst",
+            "semantic_role": "table_of_contents",
+            "structure_role": "table_of_contents",
+            "metadata": {"structure_role": "table_of_contents"},
+        },
+        mode="sci",
+        response_style="plain_text",
+    )
+
+    prompt = messages[1]["content"]
+
+    assert "目录/图表清单" in prompt
+    assert "每个原文行输出一个译文行" in prompt
+    assert "翻译行首标签和标题" in prompt
+    assert "保留行尾页码" in prompt
+
+
 def test_prompt_builder_can_render_non_default_target_language() -> None:
     messages = deepseek_client.build_single_item_fallback_messages(
         {

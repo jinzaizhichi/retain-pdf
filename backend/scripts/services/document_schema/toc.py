@@ -8,8 +8,6 @@ TOC_LINE_RE = re.compile(
     r"(?:\s*(?P<leader>\.{2,}|…+)\s*|\s{2,})"
     r"(?P<page>[ivxlcdmIVXLCDM]+|\d+[A-Za-z]?)\s*$"
 )
-
-
 def parse_toc_line(text: str) -> dict | None:
     raw = " ".join(str(text or "").split()).strip()
     if not raw:

@@ -7,8 +7,6 @@ from services.translation.public import DEFAULT_BASE_URL
 from services.translation.public import DEFAULT_MODEL
 from services.translation.public import TranslationExecutionRequest
 from services.translation.public import execute_translation_request
-from services.rendering.source.prewarm import RenderPrewarmSpec
-from services.rendering.source.prewarm import start_render_source_prewarm
 
 
 def translate_book_pipeline(
@@ -45,27 +43,6 @@ def translate_book_pipeline(
     render_prewarm_pdf_compress_dpi: int = 0,
     render_prewarm_source_cleanup_strategy: str = "pikepdf_text_strip",
 ) -> dict:
-    def _start_render_prewarm(page_payloads: dict[int, list[dict]], start: int, stop: int):
-        if (
-            source_pdf_path is None
-            or render_prewarm_output_pdf_path is None
-            or render_prewarm_artifacts_dir is None
-        ):
-            return None
-        return start_render_source_prewarm(
-            RenderPrewarmSpec(
-                source_pdf_path=source_pdf_path,
-                output_pdf_path=render_prewarm_output_pdf_path,
-                artifacts_dir=render_prewarm_artifacts_dir,
-                translated_pages=page_payloads,
-                render_mode=render_prewarm_mode,
-                start_page=start,
-                end_page=stop,
-                pdf_compress_dpi=render_prewarm_pdf_compress_dpi,
-                source_cleanup_strategy=render_prewarm_source_cleanup_strategy,
-            )
-        )
-
     return execute_translation_request(
         TranslationExecutionRequest(
             source_json_path=source_json_path,
@@ -94,11 +71,5 @@ def translate_book_pipeline(
             glossary_mode=glossary_mode,
             memory_mode=memory_mode,
             invocation=invocation,
-            render_prewarm_output_pdf_path=render_prewarm_output_pdf_path,
-            render_prewarm_artifacts_dir=render_prewarm_artifacts_dir,
-            render_prewarm_mode=render_prewarm_mode,
-            render_prewarm_pdf_compress_dpi=render_prewarm_pdf_compress_dpi,
-            render_prewarm_source_cleanup_strategy=render_prewarm_source_cleanup_strategy,
-            render_prewarm_start_fn=_start_render_prewarm,
         )
     )

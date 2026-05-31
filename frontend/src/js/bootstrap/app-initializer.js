@@ -4,6 +4,7 @@ import { fetchProtected } from "../api/http.js";
 import {
   deleteLibraryBook,
   fetchJobList,
+  fetchJobPayload,
   fetchLibraryBookList,
 } from "../api/jobs.js";
 import { setText } from "../main-helpers.js";
@@ -24,6 +25,7 @@ async function initializePage() {
     appShellFeature: features.appShellFeature,
     deleteLibraryBook,
     fetchJobList,
+    fetchJobPayload,
     fetchLibraryBookList,
     jobRuntimeFeature: features.jobRuntimeFeature,
   });

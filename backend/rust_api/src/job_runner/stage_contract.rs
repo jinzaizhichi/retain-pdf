@@ -3,7 +3,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, Result};
 
 use crate::models::{JobArtifacts, JobRuntimeState};
-use crate::storage_paths::{resolve_data_path, TRANSLATION_MANIFEST_FILE_NAME};
+use crate::storage_paths::TRANSLATION_MANIFEST_FILE_NAME;
+
+use super::artifact_requirements::{
+    optional_existing_file, required_existing_dir, required_existing_file,
+};
 
 pub(super) struct OcrReadyInputs {
     pub(super) normalized_path: PathBuf,
@@ -86,14 +90,14 @@ fn required_file(
     artifact_key: &str,
     source_label: &str,
 ) -> Result<PathBuf> {
-    let path = required_path(data_root, raw, artifact_key, source_label)?;
-    if !path.is_file() {
-        return Err(anyhow!(
-            "{artifact_key} not found for {source_label}: {}",
-            path.display()
-        ));
-    }
-    Ok(path)
+    required_existing_file(
+        data_root,
+        raw,
+        artifact_key,
+        source_label,
+        format!("{source_label} is missing {artifact_key}"),
+        "not found",
+    )
 }
 
 fn optional_file(
@@ -102,17 +106,7 @@ fn optional_file(
     artifact_key: &str,
     source_label: &str,
 ) -> Result<Option<PathBuf>> {
-    let Some(raw) = raw else {
-        return Ok(None);
-    };
-    let path = resolve_data_path(data_root, raw)?;
-    if !path.is_file() {
-        return Err(anyhow!(
-            "{artifact_key} not found for {source_label}: {}",
-            path.display()
-        ));
-    }
-    Ok(Some(path))
+    optional_existing_file(data_root, raw, artifact_key, source_label, "not found")
 }
 
 fn required_dir(
@@ -121,24 +115,14 @@ fn required_dir(
     artifact_key: &str,
     source_label: &str,
 ) -> Result<PathBuf> {
-    let path = required_path(data_root, raw, artifact_key, source_label)?;
-    if !path.is_dir() {
-        return Err(anyhow!(
-            "{artifact_key} not found for {source_label}: {}",
-            path.display()
-        ));
-    }
-    Ok(path)
-}
-
-fn required_path(
-    data_root: &Path,
-    raw: Option<&str>,
-    artifact_key: &str,
-    source_label: &str,
-) -> Result<PathBuf> {
-    let raw = raw.ok_or_else(|| anyhow!("{source_label} is missing {artifact_key}"))?;
-    resolve_data_path(data_root, raw)
+    required_existing_dir(
+        data_root,
+        raw,
+        artifact_key,
+        source_label,
+        format!("{source_label} is missing {artifact_key}"),
+        "not found",
+    )
 }
 
 fn require_translation_manifest(translations_dir: &Path, source_label: &str) -> Result<()> {

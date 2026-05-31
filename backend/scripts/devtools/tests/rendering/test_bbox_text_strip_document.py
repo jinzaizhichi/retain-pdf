@@ -100,6 +100,41 @@ def test_bbox_text_strip_accepts_untranslated_template_source_text() -> None:
         assert "outside source" in text
 
 
+def test_bbox_text_strip_skips_large_background_image_page_before_deletion() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "stripped.pdf"
+        doc = fitz.open()
+        page = doc.new_page(width=200, height=200)
+        pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 200, 200), False)
+        pix.clear_with(255)
+        page.insert_image(page.rect, pixmap=pix)
+        page.insert_text((20, 40), "inside source", fontsize=12)
+        doc.save(source_pdf)
+        doc.close()
+
+        result = build_bbox_text_stripped_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            translated_pages={
+                0: [
+                    {
+                        "block_kind": "text",
+                        "bbox": [10.0, 20.0, 140.0, 55.0],
+                        "protected_source_text": "inside source",
+                        "protected_translated_text": "译文",
+                    }
+                ]
+            },
+        )
+
+        assert result.changed is False
+        assert result.changed_page_indices == frozenset()
+        assert result.skipped_visual_background_page_indices == frozenset({0})
+        assert output_pdf.exists() is False
+
+
 def test_bbox_text_strip_skips_page_when_text_bbox_overlaps_vector_line() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -129,6 +164,50 @@ def test_bbox_text_strip_skips_page_when_text_bbox_overlaps_vector_line() -> Non
         assert result.changed is False
         assert output_pdf.exists() is False
         assert result.skipped_complex_page_indices == frozenset({0})
+
+
+def test_bbox_text_strip_allows_toc_leader_vector_overlap() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "stripped.pdf"
+        doc = fitz.open()
+        page = doc.new_page(width=260, height=180)
+        page.insert_text((20, 50), "1.1 Introduction", fontsize=12)
+        page.draw_line((120, 47), (210, 47), color=(0, 0, 0), width=0.5)
+        page.insert_text((220, 50), "2", fontsize=12)
+        doc.save(source_pdf)
+        doc.close()
+
+        result = build_bbox_text_stripped_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            translated_pages={
+                0: [
+                    {
+                        "block_kind": "text",
+                        "layout_role": "toc",
+                        "semantic_role": "table_of_contents",
+                        "structure_role": "table_of_contents",
+                        "normalized_sub_type": "table_of_contents",
+                        "bbox": [15.0, 30.0, 235.0, 60.0],
+                        "protected_translated_text": "1.1 引言 ..... 2",
+                    }
+                ]
+            },
+        )
+
+        assert result.changed is True
+        assert result.skipped_complex_page_indices == frozenset()
+
+        stripped = fitz.open(output_pdf)
+        try:
+            text = stripped[0].get_text()
+            drawings = stripped[0].get_drawings()
+        finally:
+            stripped.close()
+        assert "Introduction" not in text
+        assert drawings
 
 
 def test_bbox_text_strip_keeps_fast_path_when_vector_line_is_outside_text_bbox() -> None:
@@ -314,6 +393,11 @@ def test_bbox_text_strip_single_worker_preserves_form_recursion(monkeypatch: pyt
 
     assert seen_recurse_forms
     assert set(seen_recurse_forms) == {True}
+
+
+def test_bbox_text_strip_parallel_worker_count_scales_for_medium_documents() -> None:
+    assert bbox_text_strip_document._parallel_worker_count(30) >= 2
+    assert bbox_text_strip_document._parallel_worker_count(500) <= bbox_text_strip_document.BBOX_TEXT_STRIP_PARALLEL_MAX_WORKERS
 
 
 def test_text_state_advance_uses_font_size_spacing_and_tj_adjustments() -> None:

@@ -1,4 +1,5 @@
 import { $ } from "../../dom.js";
+import { withTimeout } from "../../async-timeout.js";
 import { buildApiUrl } from "../../config.js";
 import { setUploadState } from "../../state.js";
 import {
@@ -31,8 +32,11 @@ export function mountUploadFeature({
   setText,
   applyWorkflowMode,
   refreshSubmitControls,
+  refreshDeepSeekBalance,
   workflowNeedsUpload,
 }) {
+  const BALANCE_CHECK_TIMEOUT_MS = 12000;
+
   function formatByteLimit(bytes) {
     const mb = Number(bytes) / (1024 * 1024);
     return Number.isFinite(mb) && mb > 0 ? `${Math.round(mb)}MB` : "当前";
@@ -177,6 +181,28 @@ export function mountUploadFeature({
       clearFileInputValue();
       renderPageRangeSummary();
       refreshSubmitControls();
+      if (refreshDeepSeekBalance) {
+        showUploadStatus("上传完成，正在检测余额…");
+        void withTimeout(
+          refreshDeepSeekBalance({ silent: true }),
+          BALANCE_CHECK_TIMEOUT_MS,
+          "DeepSeek 余额检测超时",
+        )
+          .then((result) => {
+            const status = `${result?.status || ""}`;
+            if (status === "network_error" || status === "missing_key") {
+              showUploadStatus("上传完成，余额未确认，提交前会再次检测。");
+              return;
+            }
+            showUploadStatus("上传完成，可以开始任务。");
+          })
+          .catch(() => {
+            showUploadStatus("上传完成，余额未确认，提交前会再次检测。");
+          })
+          .finally(() => {
+            refreshSubmitControls();
+          });
+      }
     } catch (err) {
       resetUploadedFile();
       clearFileInputValue();

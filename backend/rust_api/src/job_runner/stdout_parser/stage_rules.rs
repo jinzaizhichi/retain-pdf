@@ -1,7 +1,10 @@
-use crate::models::{job_stage_str, JobSnapshot, JobStage};
+use crate::models::{job_stage_detail, job_stage_str, JobSnapshot, JobStage};
 use crate::ocr_provider::mineru::map_task_status;
 
-use super::{job_artifacts_mut, ocr_provider_diagnostics_mut};
+use super::{
+    job_artifacts_mut, ocr_provider_diagnostics_mut, parse_labeled_value,
+    STDOUT_LABEL_NORMALIZATION_REPORT_JSON,
+};
 
 #[derive(Clone, Copy)]
 enum ProviderStagePrefixRule {
@@ -12,6 +15,9 @@ const PROVIDER_STAGE_PREFIX_RULES: &[(&str, ProviderStagePrefixRule)] =
     &[("upload done: ", ProviderStagePrefixRule::UploadDone)];
 
 pub(super) fn apply_stage_line(job: &mut JobSnapshot, line: &str) {
+    if apply_normalization_stage_marker(job, line) {
+        return;
+    }
     if apply_provider_stage_prefix_rule(job, line) {
         return;
     }
@@ -22,6 +28,18 @@ pub(super) fn apply_stage_line(job: &mut JobSnapshot, line: &str) {
     if let Some((task_id, raw_state)) = parse_provider_state_line(line, "task ") {
         sync_provider_status_to_job(job, raw_state, Some(task_id), None);
     }
+}
+
+fn apply_normalization_stage_marker(job: &mut JobSnapshot, line: &str) -> bool {
+    if parse_labeled_value(line, STDOUT_LABEL_NORMALIZATION_REPORT_JSON).is_none() {
+        return false;
+    }
+    if !is_ocr_stage(job.stage.as_deref()) {
+        return false;
+    }
+    job.stage = Some(job_stage_str(JobStage::Normalizing).to_string());
+    job.stage_detail = Some(job_stage_detail(JobStage::Normalizing).to_string());
+    true
 }
 
 fn apply_provider_stage_prefix_rule(job: &mut JobSnapshot, line: &str) -> bool {
@@ -85,4 +103,33 @@ fn sync_provider_status_to_job(
     job.stage = mapped.stage.clone();
     job.stage_detail = mapped.detail.clone();
     ocr_provider_diagnostics_mut(job).last_status = Some(mapped);
+}
+
+fn is_ocr_stage(stage: Option<&str>) -> bool {
+    match stage.and_then(JobStage::from_str) {
+        Some(
+            JobStage::Queued
+            | JobStage::OcrSubmitting
+            | JobStage::OcrUpload
+            | JobStage::OcrProcessing
+            | JobStage::OcrResultReady
+            | JobStage::Normalizing
+            | JobStage::MineruUpload
+            | JobStage::MineruProcessing,
+        ) => true,
+        Some(
+            JobStage::Running
+            | JobStage::Translating
+            | JobStage::Rendering
+            | JobStage::Finished
+            | JobStage::Canceled
+            | JobStage::Failed,
+        ) => false,
+        None => {
+            let normalized = stage.unwrap_or_default().trim();
+            normalized.is_empty()
+                || normalized == "translation_prepare"
+                || normalized.starts_with("mineru_")
+        }
+    }
 }

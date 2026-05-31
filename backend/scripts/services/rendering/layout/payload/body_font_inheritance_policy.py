@@ -13,7 +13,7 @@ from services.rendering.layout.payload.body_common import payload_is_continuatio
 from services.rendering.layout.payload.body_common import payload_width
 from services.rendering.layout.payload.body_common import required_lines
 from services.rendering.layout.payload.body_common import same_body_column
-from services.translation.public import item_block_kind
+from services.document_schema.semantics import block_kind
 
 
 SHORT_BODY_INHERIT_MIN_ANCHORS = 2
@@ -98,7 +98,7 @@ def _is_short_body_inherit_candidate(payload: dict, *, page_text_width_med: floa
     item = payload.get("item") or {}
     if is_caption_like_block(item) or is_footnote_like_block(item):
         return False
-    if not payload["is_body"] and item_block_kind(item) != "text" and not is_bodylike_block(item):
+    if not payload["is_body"] and block_kind(item) != "text" and not is_bodylike_block(item):
         return False
     if payload.get("title_fit") is not None:
         return False
@@ -125,7 +125,7 @@ def _is_low_height_body_inherit_candidate(payload: dict) -> bool:
     item = payload.get("item") or {}
     if is_caption_like_block(item) or is_footnote_like_block(item):
         return False
-    if not payload["is_body"] and item_block_kind(item) != "text" and not is_bodylike_block(item):
+    if not payload["is_body"] and block_kind(item) != "text" and not is_bodylike_block(item):
         return False
     if required_lines(payload) > LOW_HEIGHT_BODY_INHERIT_MAX_LINES:
         return False

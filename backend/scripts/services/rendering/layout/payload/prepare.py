@@ -26,7 +26,7 @@ from services.rendering.layout.payload.shared import split_protected_text_for_bo
 from services.rendering.layout.payload.suspicious_ocr import detect_and_drop_suspicious_ocr_glued_blocks
 from services.rendering.layout.typography.geometry import inner_bbox
 from services.rendering.layout.typography.measurement import bbox_width
-from services.translation.public import item_block_kind
+from services.document_schema.semantics import block_kind
 
 
 CONTINUATION_NARROW_BOX_MIN_NEIGHBOR_RATIO = 0.78
@@ -127,7 +127,7 @@ def prepare_render_payloads_by_page(
         for page_idx in sorted(prepared):
             items = prepared[page_idx]
             page_font_size, page_line_pitch, page_line_height, density_baseline = page_baseline_font_size(items)
-            text_widths = [bbox_width(item) for item in items if item_block_kind(item) == "text" and not _is_annotation_like(item)]
+            text_widths = [bbox_width(item) for item in items if block_kind(item) == "text" and not _is_annotation_like(item)]
             page_text_width_med = median(text_widths) if text_widths else 0.0
             page_metrics[page_idx] = (
                 page_font_size,

@@ -57,6 +57,7 @@ def _emit_paddle_poll_progress(
         detail = f"Paddle 解析完成，共 {page_total} 页"
     emit_stage_progress(
         stage="ocr_processing",
+        substage="ocr_processing",
         message=detail,
         stage_detail=detail,
         provider="paddle",
@@ -64,7 +65,6 @@ def _emit_paddle_poll_progress(
         progress_current=current,
         progress_total=page_total,
         payload={
-            "substage": "provider_processing",
             "provider_task_id": task_id,
             "provider_state": state,
             "provider_log_id": str(payload.get("logId", "") or "").strip(),
@@ -151,6 +151,7 @@ def run_paddle_to_job_dir(
     if page_total:
         emit_stage_transition(
             stage="ocr_processing",
+            substage="ocr_processing",
             message=f"OCR 正在解析，共 {page_total} 页",
             stage_detail=f"OCR 正在解析，共 {page_total} 页",
             provider="paddle",
@@ -158,7 +159,6 @@ def run_paddle_to_job_dir(
             progress_current=None,
             progress_total=page_total,
             payload={
-                "substage": "provider_processing",
                 "provider_task_id": task_id,
             },
         )

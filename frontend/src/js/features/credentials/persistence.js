@@ -6,6 +6,8 @@ import {
 export function persistBrowserCredentialsFromDialog({
   applyKeyInputs,
   currentOcrProvider,
+  defaultModelApiKey,
+  defaultModelBaseUrl,
   saveTaskOptions,
   saveBrowserStoredConfig,
 }) {
@@ -21,11 +23,11 @@ export function persistBrowserCredentialsFromDialog({
     ocrProvider: currentOcrProvider(),
     mineruToken: mineruInput?.value?.trim() || "",
     paddleToken: paddleInput?.value?.trim() || "",
-    modelApiKey: apiKeyInput?.value?.trim() || "",
+    modelApiKey: apiKeyInput?.value?.trim() || defaultModelApiKey?.() || "",
   });
   saveTaskOptions?.({
     model: modelNameInput?.value?.trim() || "",
-    baseUrl: modelBaseUrlInput?.value?.trim() || "",
+    baseUrl: modelBaseUrlInput?.value?.trim() || defaultModelBaseUrl?.() || "",
     mathMode: mathModeSelect?.value || "direct_typst",
     translateTitles: true,
   });
@@ -34,6 +36,8 @@ export function persistBrowserCredentialsFromDialog({
 
 export async function persistDesktopCredentialsFromDialog({
   currentOcrProvider,
+  defaultModelApiKey,
+  defaultModelBaseUrl,
   saveTaskOptions,
   saveDesktopConfig,
   checkApiConnectivity,
@@ -49,7 +53,7 @@ export async function persistDesktopCredentialsFromDialog({
   const provider = currentOcrProvider();
   const mineruToken = mineruInput?.value?.trim() || "";
   const paddleToken = paddleInput?.value?.trim() || "";
-  const modelApiKey = apiKeyInput?.value?.trim() || "";
+  const modelApiKey = apiKeyInput?.value?.trim() || defaultModelApiKey?.() || "";
   await saveDesktopConfig?.(
     mineruToken,
     modelApiKey,
@@ -64,7 +68,7 @@ export async function persistDesktopCredentialsFromDialog({
   );
   saveTaskOptions?.({
     model: modelNameInput?.value?.trim() || "",
-    baseUrl: modelBaseUrlInput?.value?.trim() || "",
+    baseUrl: modelBaseUrlInput?.value?.trim() || defaultModelBaseUrl?.() || "",
     mathMode: mathModeSelect?.value || "direct_typst",
     translateTitles: true,
   });

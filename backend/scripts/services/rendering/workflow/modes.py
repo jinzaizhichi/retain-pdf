@@ -13,6 +13,7 @@ from services.rendering.output.typst.book_renderer import build_book_typst_pdf
 from services.rendering.output.typst.book_renderer import build_dual_book_pdf
 from services.rendering.workflow.context import RenderExecutionContext
 from services.rendering.output.typst.shared import default_typst_temp_root
+from services.translation.public import request_chat_content
 
 
 def _compress_final_pdf_if_needed(context: RenderExecutionContext, *, mode: str) -> bool:
@@ -55,6 +56,7 @@ def run_dual_render(
         indent_detection_pdf_path=_indent_detection_pdf_path(context, source_pdf_path),
         first_line_indent_lookup=context.first_line_indent_lookup,
         effective_inner_bbox_lookup=context.effective_inner_bbox_lookup,
+        request_chat_content_fn=request_chat_content,
     )
     final_compressed = _compress_final_pdf_if_needed(context, mode="dual")
     return len(translated_pages), {"mode": "dual", "final_image_compressed": final_compressed}
@@ -100,6 +102,7 @@ def run_selected_pages_overlay_render(
         source_text_precleaned_page_indices=remapped_precleaned_pages,
         source_cleanup_strategy=context.source_cleanup_strategy,
         precomputed_colors_by_item_id=context.render_colors_by_item_id,
+        request_chat_content_fn=request_chat_content,
     )
     final_compressed = _compress_final_pdf_if_needed(context, mode="selected_pages_overlay")
     diagnostics = dict(overlay_diagnostics)
@@ -130,6 +133,7 @@ def run_overlay_render(
         source_text_precleaned_page_indices=context.source_text_precleaned_page_indices,
         source_cleanup_strategy=context.source_cleanup_strategy,
         precomputed_colors_by_item_id=context.render_colors_by_item_id,
+        request_chat_content_fn=request_chat_content,
     )
     final_compressed = _compress_final_pdf_if_needed(context, mode="overlay")
     diagnostics = dict(overlay_diagnostics)
@@ -164,6 +168,7 @@ def run_background_typst_render(
         source_text_precleaned_page_indices=context.source_text_precleaned_page_indices,
         prebuilt_page_specs=context.background_render_page_specs,
         precomputed_colors_by_item_id=context.render_colors_by_item_id,
+        request_chat_content_fn=request_chat_content,
     )
     mode = "typst_visual" if visual_only_background else "typst"
     final_compressed = _compress_final_pdf_if_needed(context, mode=mode)

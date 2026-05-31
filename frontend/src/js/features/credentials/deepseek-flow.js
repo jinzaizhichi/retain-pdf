@@ -1,7 +1,8 @@
 import { TRANSLATION_PROVIDER_DEFINITION } from "../../provider-config.js";
+import { $ } from "../../dom.js";
 import {
   browserCredentialElements,
-  setDeepSeekAccountStatus,
+  setDeepSeekTopUpVisible,
   setDeepSeekValidationMessage,
 } from "./view.js";
 import {
@@ -10,27 +11,48 @@ import {
   summarizeDeepSeekBalance,
 } from "./validation.js";
 
-function currentTimeLabel() {
-  return new Date().toLocaleTimeString("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
+const DEEPSEEK_LOW_BALANCE_THRESHOLD = 2;
+
+function deepSeekBalanceAmount(result) {
+  const infos = Array.isArray(result?.balance_infos) ? result.balance_infos : [];
+  return infos.reduce((sum, item) => {
+    const raw = `${item?.total_balance ?? ""}`.replace(/[^\d.-]/g, "");
+    const value = Number.parseFloat(raw);
+    return Number.isFinite(value) ? sum + value : sum;
+  }, 0);
 }
 
 export async function handleBrowserDeepSeekValidate({
+  state,
+  defaultModelApiKey,
   validateDeepSeekToken,
   queryDeepSeekBalance,
+  onBalanceChange,
+  silent = false,
 }) {
   const {
     apiKeyInput,
     modelBaseUrlInput,
   } = browserCredentialElements();
+  const modelApiKey = apiKeyInput?.value?.trim() || $("api_key")?.value?.trim() || defaultModelApiKey?.() || "";
+  if (apiKeyInput && !apiKeyInput.value && modelApiKey) {
+    apiKeyInput.value = modelApiKey;
+  }
   const baseUrl = modelBaseUrlInput?.value?.trim() || "";
-  setDeepSeekValidationMessage("正在检测 DeepSeek 和余额…");
+  if (state) {
+    state.deepseekBalanceCny = null;
+    state.deepseekBalanceChecked = false;
+  }
+  onBalanceChange?.();
+  if (!modelApiKey) {
+    return { ok: false, status: "missing_key" };
+  }
+  setDeepSeekTopUpVisible(false);
+  if (!silent) {
+    setDeepSeekValidationMessage("正在检测 DeepSeek 和余额…");
+  }
   const result = await runDeepSeekConnectivityCheck({
-    apiKey: apiKeyInput?.value || "",
+    apiKey: modelApiKey,
     baseUrl,
     validateDeepSeekToken,
     setDeepSeekValidationMessage,
@@ -38,31 +60,43 @@ export async function handleBrowserDeepSeekValidate({
   });
   if (result.ok) {
     const balance = await runDeepSeekBalanceCheck({
-      apiKey: apiKeyInput?.value || "",
+      apiKey: modelApiKey,
       baseUrl,
       queryDeepSeekBalance,
     });
     if (balance.status === "unsupported_provider") {
-      setDeepSeekValidationMessage("DeepSeek 可用", "valid");
-      setDeepSeekAccountStatus("接口可用，当前 provider 不支持余额查询", "valid", currentTimeLabel());
-      return;
+      if (!silent) {
+        setDeepSeekValidationMessage("DeepSeek 可用", "valid");
+      }
+      return balance;
     }
     if (balance.status === "network_error") {
-      setDeepSeekValidationMessage("DeepSeek 可用，余额查询失败", "valid");
-      setDeepSeekAccountStatus("接口可用，余额查询失败", "valid", currentTimeLabel());
-      return;
+      if (!silent) {
+        setDeepSeekValidationMessage("DeepSeek 可用，余额查询失败", "valid");
+      }
+      return balance;
     }
     const balanceSummary = summarizeDeepSeekBalance(balance);
+    const balanceAmount = deepSeekBalanceAmount(balance);
+    if (state) {
+      state.deepseekBalanceCny = balanceAmount;
+      state.deepseekBalanceChecked = true;
+    }
+    onBalanceChange?.();
+    const shouldTopUp = balanceAmount < DEEPSEEK_LOW_BALANCE_THRESHOLD;
+    setDeepSeekTopUpVisible(shouldTopUp);
     setDeepSeekValidationMessage(
-      `DeepSeek 可用，${balanceSummary}`,
+      `DeepSeek 可用，${balanceSummary}${shouldTopUp ? "，余额低于 2 元" : ""}`,
       balance.is_available ? "valid" : "error",
     );
-    setDeepSeekAccountStatus(balanceSummary, balance.is_available ? "valid" : "error", currentTimeLabel());
-    return;
+    return balance;
   }
-  setDeepSeekValidationMessage(
-    result.summary || TRANSLATION_PROVIDER_DEFINITION.validationNetworkMessage,
-    "error",
-  );
-  setDeepSeekAccountStatus(result.summary || "接口不可用", "error", currentTimeLabel());
+  setDeepSeekTopUpVisible(false);
+  if (!silent) {
+    setDeepSeekValidationMessage(
+      result.summary || TRANSLATION_PROVIDER_DEFINITION.validationNetworkMessage,
+      "error",
+    );
+  }
+  return result;
 }

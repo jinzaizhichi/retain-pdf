@@ -167,6 +167,10 @@ pub fn build_app(state: AppState) -> Router {
             get(jobs::download_markdown),
         )
         .route(
+            "/api/v1/jobs/:job_id/markdown/document",
+            get(jobs::get_markdown_document),
+        )
+        .route(
             "/api/v1/jobs/:job_id/markdown/images/*path",
             get(jobs::download_markdown_image),
         )

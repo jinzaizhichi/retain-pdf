@@ -1,11 +1,18 @@
 from __future__ import annotations
+from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
+import signal
+import threading
+import time
 
 import fitz
 
 from foundation.shared.prompt_loader import load_prompt
 
+from services.pipeline_shared.events import emit_stage_progress
+from services.pipeline_shared.events import emit_stage_transition
 from services.translation.llm.shared.provider_runtime import request_chat_content
 from services.translation.llm.shared.structured_models import DOMAIN_CONTEXT_RESPONSE_SCHEMA
 from services.translation.llm.shared.structured_parsers import parse_domain_context_response
@@ -13,6 +20,55 @@ from services.translation.llm.shared.structured_parsers import parse_domain_cont
 
 DOMAIN_CONTEXT_FILE_NAME = "domain-context.json"
 DOMAIN_CONTEXT_RAW_FILE_NAME = "domain-context.raw.txt"
+DOMAIN_CONTEXT_REQUEST_TIMEOUT_SECS = 60
+DOMAIN_CONTEXT_TOTAL_TIMEOUT_ENV = "RETAIN_TRANSLATION_DOMAIN_CONTEXT_TOTAL_TIMEOUT"
+DOMAIN_CONTEXT_TOTAL_TIMEOUT_SECS = 90
+
+
+class DomainContextTimeoutError(TimeoutError):
+    pass
+
+
+@contextmanager
+def _domain_context_deadline(timeout_secs: int):
+    if timeout_secs <= 0 or threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, 0)
+
+    def _handle_timeout(signum, frame):  # noqa: ANN001
+        del signum, frame
+        raise DomainContextTimeoutError(f"domain inference exceeded {timeout_secs}s")
+
+    signal.signal(signal.SIGALRM, _handle_timeout)
+    signal.setitimer(signal.ITIMER_REAL, float(timeout_secs))
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer[0] > 0:
+            signal.setitimer(signal.ITIMER_REAL, previous_timer[0], previous_timer[1])
+
+
+def _empty_domain_context(preview_text: str = "") -> dict[str, str]:
+    return {
+        "domain": "",
+        "summary": "",
+        "translation_guidance": "",
+        "preview_text": preview_text,
+    }
+
+
+def _domain_context_total_timeout() -> int:
+    raw = os.environ.get(DOMAIN_CONTEXT_TOTAL_TIMEOUT_ENV, "").strip()
+    if not raw:
+        return DOMAIN_CONTEXT_TOTAL_TIMEOUT_SECS
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return DOMAIN_CONTEXT_TOTAL_TIMEOUT_SECS
 
 
 def extract_pdf_preview_text(source_pdf_path: Path, max_pages: int = 2) -> str:
@@ -69,12 +125,7 @@ def infer_domain_context_from_preview_text(
     output_dir: Path | None = None,
 ) -> dict[str, str]:
     if not preview_text:
-        result = {
-            "domain": "",
-            "summary": "",
-            "translation_guidance": "",
-            "preview_text": "",
-        }
+        result = _empty_domain_context("")
         if output_dir is not None:
             save_domain_context(output_dir, result)
         return result
@@ -83,16 +134,57 @@ def infer_domain_context_from_preview_text(
         print("domain-infer: cache hit", flush=True)
         return cached
 
-    content = request_chat_content(
-        build_domain_inference_messages(preview_text),
-        api_key=api_key,
-        model=model,
-        base_url=base_url,
-        temperature=0.0,
-        response_format=DOMAIN_CONTEXT_RESPONSE_SCHEMA,
-        timeout=120,
-        request_label="domain-infer",
+    messages = build_domain_inference_messages(preview_text)
+    total_timeout = _domain_context_total_timeout()
+    started = time.perf_counter()
+    emit_stage_transition(
+        stage="domain_inference",
+        substage="domain_inference",
+        message="开始识别文档领域",
+        progress_current=0,
+        progress_total=1,
+        payload={
+            "user_stage": "translation",
+            "progress_unit": "step",
+        },
     )
+    try:
+        with _domain_context_deadline(total_timeout):
+            content = request_chat_content(
+                messages,
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                temperature=0.0,
+                response_format=DOMAIN_CONTEXT_RESPONSE_SCHEMA,
+                timeout=min(DOMAIN_CONTEXT_REQUEST_TIMEOUT_SECS, total_timeout),
+                request_label="domain-infer",
+                max_attempts=1,
+            )
+    except DomainContextTimeoutError:
+        elapsed_ms = int(round((time.perf_counter() - started) * 1000))
+        result = _empty_domain_context(preview_text)
+        if output_dir is not None:
+            save_domain_context(output_dir, result)
+        print(
+            f"domain-infer: total timeout after {elapsed_ms / 1000:.2f}s, skipped",
+            flush=True,
+        )
+        emit_stage_progress(
+            stage="domain_inference",
+            substage="domain_inference",
+            message="领域识别超时，使用默认翻译上下文",
+            progress_current=1,
+            progress_total=1,
+            elapsed_ms=elapsed_ms,
+            payload={
+                "user_stage": "translation",
+                "progress_unit": "step",
+                "timed_out": True,
+                "timeout_s": total_timeout,
+            },
+        )
+        return result
     try:
         result = parse_domain_context_response(content, preview_text=preview_text)
     except Exception:
@@ -101,6 +193,18 @@ def infer_domain_context_from_preview_text(
         raise
     if output_dir is not None:
         save_domain_context(output_dir, result)
+    emit_stage_progress(
+        stage="domain_inference",
+        substage="domain_inference",
+        message="文档领域识别完成",
+        progress_current=1,
+        progress_total=1,
+        elapsed_ms=int(round((time.perf_counter() - started) * 1000)),
+        payload={
+            "user_stage": "translation",
+            "progress_unit": "step",
+        },
+    )
     return result
 
 

@@ -26,9 +26,12 @@ _TRANSLATE_STAGES = {
     "page_policies",
     "domain_inference",
     "garbled_repair",
+    "agent_repair",
+    "final_untranslated_recovery",
 }
 _RENDER_STAGES = {
     "render_prepare",
+    "render_preprocess",
     "rendering",
     "compile",
     "overlay",
@@ -57,6 +60,17 @@ _ACTIVE_PROGRESS_SNAPSHOT: ContextVar[dict[tuple[str, str, str], int] | None] = 
     "active_progress_snapshot",
     default=None,
 )
+
+
+def semantic_event_type(event_type: str) -> str:
+    normalized = str(event_type or "").strip()
+    if normalized in {"stage_transition", "stage_progress"}:
+        return "progress"
+    if normalized == "artifact_published":
+        return "artifact"
+    if normalized in {"job_terminal", "failure_classified"}:
+        return "terminal"
+    return normalized or "event"
 
 
 def _now_iso() -> str:
@@ -93,7 +107,7 @@ def progress_unit_for_stage(stage: str, event_type: str, payload: dict[str, Any]
         return "batch"
     if stage in _PAGE_PROGRESS_STAGES:
         return "page"
-    if stage in {"compile", "overlay", "saving", "render_prepare", "translation_prepare", "normalizing"}:
+    if stage in {"compile", "overlay", "saving", "render_prepare", "render_preprocess", "translation_prepare", "normalizing"}:
         return "step"
     if str(event_type or "").strip() == "stage_progress":
         return "step"
@@ -152,6 +166,7 @@ class PipelineEventWriter:
         level: str,
         stage: str,
         event_type: str,
+        substage: str = "",
         message: str,
         stage_detail: str = "",
         provider: str = "",
@@ -167,12 +182,12 @@ class PipelineEventWriter:
         provider_value = (provider or self.provider).strip()
         payload_value = payload or {}
         user_stage = normalize_user_stage(payload_value.get("user_stage") or user_stage_for_stage(stage))
-        substage = str(payload_value.get("substage") or provider_stage or "").strip()
+        substage_value = str(substage or payload_value.get("substage") or provider_stage or "").strip()
         progress_unit = progress_unit_for_stage(stage, event_type, payload_value)
         ts = _now_iso()
         progress_current = monotonic_progress_current(
             user_stage=user_stage,
-            substage=substage or str(stage or "").strip(),
+            substage=substage_value or str(stage or "").strip(),
             progress_unit=progress_unit,
             progress_current=progress_current,
         )
@@ -184,11 +199,12 @@ class PipelineEventWriter:
             "level": str(level or "info").strip() or "info",
             "user_stage": user_stage,
             "stage": str(stage or "").strip(),
-            "substage": substage,
+            "substage": substage_value,
             "stage_detail": str(stage_detail or "").strip(),
             "provider": provider_value,
             "provider_stage": str(provider_stage or "").strip(),
             "event_type": str(event_type or "").strip(),
+            "semantic_event_type": semantic_event_type(event_type),
             "message": str(message or "").strip(),
             "progress_current": progress_current,
             "progress_total": progress_total,
@@ -221,6 +237,7 @@ def emit_pipeline_event(
     level: str,
     stage: str,
     event_type: str,
+    substage: str = "",
     message: str,
     stage_detail: str = "",
     provider: str = "",
@@ -237,6 +254,7 @@ def emit_pipeline_event(
     return writer.emit(
         level=level,
         stage=stage,
+        substage=substage,
         event_type=event_type,
         message=message,
         stage_detail=stage_detail,
@@ -253,6 +271,7 @@ def emit_pipeline_event(
 def emit_stage_transition(
     *,
     stage: str,
+    substage: str = "",
     message: str,
     stage_detail: str = "",
     provider: str = "",
@@ -266,6 +285,7 @@ def emit_stage_transition(
     return emit_pipeline_event(
         level="info",
         stage=stage,
+        substage=substage,
         event_type="stage_transition",
         message=message,
         stage_detail=stage_detail or message,
@@ -282,6 +302,7 @@ def emit_stage_transition(
 def emit_stage_progress(
     *,
     stage: str,
+    substage: str = "",
     message: str,
     stage_detail: str = "",
     provider: str = "",
@@ -295,6 +316,7 @@ def emit_stage_progress(
     return emit_pipeline_event(
         level="info",
         stage=stage,
+        substage=substage,
         event_type="stage_progress",
         message=message,
         stage_detail=stage_detail or message,
@@ -323,12 +345,12 @@ def emit_render_page_progress(
     _ACTIVE_RENDER_PAGE_PROGRESS.set((current_value, total_value))
     return emit_stage_progress(
         stage="rendering",
+        substage="render_pages",
         message=message,
         progress_current=current_value,
         progress_total=total_value,
         payload={
             "user_stage": "render",
-            "substage": "render_pages",
             "progress_unit": "page",
             **(payload or {}),
         },
@@ -344,12 +366,12 @@ def emit_render_compile_progress(
 ) -> dict[str, Any] | None:
     return emit_stage_progress(
         stage="rendering",
+        substage="render_compile",
         message=message,
         progress_current=max(0, int(current)),
         progress_total=max(0, int(total)),
         payload={
             "user_stage": "render",
-            "substage": "render_compile",
             "progress_unit": "step",
             **(payload or {}),
         },

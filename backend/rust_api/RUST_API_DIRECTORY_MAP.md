@@ -153,6 +153,8 @@
   任务排队、worker 启动、stdout/stderr 消费、失败归因、取消、超时。
 - 快速判断：
   改 stage 执行顺序、并发槽位、进程控制、运行态同步时进这里。
+- 详细边界：
+  [`doc/core/rust_api/12-job_runner 边界.md`](/home/wxyhgk/tmp/Code/doc/core/rust_api/12-job_runner%20%E8%BE%B9%E7%95%8C.md)
 - 当前目录地图：
   - `mod.rs`
     runner facade、公共 deps、对外导出；这里的 `ProcessRuntimeDeps` 只给 orchestrator 用，`JobPersistDeps` 是叶子 helper 的持久化资源边界。

@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import os
 from queue import Empty, Queue
 import time
 from typing import Callable
 
 from services.translation.llm.shared.control_context import TranslationControlContext
 from services.translation.llm.shared.orchestration import translate_batch
-from services.translation.llm.shared.orchestration.batched_plain_single import retry_deferred_transport_items
+from services.translation.llm.shared.orchestration.batched_plain_single import run_translation_tail_items
 import services.translation.llm.shared.orchestration.terminal_payloads as terminal_payloads
-from services.translation.llm.shared.tail_retry_queue import DeferredTransportTailItem
+from services.translation.llm.shared.tail_retry_queue import TranslationTailItem
+from services.translation.llm.shared.tail_retry_queue import translation_tail_queue_from_context
 from services.translation.services.memory import JobMemoryStore
 from services.translation.services.memory import flush_translation_memory
 
@@ -28,7 +30,7 @@ TranslationResult = tuple[
 TranslationTask = tuple[str, int, int, list[dict]]
 AppliedTranslationResult = tuple[list[dict], dict[str, dict[str, str]]]
 RESULT_DRAIN_BATCH_SIZE = 64
-TAIL_RETRY_WORKER_DIVISOR = 4
+TAIL_RETRY_WORKER_DIVISOR = 2
 TAIL_RETRY_WORKER_LIMIT = 128
 EARLY_TAIL_RETRY_DRAIN_INTERVAL = 20
 
@@ -64,7 +66,7 @@ def run_translation_batches_sequential(
         touched_pages = result_applier.apply_batch(batch, translated)
         flush_state.record_progress(index, touched_pages)
         flush_state.flush_if_due(index, label=f"flushed after batch {index}/{total_batches}")
-    _drain_transport_tail_retry_queue(
+    _drain_translation_tail_queue(
         translation_context=translation_context,
         result_applier=result_applier,
         flush_state=flush_state,
@@ -273,14 +275,14 @@ def run_translation_batches_parallel(
             flush_state.record_progress(completed, touched_pages)
             flush_state.flush_if_due(completed, label=f"flushed after completed batch {completed}/{total_batches}")
             print(f"book: completed batch {completed}/{total_batches} (+{len(drained)})", flush=True)
-            if _should_drain_transport_tail_retry_early(completed, total_batches):
-                _drain_transport_tail_retry_queue(
+            if _should_drain_translation_tail_early(completed, total_batches):
+                _drain_translation_tail_queue(
                     translation_context=translation_context,
                     result_applier=result_applier,
                     flush_state=flush_state,
                     tail_workers=tail_retry_workers,
                     update_total_batches=False,
-                    label_prefix="early transport tail retry",
+                    label_prefix="early translation tail retry",
                 )
     finally:
         for executor in executors:
@@ -288,13 +290,13 @@ def run_translation_batches_parallel(
         for future in worker_futures:
             if future.done() and future.exception() is not None:
                 raise future.exception()
-    _drain_transport_tail_retry_queue(
+    _drain_translation_tail_queue(
         translation_context=translation_context,
         result_applier=result_applier,
         flush_state=flush_state,
         tail_workers=tail_retry_workers,
         update_total_batches=True,
-        label_prefix="transport tail retry",
+        label_prefix="translation tail retry",
     )
     flush_translation_memory(memory_store)
     flush_state.final_flush()
@@ -326,23 +328,23 @@ def _failed_results_for_unhandled_batch_exception(
     return degraded
 
 
-def _drain_transport_tail_retry_queue(
+def _drain_translation_tail_queue(
     *,
     translation_context: TranslationControlContext | None,
     result_applier: TranslationResultApplier,
     flush_state: TranslationFlushState,
     tail_workers: int,
     update_total_batches: bool = True,
-    label_prefix: str = "transport tail retry",
+    label_prefix: str = "translation tail retry",
 ) -> None:
-    queue = getattr(translation_context, "transport_tail_retry_queue", None)
+    queue = translation_tail_queue_from_context(translation_context)
     if queue is None:
         return
     tail_items = queue.drain()
     if not tail_items:
         return
     print(
-        f"book: transport tail retry queue start items={len(tail_items)} workers={max(1, tail_workers)}",
+        f"book: translation tail queue start items={len(tail_items)} workers={max(1, tail_workers)}",
         flush=True,
     )
     completed = 0
@@ -351,17 +353,17 @@ def _drain_transport_tail_retry_queue(
         flush_state.total_batches = base_completed + len(tail_items)
     if max(1, tail_workers) <= 1:
         for tail_item in tail_items:
-            translated = _run_transport_tail_retry_item(tail_item)
+            translated = _run_translation_tail_item(tail_item)
             touched_pages = result_applier.apply_batch([tail_item.item], translated)
             completed += 1
             if update_total_batches:
-                flush_state.record_progress(base_completed + completed, touched_pages)
+                flush_state.record_progress(base_completed + completed, touched_pages, substage="translation_tail_retry")
             flush_state.flush_if_due(completed, label=f"flushed after {label_prefix} {completed}/{len(tail_items)}")
         return
 
     with ThreadPoolExecutor(max_workers=max(1, tail_workers)) as executor:
-        futures: dict[Future, DeferredTransportTailItem] = {
-            executor.submit(_run_transport_tail_retry_item, tail_item): tail_item
+        futures: dict[Future, TranslationTailItem] = {
+            executor.submit(_run_translation_tail_item, tail_item): tail_item
             for tail_item in tail_items
         }
         for future in as_completed(futures):
@@ -370,26 +372,38 @@ def _drain_transport_tail_retry_queue(
                 translated = future.result()
             except Exception as exc:
                 print(
-                    f"book: transport tail retry wrapper failed for {tail_item.item.get('item_id', '')}: {type(exc).__name__}: {exc}",
+                    f"book: translation tail item failed for {tail_item.item.get('item_id', '')} reason={tail_item.reason}: {type(exc).__name__}: {exc}",
                     flush=True,
                 )
                 translated = _failed_results_for_unhandled_batch_exception([tail_item.item], exc)
             touched_pages = result_applier.apply_batch([tail_item.item], translated)
             completed += 1
             if update_total_batches:
-                flush_state.record_progress(base_completed + completed, touched_pages)
+                flush_state.record_progress(base_completed + completed, touched_pages, substage="translation_tail_retry")
             flush_state.flush_if_due(completed, label=f"flushed after {label_prefix} {completed}/{len(tail_items)}")
 
 
-def _should_drain_transport_tail_retry_early(completed: int, total_batches: int) -> bool:
+def _should_drain_translation_tail_early(completed: int, total_batches: int) -> bool:
+    if not _early_tail_retry_enabled():
+        return False
     if completed <= 0 or completed >= total_batches:
         return False
     return completed % EARLY_TAIL_RETRY_DRAIN_INTERVAL == 0
 
 
-def _run_transport_tail_retry_item(tail_item: DeferredTransportTailItem) -> dict[str, dict[str, str]]:
-    return retry_deferred_transport_items(
-        [tail_item.item],
+def _early_tail_retry_enabled() -> bool:
+    value = str(os.environ.get("RETAIN_TRANSLATION_EARLY_TAIL_RETRY", "0") or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _run_translation_tail_item(tail_item: TranslationTailItem) -> dict[str, dict[str, str]]:
+    if tail_item.request_label:
+        print(
+            f"{tail_item.request_label}: run translation tail item reason={tail_item.reason} item={tail_item.item.get('item_id', '')}",
+            flush=True,
+        )
+    return run_translation_tail_items(
+        [tail_item],
         api_key=tail_item.api_key,
         model=tail_item.model,
         base_url=tail_item.base_url,

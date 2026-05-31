@@ -121,14 +121,31 @@ fn library_image_url(
 }
 
 fn list_books_filtered(db: &Db, query: &ListJobsQuery) -> Result<Vec<JobSnapshot>, AppError> {
+    let search_query = query
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let (fetch_limit, fetch_offset) = if search_query.is_some() {
+        (10_000, 0)
+    } else {
+        (query.limit, query.offset)
+    };
     let jobs = db.list_jobs(
-        query.limit,
-        query.offset,
+        fetch_limit,
+        fetch_offset,
         query.status.as_ref(),
         query.workflow.as_ref(),
     )?;
+    let search_query = search_query.map(|value| value.to_ascii_lowercase());
     Ok(jobs
         .into_iter()
+        .filter(|job| {
+            search_query
+                .as_deref()
+                .map(|q| library_search_text(db, job).contains(q))
+                .unwrap_or(true)
+        })
         .filter(|job| {
             query
                 .provider
@@ -145,7 +162,26 @@ fn list_books_filtered(db: &Db, query: &ListJobsQuery) -> Result<Vec<JobSnapshot
                 })
                 .unwrap_or(true)
         })
+        .skip(if search_query.is_some() {
+            query.offset as usize
+        } else {
+            0
+        })
+        .take(query.limit as usize)
         .collect())
+}
+
+fn library_search_text(db: &Db, job: &JobSnapshot) -> String {
+    [
+        job.job_id.as_str(),
+        job.stage.as_deref().unwrap_or(""),
+        job.stage_detail.as_deref().unwrap_or(""),
+        job.error.as_deref().unwrap_or(""),
+        job.request_payload.source.source_url.as_str(),
+        source_file_name(db, job).as_deref().unwrap_or(""),
+    ]
+    .join(" ")
+    .to_ascii_lowercase()
 }
 
 #[cfg(test)]

@@ -1,9 +1,10 @@
 import { $ } from "./dom.js";
 import { apiBase, isDesktopMode } from "./config.js";
 
-const PDFJS_CMAP_URL = new URL("../../vendor/pdfjs-dist/cmaps/", import.meta.url).toString();
-const PDFJS_STANDARD_FONT_DATA_URL = new URL("../../vendor/pdfjs-dist/standard_fonts/", import.meta.url).toString();
-const PDFJS_WORKER_URL = new URL("../../vendor/pdfjs-dist/build/pdf.worker.mjs", import.meta.url).toString();
+const PDFJS_MODULE_URL = new URL("./vendor/pdfjs-dist/build/pdf.mjs", window.location.href).toString();
+const PDFJS_CMAP_URL = new URL("./vendor/pdfjs-dist/cmaps/", window.location.href).toString();
+const PDFJS_STANDARD_FONT_DATA_URL = new URL("./vendor/pdfjs-dist/standard_fonts/", window.location.href).toString();
+const PDFJS_WORKER_URL = new URL("./vendor/pdfjs-dist/build/pdf.worker.mjs", window.location.href).toString();
 
 let readerDialogComponentPromise = null;
 let readerDialogFeature = null;
@@ -57,7 +58,7 @@ export function collectUploadFormData(file) {
 
 async function loadPdfjs() {
   if (!pdfjsPromise) {
-    pdfjsPromise = import("../../vendor/pdfjs-dist/build/pdf.mjs")
+    pdfjsPromise = import(PDFJS_MODULE_URL)
       .then((module) => {
         module.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
         return module;

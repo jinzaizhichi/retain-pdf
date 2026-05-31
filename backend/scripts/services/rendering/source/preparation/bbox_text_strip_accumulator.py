@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from services.rendering.source.preparation.bbox_text_strip_geometry import rect_tuple
 from services.rendering.source.preparation.bbox_text_strip_types import BBOX_TEXT_STRIP_PAGE_SKIP_COMPLEX
 from services.rendering.source.preparation.bbox_text_strip_types import BBOX_TEXT_STRIP_PAGE_SKIP_NO_TEXT_OVERLAP
+from services.rendering.source.preparation.bbox_text_strip_types import BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND
 from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripCandidates
 from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripPagePlan
 
@@ -15,6 +16,7 @@ class BBoxTextStripCandidateAccumulator:
     page_protected_rects: dict[int, tuple[tuple[float, float, float, float], ...]] = field(default_factory=dict)
     skipped_complex_page_indices: set[int] = field(default_factory=set)
     skipped_no_text_overlap_page_indices: set[int] = field(default_factory=set)
+    skipped_visual_background_page_indices: set[int] = field(default_factory=set)
 
     def add_page_plan(self, page_idx: int, page_plan: BBoxTextStripPagePlan) -> None:
         if page_plan.skip_reason == BBOX_TEXT_STRIP_PAGE_SKIP_COMPLEX:
@@ -22,6 +24,9 @@ class BBoxTextStripCandidateAccumulator:
             return
         if page_plan.skip_reason == BBOX_TEXT_STRIP_PAGE_SKIP_NO_TEXT_OVERLAP:
             self.skipped_no_text_overlap_page_indices.add(page_idx)
+            return
+        if page_plan.skip_reason == BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND:
+            self.skipped_visual_background_page_indices.add(page_idx)
             return
         if not page_plan.strip_rects:
             return
@@ -35,6 +40,8 @@ class BBoxTextStripCandidateAccumulator:
             page_protected_rects=self.page_protected_rects,
             pages_skipped_complex=len(self.skipped_complex_page_indices),
             pages_skipped_no_text_overlap=len(self.skipped_no_text_overlap_page_indices),
+            pages_skipped_visual_background=len(self.skipped_visual_background_page_indices),
             skipped_complex_page_indices=frozenset(self.skipped_complex_page_indices),
             skipped_no_text_overlap_page_indices=frozenset(self.skipped_no_text_overlap_page_indices),
+            skipped_visual_background_page_indices=frozenset(self.skipped_visual_background_page_indices),
         )

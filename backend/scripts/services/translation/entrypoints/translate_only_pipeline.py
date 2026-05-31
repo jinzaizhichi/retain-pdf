@@ -36,7 +36,6 @@ from services.pipeline_shared.io import save_json
 from services.translation.artifacts import write_translation_debug_index
 from services.translation.artifacts import write_translation_diagnostics
 from services.translation.artifacts import blocking_untranslated_items
-from services.translation.artifacts import enforce_no_blocking_review_errors
 from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL
 from services.translation.llm.shared.provider_runtime import get_api_key
 from services.translation.llm.shared.provider_runtime import normalize_base_url
@@ -87,11 +86,6 @@ def _args_from_spec(spec: TranslateStageSpec) -> SimpleNamespace:
         api_key=resolve_credential_ref(spec.params.credential_ref),
         model=spec.params.model,
         base_url=spec.params.base_url,
-        render_prewarm_output_pdf_path=spec.params.render_prewarm_output_pdf_path,
-        render_prewarm_artifacts_dir=job_dirs.artifacts_dir,
-        render_prewarm_mode=spec.params.render_prewarm_mode,
-        render_prewarm_pdf_compress_dpi=spec.params.render_prewarm_pdf_compress_dpi,
-        render_prewarm_source_cleanup_strategy=spec.params.render_prewarm_source_cleanup_strategy,
     )
 
 
@@ -134,6 +128,7 @@ def main() -> None:
         )
         emit_stage_transition(
             stage="translating",
+            substage="translation_batches",
             message="开始准备纯翻译阶段",
         )
         started = time.perf_counter()
@@ -167,11 +162,6 @@ def main() -> None:
                 stage="translate",
                 stage_spec_schema_version=stage_spec_schema_version,
             ),
-            render_prewarm_output_pdf_path=args.render_prewarm_output_pdf_path,
-            render_prewarm_artifacts_dir=args.render_prewarm_artifacts_dir,
-            render_prewarm_mode=args.render_prewarm_mode,
-            render_prewarm_pdf_compress_dpi=args.render_prewarm_pdf_compress_dpi,
-            render_prewarm_source_cleanup_strategy=args.render_prewarm_source_cleanup_strategy,
         )
         elapsed = time.perf_counter() - started
         diagnostics_path = job_dirs.artifacts_dir / "translation_diagnostics.json"
@@ -217,7 +207,11 @@ def main() -> None:
             raise RuntimeError(
                 f"translation export gate blocked: unresolved_translation_count={len(blocking_untranslated)} preview={preview}"
             )
-        enforce_no_blocking_review_errors(review_summary)
+        if review_summary.get("has_errors"):
+            print(
+                "translation review: errors recorded in translation_review.json; export continues because artifacts are diagnostic",
+                flush=True,
+            )
 
         schema_validation = build_validation_report_from_path(source_json_path)
         normalization_report = load_normalization_report(normalization_report_path)

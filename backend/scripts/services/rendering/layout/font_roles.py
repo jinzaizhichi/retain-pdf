@@ -2,47 +2,47 @@ from __future__ import annotations
 
 import re
 
+from services.document_schema.semantics import block_kind
+from services.document_schema.semantics import is_caption_like_block as schema_is_caption_like_block
+from services.document_schema.semantics import is_footnote_like_block as schema_is_footnote_like_block
+from services.document_schema.semantics import is_plain_bodylike_block
+from services.document_schema.semantics import is_plain_text_block
+from services.document_schema.semantics import is_textual_block
+from services.document_schema.semantics import is_title_like_block as schema_is_title_like_block
+from services.document_schema.semantics import layout_role
+from services.document_schema.semantics import semantic_role
 from services.rendering.layout.typography.measurement import bbox_width
 from services.rendering.layout.typography.measurement import formula_ratio
 from services.rendering.layout.typography.measurement import source_visual_line_count
-from services.translation.public import item_block_kind
-from services.translation.public import item_is_bodylike
-from services.translation.public import item_is_caption_like
-from services.translation.public import item_is_footnote_like
-from services.translation.public import item_is_plain_text_block
-from services.translation.public import item_is_textual
-from services.translation.public import item_is_title_like
-from services.translation.public import item_layout_role
-from services.translation.public import item_semantic_role
 
 
 BODY_FORMULA_RATIO_MAX = 0.5
 
 
 def is_caption_like_block(item: dict) -> bool:
-    return item_is_caption_like(item)
+    return schema_is_caption_like_block(item)
 
 
 def is_footnote_like_block(item: dict) -> bool:
-    return item_is_footnote_like(item)
+    return schema_is_footnote_like_block(item)
 
 
 def item_layout_role_name(item: dict) -> str:
-    return item_layout_role(item)
+    return layout_role(item)
 
 
 def item_semantic_role_name(item: dict) -> str:
-    return item_semantic_role(item)
+    return semantic_role(item)
 
 
 def is_local_textual_item(item: dict) -> bool:
     if is_caption_like_block(item) or is_footnote_like_block(item):
         return True
-    if item_is_title_like(item):
+    if schema_is_title_like_block(item):
         return True
-    if item_block_kind(item) == "text":
+    if block_kind(item) == "text":
         return True
-    return item_is_textual(item)
+    return is_textual_block(item)
 
 
 def is_body_text_candidate(item: dict, page_text_width_med: float) -> bool:
@@ -50,7 +50,7 @@ def is_body_text_candidate(item: dict, page_text_width_med: float) -> bool:
         return False
     layout_role = item_layout_role_name(item)
     semantic_role = item_semantic_role_name(item)
-    if not item_is_plain_text_block(item):
+    if not is_plain_text_block(item):
         if layout_role not in {"paragraph", "list_item"}:
             return False
     if semantic_role not in {"", "body", "abstract"}:
@@ -61,7 +61,7 @@ def is_body_text_candidate(item: dict, page_text_width_med: float) -> bool:
     width = bbox_width(item)
     if page_text_width_med > 0 and width < page_text_width_med * 0.75:
         if not (
-            item_is_bodylike(item)
+            is_plain_bodylike_block(item)
             and text_len >= 36
             and source_visual_line_count(item) >= 2
         ):
@@ -70,9 +70,9 @@ def is_body_text_candidate(item: dict, page_text_width_med: float) -> bool:
 
 
 def is_default_text_block(item: dict) -> bool:
-    if item_is_title_like(item):
+    if schema_is_title_like_block(item):
         return True
-    if not item_is_plain_text_block(item):
+    if not is_plain_text_block(item):
         return False
     line_count = len(item.get("lines", []))
     text_len = len(re.sub(r"\s+", "", item.get("source_text", "")))
@@ -80,7 +80,7 @@ def is_default_text_block(item: dict) -> bool:
 
 
 def is_title_like_block(item: dict) -> bool:
-    return item_is_title_like(item)
+    return schema_is_title_like_block(item)
 
 
 def resolve_font_weight(item: dict) -> str:

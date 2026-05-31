@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, Result};
 
 use crate::models::JobRuntimeState;
-use crate::storage_paths::{resolve_data_path, TRANSLATION_MANIFEST_FILE_NAME};
+use crate::storage_paths::TRANSLATION_MANIFEST_FILE_NAME;
+
+use super::artifact_requirements::{required_existing_dir, required_existing_file};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum WorkerContract {
@@ -47,13 +49,13 @@ pub(super) fn validate_successful_worker_outputs(
 
 fn validate_normalize_outputs(job: &JobRuntimeState, data_root: &Path) -> Result<()> {
     let artifacts = required_artifacts(job)?;
-    required_existing_file(
+    require_worker_file(
         data_root,
         artifacts.normalized_document_json.as_deref(),
         "normalized_document_json",
         &job.job_id,
     )?;
-    required_existing_file(
+    require_worker_file(
         data_root,
         artifacts.normalization_report_json.as_deref(),
         "normalization_report_json",
@@ -64,7 +66,7 @@ fn validate_normalize_outputs(job: &JobRuntimeState, data_root: &Path) -> Result
 
 fn validate_translation_outputs(job: &JobRuntimeState, data_root: &Path) -> Result<()> {
     let artifacts = required_artifacts(job)?;
-    let translations_dir = required_existing_dir(
+    let translations_dir = require_worker_dir(
         data_root,
         artifacts.translations_dir.as_deref(),
         "translations_dir",
@@ -79,7 +81,7 @@ fn validate_translation_outputs(job: &JobRuntimeState, data_root: &Path) -> Resu
             manifest_path.display()
         ));
     }
-    required_existing_file(
+    require_worker_file(
         data_root,
         artifacts.summary.as_deref(),
         "summary",
@@ -90,13 +92,13 @@ fn validate_translation_outputs(job: &JobRuntimeState, data_root: &Path) -> Resu
 
 fn validate_render_outputs(job: &JobRuntimeState, data_root: &Path) -> Result<()> {
     let artifacts = required_artifacts(job)?;
-    required_existing_file(
+    require_worker_file(
         data_root,
         artifacts.output_pdf.as_deref(),
         "output_pdf",
         &job.job_id,
     )?;
-    required_existing_file(
+    require_worker_file(
         data_root,
         artifacts.summary.as_deref(),
         "summary",
@@ -114,48 +116,36 @@ fn required_artifacts(job: &JobRuntimeState) -> Result<&crate::models::JobArtifa
     })
 }
 
-fn required_existing_file(
+fn require_worker_file(
     data_root: &Path,
     raw: Option<&str>,
     artifact_key: &str,
     job_id: &str,
 ) -> Result<PathBuf> {
-    let path = required_path(data_root, raw, artifact_key, job_id)?;
-    if !path.is_file() {
-        return Err(anyhow!(
-            "{artifact_key} missing after successful worker for {job_id}: {}",
-            path.display()
-        ));
-    }
-    Ok(path)
+    required_existing_file(
+        data_root,
+        raw,
+        artifact_key,
+        job_id,
+        format!("worker succeeded but {artifact_key} was not published for {job_id}"),
+        "missing after successful worker",
+    )
 }
 
-fn required_existing_dir(
+fn require_worker_dir(
     data_root: &Path,
     raw: Option<&str>,
     artifact_key: &str,
     job_id: &str,
 ) -> Result<PathBuf> {
-    let path = required_path(data_root, raw, artifact_key, job_id)?;
-    if !path.is_dir() {
-        return Err(anyhow!(
-            "{artifact_key} missing after successful worker for {job_id}: {}",
-            path.display()
-        ));
-    }
-    Ok(path)
-}
-
-fn required_path(
-    data_root: &Path,
-    raw: Option<&str>,
-    artifact_key: &str,
-    job_id: &str,
-) -> Result<PathBuf> {
-    let raw = raw.ok_or_else(|| {
-        anyhow!("worker succeeded but {artifact_key} was not published for {job_id}")
-    })?;
-    resolve_data_path(data_root, raw)
+    required_existing_dir(
+        data_root,
+        raw,
+        artifact_key,
+        job_id,
+        format!("worker succeeded but {artifact_key} was not published for {job_id}"),
+        "missing after successful worker",
+    )
 }
 
 #[cfg(test)]

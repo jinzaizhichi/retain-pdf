@@ -3,11 +3,10 @@ use crate::models::JobArtifacts;
 use crate::models::JobRuntimeState;
 use anyhow::Result;
 
-use super::cancel_registry::is_cancel_requested_any;
-use super::process_contract::validate_successful_worker_outputs;
 use super::ProcessRuntimeDeps;
 
 mod completion;
+mod completion_pipeline;
 mod execution;
 mod failure_ai_diagnosis;
 mod io_support;
@@ -16,16 +15,19 @@ mod startup;
 mod timeout_support;
 
 #[cfg(test)]
+use self::completion::apply_process_completion;
+#[cfg(test)]
 use self::completion::is_shutdown_noise;
-use self::completion::{
-    apply_process_completion, classify_process_completion, should_treat_shutdown_noise_as_success,
-    ProcessCompletionKind,
-};
+#[cfg(test)]
+use self::completion::ProcessCompletionKind;
+#[cfg(test)]
+use self::completion::{classify_process_completion, should_treat_shutdown_noise_as_success};
+use self::completion_pipeline::finalize_completed_process;
 use self::execution::{collect_process_execution, ProcessExecution};
+#[cfg(test)]
 use self::failure_ai_diagnosis::maybe_attach_ai_failure_diagnosis;
 #[cfg(test)]
 use self::io_support::should_continue_after_cancel;
-use self::result_support::attach_process_result;
 use self::startup::spawn_started_process;
 #[cfg(test)]
 use self::timeout_support::apply_timeout_failure;
@@ -59,45 +61,7 @@ pub(crate) async fn execute_process_job(
         ProcessExecution::Completed(completed) => completed,
         ProcessExecution::TimedOut(timed_out_job) => return Ok(timed_out_job),
     };
-    let mut latest_job = completed.latest_job;
-    attach_process_result(
-        &mut latest_job,
-        &completed.status,
-        completed.started,
-        completed.stdout_text,
-        &completed.stderr_text,
-        worker_runtime.project_root,
-    );
-
-    let mut completion = classify_process_completion(
-        is_cancel_requested_any(
-            &deps.canceled_jobs,
-            &latest_job.job_id,
-            extra_cancel_job_ids,
-        )
-        .await,
-        completed.status.success(),
-        should_treat_shutdown_noise_as_success(&latest_job, &completed.stderr_text),
-    );
-    if matches!(
-        completion,
-        ProcessCompletionKind::Succeeded | ProcessCompletionKind::SucceededWithShutdownNoise
-    ) {
-        if let Err(err) = validate_successful_worker_outputs(&latest_job, &deps.persist.data_root) {
-            latest_job.append_log(&format!("ERROR: worker output contract failed: {err}"));
-            latest_job.stage_detail =
-                Some(format!("Python worker 成功退出，但必需产物缺失：{err}"));
-            completion = ProcessCompletionKind::Failed;
-        }
-    }
-    apply_process_completion(&mut latest_job, completion, &completed.stderr_text);
-    maybe_attach_ai_failure_diagnosis(
-        deps.db.as_ref(),
-        &deps.failure_ai_diagnosis_runtime(),
-        &mut latest_job,
-    )
-    .await;
-    Ok(latest_job)
+    finalize_completed_process(&deps, &worker_runtime, completed, extra_cancel_job_ids).await
 }
 
 #[cfg(test)]

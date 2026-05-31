@@ -82,6 +82,7 @@ export function mountUploadWorkflowFeatures(features) {
     setText,
     applyWorkflowMode: () => features.workflowFeature?.applyWorkflowMode(),
     refreshSubmitControls: () => features.workflowFeature?.refreshSubmitControls(),
+    refreshDeepSeekBalance: (options) => features.browserCredentialsFeature?.refreshDeepSeekBalance?.(options),
     workflowNeedsUpload: (workflow) => features.workflowFeature?.workflowNeedsUpload(workflow) ?? (workflow !== WORKFLOW_RENDER),
   });
 }

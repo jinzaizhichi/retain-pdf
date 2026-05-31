@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import time
+from typing import Callable
 
 import fitz
 
@@ -16,6 +17,8 @@ from services.rendering.output.typst.source_page_overlay import apply_source_pag
 from services.rendering.output.typst.source_page_overlay import mark_image_page_overlay_mode
 from services.rendering.output.typst.sanitize import sanitize_page_specs_for_typst_book_overlay
 from services.pipeline_shared.events import emit_render_page_progress
+
+TypstRepairRequestFn = Callable[..., str]
 
 
 def prepare_overlay_doc_pages(
@@ -66,6 +69,7 @@ def overlay_pages_via_page_fallback(
     redaction_strategy: str | None = None,
     source_base_pdf_path: Path | None = None,
     pikepdf_output_pdf_path: Path | None = None,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> dict[str, object]:
     overlay_paths, page_compile_diagnostics, compile_elapsed = compile_overlay_page_specs(
         page_specs,
@@ -76,6 +80,7 @@ def overlay_pages_via_page_fallback(
         font_family=font_family,
         font_paths=font_paths,
         temp_root=temp_root,
+        request_chat_content_fn=request_chat_content_fn,
     )
     diagnostics = new_overlay_merge_diagnostics()
     diagnostics["page_overlay_compile_elapsed_seconds"] = compile_elapsed
@@ -170,6 +175,7 @@ def sanitize_overlay_page_specs(
     temp_root: Path | None = None,
     page_diagnostics: list[dict] | None = None,
     overlay_indices: set[int] | None = None,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> tuple[list[tuple[int, float, float, list[dict]]], dict[int, list[dict]], list[tuple[int, float, float, list[dict], str]]]:
     sanitized_page_specs = sanitize_page_specs_for_typst_book_overlay(
         page_specs,
@@ -181,6 +187,7 @@ def sanitize_overlay_page_specs(
         work_dir=(temp_root or paths.OUTPUT_DIR) / "book-sanitize",
         page_diagnostics=page_diagnostics,
         overlay_indices=overlay_indices,
+        request_chat_content_fn=request_chat_content_fn,
     )
     sanitized_book_specs = [
         (page_width, page_height, items) for _, page_width, page_height, items, _ in sanitized_page_specs

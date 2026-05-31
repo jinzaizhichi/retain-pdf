@@ -7,6 +7,7 @@ import {
   renderRecentJobsSummary,
   setRecentJobsLoadMoreLoading,
   setRecentJobsOpen,
+  shouldAutoLoadRecentJobs,
 } from "./recent-jobs-dialog-rendering.js";
 import { recentJobsDialogTemplate } from "./recent-jobs-dialog-template.js";
 
@@ -35,6 +36,10 @@ class RecentJobsDialog extends HTMLElement {
     return recentJobsElements(this).loadMoreButton;
   }
 
+  scrollBodyElement() {
+    return recentJobsElements(this).body;
+  }
+
   dialogElement() {
     return recentJobsElements(this).dialog;
   }
@@ -45,6 +50,14 @@ class RecentJobsDialog extends HTMLElement {
 
   bindEvents({ onLoadMore } = {}) {
     this.loadMoreButton()?.addEventListener("click", () => onLoadMore?.());
+    if (!this.__retainPdfRecentJobsScrollBound) {
+      this.__retainPdfRecentJobsScrollBound = true;
+      this.scrollBodyElement()?.addEventListener("scroll", () => {
+        if (shouldAutoLoadRecentJobs(this)) {
+          onLoadMore?.();
+        }
+      }, { passive: true });
+    }
   }
 
   renderSummary(text) {
@@ -63,12 +76,20 @@ class RecentJobsDialog extends HTMLElement {
     renderRecentJobsError(this, message, { reset });
   }
 
-  renderList(markup, { reset = false, hasMore = false, onSelect, onDelete } = {}) {
-    renderRecentJobsList(this, markup, { reset, hasMore, onSelect, onDelete });
+  renderList(markup, { reset = false, hasMore = false, onSelect, onDelete, onReader } = {}) {
+    renderRecentJobsList(this, markup, { reset, hasMore, onSelect, onDelete, onReader });
   }
 
   setLoadMoreLoading() {
     setRecentJobsLoadMoreLoading(this);
+  }
+
+  scheduleAutoLoadCheck() {
+    window.requestAnimationFrame(() => {
+      if (shouldAutoLoadRecentJobs(this)) {
+        this.loadMoreButton()?.click();
+      }
+    });
   }
 }
 

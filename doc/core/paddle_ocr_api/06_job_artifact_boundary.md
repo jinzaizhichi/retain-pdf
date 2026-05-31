@@ -139,7 +139,7 @@ Rust 侧解析 Markdown 的位置：
 
 - Markdown 里的图片相对路径，不能由我们自己拍脑袋生成固定模式
 - 必须以 Paddle `markdown.images` 的 key 为准
-- 我们当前只允许做一层稳定发布包装：给每页加 `page-N/` 作用域前缀，避免多页 PDF 的同名图片互相覆盖
+- 我们当前只允许做一层稳定发布包装：把图片发布到 `md/images/` 下，并给每页加 `page-N/` 作用域前缀，避免多页 PDF 的同名图片互相覆盖
 
 也就是说，如果 Paddle 原始 Markdown 里写的是：
 
@@ -150,13 +150,14 @@ Rust 侧解析 Markdown 的位置：
 那么发布后的 Markdown 应该变成：
 
 ```html
-<img src="page-6/imgs/img_in_image_box_320_138_932_438.jpg" ... />
+<img src="images/page-6/imgs/img_in_image_box_320_138_932_438.jpg" ... />
 ```
 
 其中：
 
 - `imgs/img_in_image_box_320_138_932_438.jpg` 这段相对路径来自 provider 原始返回
 - `page-6/` 是我们为了多页发布增加的页面作用域
+- `images/` 对应 job artifact 目录 `md/images/`
 
 不能把它错误简化成：
 
@@ -232,6 +233,7 @@ artifact 层不应该反向变成 provider 语义层。
 | `/api/v1/jobs/{job_id}/normalized-document` | `normalized_document_json` | OCR 到下游正式交接物 |
 | `/api/v1/jobs/{job_id}/normalization-report` | `normalization_report_json` | normalize 校验/摘要 |
 | `/api/v1/jobs/{job_id}/markdown` | `markdown_raw` 的读取视图 | 可返回 JSON 包装或 raw markdown |
+| `/api/v1/jobs/{job_id}/markdown/document` | `markdown_raw` + `markdown_images_dir` 的结构化读取视图 | 返回 Markdown 内容、绝对图片链接版 Markdown、图片直链清单 |
 | `/api/v1/jobs/{job_id}/markdown/images/{path}` | `markdown_images_dir` 下的文件 | 图片直链 |
 | `/api/v1/jobs/{job_id}/artifacts/{artifact_key}` | artifact registry 项 | 通用 artifact 下载 |
 
@@ -297,8 +299,8 @@ artifact 层不应该反向变成 provider 语义层。
 
 - `markdown.images` 的 key 是 provider raw 语义的一部分
 - published artifact 层不能重命名它内部的相对路径结构
-- 允许做的只有“页面作用域隔离”，例如 `page-6/` 前缀
-- 不允许把 provider 返回的 `imgs/...` 改写成仓库内部自定义固定目录名
+- 允许做的是“job markdown 图片目录包装 + 页面作用域隔离”，例如 `images/page-6/` 前缀
+- 不允许把 provider 返回的 `imgs/...` 内部结构改写成仓库自定义命名
 
 ### 属于 normalized_document
 

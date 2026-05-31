@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 from typing import Callable
@@ -72,7 +73,8 @@ def translate_pending_units(
     domain_guidance: str = "",
     mode: str = "fast",
     translation_context: TranslationControlContext | None = None,
-    progress_callback: Callable[[int, int, set[int]], None] | None = None,
+    progress_callback: Callable[[int, int, set[int], str], None] | None = None,
+    flush_callback: Callable[[set[int]], None] | None = None,
 ) -> dict[str, int]:
     apply_elapsed_s = 0.0
     max_result_drain_batch = 0
@@ -156,15 +158,22 @@ def translate_pending_units(
         flush_interval=flush_interval,
         total_batches=total_batches,
         progress_callback=progress_callback,
+        flush_callback=flush_callback,
     )
     memory_store = JobMemoryStore(_infer_job_memory_path(translation_paths), save_interval=200) if translation_paths else None
     prompt_memory = JobMemorySnapshot.from_store(memory_store) if memory_store is not None else None
+    live_memory_updates = _live_memory_updates_enabled()
+    if memory_store is not None:
+        print(
+            f"book: job memory mode={'live_updates' if live_memory_updates else 'snapshot_readonly'}",
+            flush=True,
+        )
     result_applier = TranslationResultApplier(
         flat_payload=flat_payload,
         item_to_page=item_to_page,
         duplicate_items_by_rep_id=duplicate_items_by_rep_id,
         flush_state=flush_state,
-        memory_store=memory_store,
+        memory_store=memory_store if live_memory_updates else None,
     )
     for immediate in immediate_results:
         result_applier.apply_immediate(immediate)
@@ -207,3 +216,8 @@ def translate_pending_units(
     run_stats_payload["apply_elapsed_ms"] = int(round(apply_elapsed_s * 1000))
     run_stats_payload["max_result_drain_batch"] = max_result_drain_batch
     return run_stats_payload
+
+
+def _live_memory_updates_enabled() -> bool:
+    value = str(os.environ.get("RETAIN_TRANSLATION_LIVE_MEMORY_UPDATES", "") or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}

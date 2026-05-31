@@ -8,14 +8,11 @@ from services.rendering.policy.cleanup_policy import item_has_formula_region
 from services.rendering.policy.geometry import item_rect
 from services.rendering.policy.geometry import merge_rects
 from services.rendering.policy.geometry import rect_list
-from services.rendering.policy.geometry import x_overlap_ratio
-from services.translation.public import item_block_kind
+from services.document_schema.semantics import block_kind
 
 
 FORMULA_GUARD_VERTICAL_PAD_PT = 12.0
 FORMULA_GUARD_HORIZONTAL_PAD_PT = 8.0
-FORMULA_GUARD_X_OVERLAP_RATIO = 0.18
-FORMULA_GUARD_NEIGHBOR_MAX_GAP_PT = 72.0
 MIN_REDACTION_FRAGMENT_HEIGHT_PT = 2.0
 
 
@@ -76,7 +73,7 @@ def page_formula_rects(items: list[dict]) -> list[fitz.Rect]:
 def page_text_source_rects(items: list[dict]) -> list[fitz.Rect]:
     rects: list[fitz.Rect] = []
     for item in items:
-        if item_block_kind(item) != "text":
+        if block_kind(item) != "text":
             continue
         rect = item_rect(item)
         if rect is not None:
@@ -89,40 +86,12 @@ def expanded_formula_guards(formula_rects: list[fitz.Rect], text_rects: list[fit
 
 
 def expanded_formula_guard(formula: fitz.Rect, text_rects: list[fitz.Rect]) -> fitz.Rect:
-    guard = fitz.Rect(
+    return fitz.Rect(
         formula.x0 - FORMULA_GUARD_HORIZONTAL_PAD_PT,
         formula.y0 - FORMULA_GUARD_VERTICAL_PAD_PT,
         formula.x1 + FORMULA_GUARD_HORIZONTAL_PAD_PT,
         formula.y1 + FORMULA_GUARD_VERTICAL_PAD_PT,
     )
-    same_column = [
-        rect
-        for rect in text_rects
-        if not rect.is_empty and x_overlap_ratio(rect, formula) >= FORMULA_GUARD_X_OVERLAP_RATIO
-    ]
-    if not same_column:
-        return guard
-
-    above = [
-        rect
-        for rect in same_column
-        if rect.y1 <= formula.y0 and formula.y0 - rect.y1 <= FORMULA_GUARD_NEIGHBOR_MAX_GAP_PT
-    ]
-    below = [
-        rect
-        for rect in same_column
-        if rect.y0 >= formula.y1 and rect.y0 - formula.y1 <= FORMULA_GUARD_NEIGHBOR_MAX_GAP_PT
-    ]
-    overlapping = [rect for rect in same_column if not (rect & guard).is_empty]
-    column_refs = overlapping or above[-1:] + below[:1] or same_column
-
-    guard.x0 = min([guard.x0, *(rect.x0 - FORMULA_GUARD_HORIZONTAL_PAD_PT for rect in column_refs)])
-    guard.x1 = max([guard.x1, *(rect.x1 + FORMULA_GUARD_HORIZONTAL_PAD_PT for rect in column_refs)])
-    if above:
-        guard.y0 = min(guard.y0, max(rect.y1 for rect in above))
-    if below:
-        guard.y1 = max(guard.y1, min(rect.y0 for rect in below))
-    return guard
 
 
 def split_rect_away_from_formula_guards(rect: fitz.Rect, formula_guards: list[fitz.Rect]) -> list[fitz.Rect]:
@@ -130,9 +99,6 @@ def split_rect_away_from_formula_guards(rect: fitz.Rect, formula_guards: list[fi
     for guard in formula_guards:
         next_fragments: list[fitz.Rect] = []
         for fragment in fragments:
-            if x_overlap_ratio(fragment, guard) < FORMULA_GUARD_X_OVERLAP_RATIO:
-                next_fragments.append(fragment)
-                continue
             if (fragment & guard).is_empty:
                 next_fragments.append(fragment)
                 continue

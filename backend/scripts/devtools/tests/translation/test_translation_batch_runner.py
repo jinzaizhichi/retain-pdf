@@ -1,19 +1,25 @@
 from __future__ import annotations
 
 from concurrent.futures import Future
+import sys
+from pathlib import Path
 import threading
 import time
 
+
+REPO_SCRIPTS_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
+
 from services.translation.services.results.applier import TranslationResultApplier
 from services.translation.llm.shared.control_context import build_translation_control_context
-from services.translation.llm.shared.tail_retry_queue import DeferredTransportTailItem
+from services.translation.llm.shared.tail_retry_queue import TranslationTailItem
 from services.translation.workflow import batch_runner
 
 
 class _FlushState:
     def __init__(self) -> None:
         self.dirty_pages: set[int] = set()
-        self.progress: list[tuple[int, set[int]]] = []
+        self.progress: list[tuple[int, set[int], str]] = []
         self.flush_labels: list[str] = []
         self.final_flushed = False
         self.total_batches = 0
@@ -21,8 +27,8 @@ class _FlushState:
     def mark_dirty(self, pages: set[int]) -> None:
         self.dirty_pages.update(pages)
 
-    def record_progress(self, completed: int, touched_pages: set[int]) -> None:
-        self.progress.append((completed, set(touched_pages)))
+    def record_progress(self, completed: int, touched_pages: set[int], *, substage: str = "translation_batches") -> None:
+        self.progress.append((completed, set(touched_pages), substage))
 
     def flush_if_due(self, _completed: int, *, label: str) -> None:
         self.flush_labels.append(label)
@@ -84,7 +90,7 @@ def test_parallel_batch_runner_drains_successes_after_one_future_exception(monke
     assert payload[1]["final_status"] == "failed"
     assert payload[1]["translation_diagnostics"]["degradation_reason"] == "batch_unhandled_exception"
     assert flush_state.final_flushed is True
-    assert flush_state.progress[-1] == (2, {0, 1})
+    assert flush_state.progress[-1] == (2, {0, 1}, "translation_batches")
 
 
 def test_parallel_batch_runner_drains_global_transport_tail_retry_queue(monkeypatch) -> None:
@@ -93,8 +99,8 @@ def test_parallel_batch_runner_drains_global_transport_tail_retry_queue(monkeypa
         {"item_id": "a", "page_idx": 0, "source_text": "A", "translated_text": ""},
         {"item_id": "b", "page_idx": 1, "source_text": "B", "translated_text": ""},
     ]
-    context.transport_tail_retry_queue.push(
-        DeferredTransportTailItem(
+    context.translation_tail_queue.push(
+        TranslationTailItem(
             item=payload[1],
             api_key="sk-test",
             model="deepseek-chat",
@@ -151,14 +157,14 @@ def test_parallel_batch_runner_drains_global_transport_tail_retry_queue(monkeypa
 
     assert payload[0]["translated_text"] == "甲"
     assert payload[1]["translated_text"] == "乙"
-    assert len(context.transport_tail_retry_queue) == 0
+    assert len(context.translation_tail_queue) == 0
     assert flush_state.total_batches == 2
-    assert flush_state.progress[-1] == (2, {1})
+    assert flush_state.progress[-1] == (2, {1}, "translation_tail_retry")
 
 
-def test_parallel_batch_runner_drains_transport_tail_retry_before_main_batches_finish(monkeypatch) -> None:
+def test_parallel_batch_runner_defers_transport_tail_retry_until_main_batches_finish_by_default(monkeypatch) -> None:
+    monkeypatch.setenv("RETAIN_TRANSLATION_EARLY_TAIL_RETRY", "0")
     context = build_translation_control_context()
-    original_interval = batch_runner.EARLY_TAIL_RETRY_DRAIN_INTERVAL
     monkeypatch.setattr(batch_runner, "EARLY_TAIL_RETRY_DRAIN_INTERVAL", 1)
     batches = [[{"item_id": f"i{index}", "page_idx": index, "source_text": str(index)}] for index in range(3)]
     payload = [
@@ -166,8 +172,85 @@ def test_parallel_batch_runner_drains_transport_tail_retry_before_main_batches_f
         for index in range(3)
     ]
     payload.append({"item_id": "tail", "page_idx": 9, "source_text": "tail", "translated_text": ""})
-    context.transport_tail_retry_queue.push(
-        DeferredTransportTailItem(
+    context.translation_tail_queue.push(
+        TranslationTailItem(
+            item=payload[-1],
+            api_key="sk-test",
+            model="deepseek-chat",
+            base_url="https://example.test",
+            request_label="tail",
+            context=context,
+            diagnostics=None,
+            single_item_translator=lambda item, **_kwargs: {
+                item["item_id"]: {
+                    "decision": "translate",
+                    "translated_text": "尾部译文",
+                    "final_status": "translated",
+                }
+            },
+            store_cached_batch_fn=lambda *_args, **_kwargs: None,
+        )
+    )
+    completed_main_when_tail_applied: list[int] = []
+
+    def _translate(batch, **_kwargs):
+        item_id = batch[0]["item_id"]
+        time.sleep(0.01)
+        return {item_id: {"decision": "translate", "translated_text": f"译{item_id}", "final_status": "translated"}}
+
+    monkeypatch.setattr(batch_runner, "translate_batch", _translate)
+    flush_state = _FlushState()
+    flush_state.total_batches = len(batches)
+    applier = TranslationResultApplier(
+        flat_payload=payload,
+        item_to_page={item["item_id"]: item["page_idx"] for item in payload},
+        duplicate_items_by_rep_id={},
+        flush_state=flush_state,
+        memory_store=None,
+    )
+    original_apply_batch = applier.apply_batch
+
+    def _record_tail_apply(batch, translated, **kwargs):
+        if batch and batch[0].get("item_id") == "tail":
+            completed_main_when_tail_applied.append(flush_state.progress[-1][0] if flush_state.progress else 0)
+        return original_apply_batch(batch, translated, **kwargs)
+
+    applier.apply_batch = _record_tail_apply
+
+    batch_runner.run_translation_batches_parallel(
+        batched_fast_batches=[],
+        single_fast_batches=batches,
+        single_slow_batches=[],
+        queue_workers={"batched_fast": 0, "single_fast": 1, "single_slow": 0},
+        api_key="sk-test",
+        model="deepseek-chat",
+        base_url="https://example.test",
+        domain_guidance="",
+        mode="plain",
+        translation_context=context,
+        memory_store=None,
+        result_applier=applier,
+        flush_state=flush_state,
+    )
+
+    assert payload[-1]["translated_text"] == "尾部译文"
+    assert completed_main_when_tail_applied
+    assert completed_main_when_tail_applied[0] == 3
+    assert flush_state.progress[-1][0] == 4
+
+
+def test_parallel_batch_runner_can_drain_transport_tail_retry_before_main_batches_finish(monkeypatch) -> None:
+    monkeypatch.setenv("RETAIN_TRANSLATION_EARLY_TAIL_RETRY", "1")
+    context = build_translation_control_context()
+    monkeypatch.setattr(batch_runner, "EARLY_TAIL_RETRY_DRAIN_INTERVAL", 1)
+    batches = [[{"item_id": f"i{index}", "page_idx": index, "source_text": str(index)}] for index in range(3)]
+    payload = [
+        {"item_id": f"i{index}", "page_idx": index, "source_text": str(index), "translated_text": ""}
+        for index in range(3)
+    ]
+    payload.append({"item_id": "tail", "page_idx": 9, "source_text": "tail", "translated_text": ""})
+    context.translation_tail_queue.push(
+        TranslationTailItem(
             item=payload[-1],
             api_key="sk-test",
             model="deepseek-chat",
@@ -210,24 +293,21 @@ def test_parallel_batch_runner_drains_transport_tail_retry_before_main_batches_f
 
     applier.apply_batch = _record_tail_apply
 
-    try:
-        batch_runner.run_translation_batches_parallel(
-            batched_fast_batches=[],
-            single_fast_batches=batches,
-            single_slow_batches=[],
-            queue_workers={"batched_fast": 0, "single_fast": 1, "single_slow": 0},
-            api_key="sk-test",
-            model="deepseek-chat",
-            base_url="https://example.test",
-            domain_guidance="",
-            mode="plain",
-            translation_context=context,
-            memory_store=None,
-            result_applier=applier,
-            flush_state=flush_state,
-        )
-    finally:
-        monkeypatch.setattr(batch_runner, "EARLY_TAIL_RETRY_DRAIN_INTERVAL", original_interval)
+    batch_runner.run_translation_batches_parallel(
+        batched_fast_batches=[],
+        single_fast_batches=batches,
+        single_slow_batches=[],
+        queue_workers={"batched_fast": 0, "single_fast": 1, "single_slow": 0},
+        api_key="sk-test",
+        model="deepseek-chat",
+        base_url="https://example.test",
+        domain_guidance="",
+        mode="plain",
+        translation_context=context,
+        memory_store=None,
+        result_applier=applier,
+        flush_state=flush_state,
+    )
 
     assert payload[-1]["translated_text"] == "尾部译文"
     assert completed_main_when_tail_applied
@@ -237,7 +317,7 @@ def test_parallel_batch_runner_drains_transport_tail_retry_before_main_batches_f
 
 def test_transport_tail_retry_workers_scale_with_main_worker_count() -> None:
     assert batch_runner._transport_tail_retry_workers({"batched_fast": 1, "single_fast": 0, "single_slow": 0}) == 1
-    assert batch_runner._transport_tail_retry_workers({"batched_fast": 80, "single_fast": 20, "single_slow": 0}) == 25
+    assert batch_runner._transport_tail_retry_workers({"batched_fast": 80, "single_fast": 20, "single_slow": 0}) == 50
     assert batch_runner._transport_tail_retry_workers({"batched_fast": 800, "single_fast": 200, "single_slow": 0}) == 128
 
 

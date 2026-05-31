@@ -47,6 +47,7 @@ assertExists("index.html");
 assertExists("detail.html");
 assertExists("reader.html");
 assertExists("runtime-config.js");
+assertExists("dist/app.bundle.js");
 assertExists("src/js/main.js");
 assertExists("src/js/reader.js");
 assertExists("src/js/reader-pdf.js");
@@ -70,9 +71,14 @@ if (!readerHtml.includes("./vendor/pdfjs-dist/web/pdf_viewer.css")) {
   fail("Desktop reader.html did not rewrite pdfjs viewer CSS to vendor path");
 }
 
+const indexHtml = readFile("index.html");
+if (!indexHtml.includes("./dist/app.bundle.js")) {
+  fail("Desktop index.html is not using the production app bundle");
+}
+
 const mainHelpersJs = readFile("src/js/main-helpers.js");
-if (!mainHelpersJs.includes("../../vendor/pdfjs-dist/build/pdf.mjs")) {
-  fail("Desktop main-helpers.js did not rewrite pdfjs import to vendor path");
+if (!mainHelpersJs.includes("./vendor/pdfjs-dist/build/pdf.mjs")) {
+  fail("Desktop main-helpers.js is missing root-relative pdfjs vendor path");
 }
 
 const readerPdfDocumentJs = readFile("src/js/reader-pdf-document.js");

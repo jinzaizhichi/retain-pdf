@@ -20,6 +20,7 @@ from services.translation.llm.shared.orchestration.plain_text_retry_finalize imp
 from services.translation.llm.shared.orchestration.plain_text_retry_runtime import PlainTextResult
 from services.translation.llm.shared.orchestration.plain_text_retry_runtime import PlainTextRetryRuntime
 from services.translation.llm.shared.orchestration.transport import defer_transport_retry
+from services.translation.llm.shared.orchestration.transport import defer_validation_retry
 import services.translation.llm.shared.orchestration.terminal_payloads as terminal_payloads
 
 _PLAIN_VALIDATION_ERRORS = (
@@ -82,6 +83,14 @@ def run_plain_text_attempts(
                     flush=True,
                 )
                 runtime.log_placeholder_failure_fn(request_label, item, exc, diagnostics=diagnostics)
+            if allow_transport_tail_defer and _defer_validation_retry_enabled():
+                defer_validation_retry(
+                    item,
+                    route_path=route_prefix + ["validation"],
+                    cause=exc,
+                    request_label=request_label,
+                    diagnostics=diagnostics,
+                )
             if isinstance(exc, TranslationProtocolError):
                 salvaged = _try_protocol_shell_salvage(
                     item,
@@ -216,3 +225,7 @@ def run_plain_text_attempts(
     if last_error is not None:
         raise last_error
     raise RuntimeError("Plain-text translation failed without an exception.")
+
+
+def _defer_validation_retry_enabled() -> bool:
+    return True

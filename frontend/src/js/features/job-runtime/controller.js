@@ -2,6 +2,10 @@ import { normalizeJobPayload, isTerminalStatus } from "../../job.js";
 import { resetJobSecondaryState } from "../../state.js";
 import { isReaderDialogOpen, setCancelButtonDisabled } from "../app-shell/view.js";
 import {
+  clearActiveJobId,
+  writeActiveJobId,
+} from "./active-job-storage.js";
+import {
   cachedEventsFor,
   cachedManifestFor,
   fetchAllJobEvents,
@@ -38,6 +42,24 @@ export function mountJobRuntimeFeature({
   onReaderDialogSync,
   onReaderDialogClose,
 }) {
+  function requestLibraryRefresh({ terminal = false } = {}) {
+    const now = Date.now();
+    const minInterval = terminal ? 0 : 4000;
+    if (!terminal && state.lastLibraryRefreshRequestedAt && now - state.lastLibraryRefreshRequestedAt < minInterval) {
+      return;
+    }
+    state.lastLibraryRefreshRequestedAt = now;
+    document.dispatchEvent(new CustomEvent("retainpdf:library-refresh-requested", {
+      detail: { delay: terminal ? 200 : 800 },
+    }));
+  }
+
+  function notifyLibraryJobUpdated(job) {
+    document.dispatchEvent(new CustomEvent("retainpdf:library-job-updated", {
+      detail: { job },
+    }));
+  }
+
   function latestJobPayloadFor(jobId, fallbackPayload) {
     const snapshot = state.currentJobId === jobId ? state.currentJobSnapshot : null;
     return snapshot || fallbackPayload;
@@ -71,12 +93,15 @@ export function mountJobRuntimeFeature({
     const cachedManifest = cachedManifestFor(state, jobId);
     const cachedStageActions = cachedStageActionsFor(state, jobId);
     renderJob(payload, cachedEvents, cachedManifest, cachedStageActions);
+    notifyLibraryJobUpdated(state.currentJobSnapshot || normalizeJobPayload(payload));
     if (isReaderDialogOpen()) {
       onReaderDialogSync?.();
     }
     const job = normalizeJobPayload(payload);
     const terminal = isTerminalStatus(job.status);
+    requestLibraryRefresh({ terminal });
     if (isTerminalStatus(job.status)) {
+      clearActiveJobId(jobId);
       stopPolling(state);
     }
     if (!state.currentJobEventsFetchInFlight && shouldRefreshSecondary(state.currentJobEventsFetchedAt, JOB_EVENTS_REFRESH_MS, terminal || !cachedEvents)) {
@@ -92,6 +117,7 @@ export function mountJobRuntimeFeature({
           state.currentJobEventsJobId = jobId;
           state.currentJobEventsFetchedAt = Date.now();
           renderLatestJob(jobId, payload, eventsPayload, cachedManifestFor(state, jobId), cachedStageActionsFor(state, jobId));
+          notifyLibraryJobUpdated(state.currentJobSnapshot || normalizeJobPayload(payload));
         })
         .catch(() => {
           // Event stream is secondary; keep main status usable even if events fail.
@@ -151,6 +177,7 @@ export function mountJobRuntimeFeature({
   function startPolling(jobId) {
     stopPolling(state);
     state.currentJobId = jobId;
+    writeActiveJobId(jobId);
     resetJobSecondaryState(state);
     state.currentJobPollGeneration = Number(state.currentJobPollGeneration || 0) + 1;
     if (!state.currentJobStartedAt) {
@@ -167,6 +194,7 @@ export function mountJobRuntimeFeature({
     };
     setWorkflowSections(placeholderJob);
     renderJob(placeholderJob);
+    requestLibraryRefresh();
     fetchJob(jobId).catch((err) => {
       setText("error-box", err.message);
     });
@@ -230,6 +258,7 @@ export function mountJobRuntimeFeature({
 
   return {
     cancelCurrentJob,
+    currentJobId: () => `${state.currentJobId || ""}`.trim(),
     fetchJob,
     retryStage,
     returnToHome,

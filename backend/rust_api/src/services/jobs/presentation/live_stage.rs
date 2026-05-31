@@ -1,12 +1,14 @@
 use std::path::Path;
 
 use crate::error::AppError;
-use crate::models::{JobEventRecord, JobSnapshot, JobStage};
+use crate::models::{job_stage_rank, JobEventRecord, JobProgressView, JobSnapshot};
 use crate::storage_paths::resolve_events_jsonl;
 use serde_json::{json, Value};
 
+mod canonical_events;
 mod pipeline_events;
 
+use canonical_events::canonicalize_job_event;
 use pipeline_events::load_pipeline_events_jsonl;
 
 #[derive(Debug, Clone)]
@@ -16,6 +18,29 @@ pub struct LiveStageSnapshot {
     pub progress_current: Option<i64>,
     pub progress_total: Option<i64>,
     pub progress_unit: Option<String>,
+}
+
+pub fn build_progress_view(
+    job: &JobSnapshot,
+    live_stage: Option<&LiveStageSnapshot>,
+) -> JobProgressView {
+    let current = live_stage
+        .and_then(|snapshot| snapshot.progress_current)
+        .or(job.progress_current);
+    let total = live_stage
+        .and_then(|snapshot| snapshot.progress_total)
+        .or(job.progress_total);
+    JobProgressView {
+        current,
+        total,
+        percent: match (current, total) {
+            (Some(current), Some(total)) if total > 0 => {
+                Some((current as f64 / total as f64) * 100.0)
+            }
+            _ => None,
+        },
+        unit: live_stage.and_then(|snapshot| snapshot.progress_unit.clone()),
+    }
 }
 
 pub fn load_live_stage_snapshot(job: &JobSnapshot, data_root: &Path) -> Option<LiveStageSnapshot> {
@@ -32,6 +57,12 @@ pub fn load_pipeline_event_records(
         return Vec::new();
     };
     load_pipeline_events_jsonl(&job.job_id, &path, base_seq)
+        .into_iter()
+        .map(|mut item| {
+            canonicalize_job_event(&mut item);
+            item
+        })
+        .collect()
 }
 
 pub fn list_combined_job_events(
@@ -52,6 +83,7 @@ pub fn list_combined_job_events(
     });
     for (index, item) in items.iter_mut().enumerate() {
         item.seq = (index + 1) as i64;
+        canonicalize_job_event(item);
     }
     Ok(items)
 }
@@ -109,41 +141,80 @@ fn select_live_stage_snapshot(items: &[JobEventRecord]) -> Option<LiveStageSnaps
     let selected = items
         .iter()
         .filter(|item| {
-            let event_type = item.event_type.as_deref().map(str::trim).unwrap_or("");
-            let stage = item.stage.as_deref().map(str::trim).unwrap_or("");
-            event_type != "artifact_published" && !stage.is_empty()
+            if item.lane.as_deref().map(str::trim).unwrap_or("") != "main" {
+                return false;
+            }
+            let raw_event_type = item
+                .raw_event_type
+                .as_deref()
+                .or(item.event_type.as_deref())
+                .map(str::trim)
+                .unwrap_or("");
+            let stage = raw_stage_for_snapshot(item).unwrap_or_else(|| {
+                item.stage
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or("")
+                    .to_string()
+            });
+            raw_event_type != "artifact_published" && !stage.is_empty()
         })
         .max_by(|left, right| {
-            user_stage_rank(left.stage.as_deref())
-                .cmp(&user_stage_rank(right.stage.as_deref()))
-                .then_with(|| left.ts.cmp(&right.ts))
-                .then_with(|| left.seq.cmp(&right.seq))
+            job_stage_rank(
+                raw_stage_for_snapshot(left)
+                    .as_deref()
+                    .or(left.stage.as_deref()),
+            )
+            .cmp(&job_stage_rank(
+                raw_stage_for_snapshot(right)
+                    .as_deref()
+                    .or(right.stage.as_deref()),
+            ))
+            .then_with(|| left.ts.cmp(&right.ts))
+            .then_with(|| left.seq.cmp(&right.seq))
         })?;
     let page_progress = items
         .iter()
         .filter(|item| {
-            item.progress_unit.as_deref().map(str::trim) == Some("page")
+            item.lane.as_deref().map(str::trim).unwrap_or("") == "main"
+                && item.progress_unit.as_deref().map(str::trim) == Some("page")
                 && (item.user_stage.as_deref().map(str::trim) == Some("render")
                     || item.stage.as_deref().map(str::trim) == Some("rendering"))
                 && (item.progress_current.is_some() || item.progress_total.is_some())
         })
-        .max_by(|left, right| left.ts.cmp(&right.ts).then_with(|| left.seq.cmp(&right.seq)));
+        .max_by(|left, right| {
+            left.ts
+                .cmp(&right.ts)
+                .then_with(|| left.seq.cmp(&right.seq))
+        });
     let fallback_progress = items
         .iter()
-        .filter(|item| item.progress_current.is_some() || item.progress_total.is_some())
-        .max_by(|left, right| left.ts.cmp(&right.ts).then_with(|| left.seq.cmp(&right.seq)));
-    let selected_stage = selected.stage.as_deref().map(str::trim).unwrap_or("");
+        .filter(|item| {
+            item.lane.as_deref().map(str::trim).unwrap_or("") == "main"
+                && (item.progress_current.is_some() || item.progress_total.is_some())
+        })
+        .max_by(|left, right| {
+            left.ts
+                .cmp(&right.ts)
+                .then_with(|| left.seq.cmp(&right.seq))
+        });
+    let selected_stage = raw_stage_for_snapshot(selected)
+        .or_else(|| selected.stage.as_deref().map(str::to_string))
+        .unwrap_or_default();
     let progress_stage = fallback_progress
-        .and_then(|item| item.stage.as_deref())
-        .map(str::trim)
-        .unwrap_or("");
-    let should_keep_progress_stage =
-        selected.progress_current.is_none() && selected_stage == "failed" && !progress_stage.is_empty();
+        .and_then(raw_stage_for_snapshot)
+        .or_else(|| fallback_progress.and_then(|item| item.stage.as_deref().map(str::to_string)))
+        .unwrap_or_default();
+    let should_keep_progress_stage = selected.progress_current.is_none()
+        && selected_stage.trim() == "failed"
+        && !progress_stage.trim().is_empty();
     Some(LiveStageSnapshot {
         stage: if should_keep_progress_stage {
-            fallback_progress.and_then(|item| item.stage.clone())
+            fallback_progress
+                .and_then(raw_stage_for_snapshot)
+                .or_else(|| fallback_progress.and_then(|item| item.stage.clone()))
         } else {
-            selected.stage.clone()
+            raw_stage_for_snapshot(selected).or_else(|| selected.stage.clone())
         },
         stage_detail: if should_keep_progress_stage {
             fallback_progress.and_then(|item| item.stage_detail.clone())
@@ -162,6 +233,16 @@ fn select_live_stage_snapshot(items: &[JobEventRecord]) -> Option<LiveStageSnaps
     })
 }
 
+fn raw_stage_for_snapshot(item: &JobEventRecord) -> Option<String> {
+    item.payload
+        .as_ref()
+        .and_then(|payload| payload.get("raw_stage"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 fn display_progress_event<'a>(
     selected: &'a JobEventRecord,
     page_progress: Option<&'a JobEventRecord>,
@@ -175,47 +256,4 @@ fn display_progress_event<'a>(
         return page_progress.or(Some(selected));
     }
     Some(selected)
-}
-
-fn user_stage_rank(stage: Option<&str>) -> i32 {
-    match stage.and_then(JobStage::from_str) {
-        Some(JobStage::Queued) => 0,
-        Some(JobStage::Rendering | JobStage::Finished) => 3,
-        Some(JobStage::Translating) => 2,
-        Some(
-            JobStage::OcrSubmitting
-            | JobStage::OcrUpload
-            | JobStage::MineruUpload
-            | JobStage::OcrProcessing
-            | JobStage::MineruProcessing
-            | JobStage::OcrResultReady
-            | JobStage::Normalizing,
-        ) => 1,
-        Some(JobStage::Running) => 0,
-        Some(JobStage::Canceled | JobStage::Failed) => 0,
-        None => {
-            let normalized = stage.unwrap_or_default().trim();
-            if normalized.contains("render") {
-                return 3;
-            }
-            if normalized == "succeeded" {
-                return 3;
-            }
-            if normalized.contains("translat")
-                || normalized == "domain_inference"
-                || normalized == "continuation_review"
-                || normalized == "page_policies"
-            {
-                return 2;
-            }
-            if normalized.contains("ocr")
-                || normalized.contains("mineru")
-                || normalized.contains("paddle")
-                || normalized.contains("normaliz")
-            {
-                return 1;
-            }
-            0
-        }
-    }
 }

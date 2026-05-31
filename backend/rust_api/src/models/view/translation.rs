@@ -1,6 +1,18 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct JobEventProgressView {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub percent: Option<f64>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct JobEventRecord {
     pub job_id: String,
@@ -9,8 +21,10 @@ pub struct JobEventRecord {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub created_at: String,
     pub level: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub user_stage: Option<String>,
+    #[serde(default)]
+    pub lane: Option<String>,
     pub stage: Option<String>,
     #[serde(default)]
     pub substage: Option<String>,
@@ -23,12 +37,16 @@ pub struct JobEventRecord {
     pub event: String,
     #[serde(default)]
     pub event_type: Option<String>,
+    #[serde(default)]
+    pub raw_event_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<JobEventProgressView>,
     pub message: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub progress_current: Option<i64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub progress_total: Option<i64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub progress_unit: Option<String>,
     #[serde(default)]
     pub retry_count: Option<u32>,

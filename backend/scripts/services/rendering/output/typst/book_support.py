@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 import fitz
 
@@ -16,6 +17,8 @@ from services.rendering.output.typst.shared import default_typst_temp_root
 from services.rendering.output.typst.shared import prepare_typst_work_dir
 from services.rendering.policy import apply_render_page_policy_fields
 from services.rendering.policy import apply_render_pages_policy_fields
+
+TypstRepairRequestFn = Callable[..., str]
 
 
 def resolve_typst_temp_root(output_pdf_path: Path, temp_root: Path | None) -> Path:
@@ -94,6 +97,7 @@ def compile_background_pdf_resilient(
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
     font_paths: list[Path] | None = None,
     work_dir: Path,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> Path:
     try:
         return compile_typst_book_background_pdf(
@@ -103,6 +107,7 @@ def compile_background_pdf_resilient(
             font_family=font_family,
             font_paths=font_paths,
             work_dir=work_dir,
+            request_chat_content_fn=request_chat_content_fn,
         )
     except RuntimeError as exc:
         print("typst background book compile failed; sanitizing pages", flush=True)

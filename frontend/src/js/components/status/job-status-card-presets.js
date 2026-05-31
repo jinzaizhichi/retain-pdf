@@ -13,6 +13,10 @@ export const STAGE_ANIMATIONS = {
   ocr_normalizing: OCR_ANIMATION_PATH,
   translate: TRANSLATION_ANIMATION_PATH,
   render: RENDER_ANIMATION_PATH,
+  render_prepare: RENDER_ANIMATION_PATH,
+  render_prewarm: RENDER_ANIMATION_PATH,
+  render_pages: RENDER_ANIMATION_PATH,
+  render_compile: RENDER_ANIMATION_PATH,
   done: DOWNLOAD_ANIMATION_PATH,
 };
 

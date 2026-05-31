@@ -8,6 +8,7 @@ import json
 import mimetypes
 import os
 import socketserver
+import urllib.parse
 from pathlib import Path
 
 
@@ -36,6 +37,7 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 class FrontendRequestHandler(http.server.SimpleHTTPRequestHandler):
     server_version = "retain-pdf-frontend/1.0"
+    protocol_version = "HTTP/1.1"
 
     def __init__(self, *args, directory: str | None = None, **kwargs):
         super().__init__(*args, directory=directory, **kwargs)
@@ -87,16 +89,15 @@ class FrontendRequestHandler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
     def end_headers(self) -> None:
-        # Frontend code and runtime config should reflect local deployment immediately.
-        no_store_suffixes = (
-            ".html",
-            ".js",
-            ".css",
-        )
-        if self.path.endswith(no_store_suffixes):
+        path = urllib.parse.urlsplit(self.path).path
+        if path == "/runtime-config.local.js":
             self.send_header("Cache-Control", "no-store")
+        elif path.startswith(("/vendor/", "/src/assets/", "/dist/")):
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        elif path.endswith((".js", ".css", ".html")) or path in ("/", "/index.html"):
+            self.send_header("Cache-Control", "public, max-age=0, must-revalidate")
         else:
-            self.send_header("Cache-Control", "public, max-age=60")
+            self.send_header("Cache-Control", "public, max-age=3600")
         super().end_headers()
 
     def log_message(self, format: str, *args) -> None:

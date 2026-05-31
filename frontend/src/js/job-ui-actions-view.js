@@ -1,5 +1,6 @@
 import { DEFAULT_FILE_LABEL } from "./constants.js";
 import { $ } from "./dom.js";
+import { statusCardElement } from "./status-area-view.js";
 
 export function setActionLinkView(id, url, enabled) {
   const el = $(id);
@@ -13,7 +14,7 @@ export function setActionLinkView(id, url, enabled) {
 }
 
 export function setStatusCardCancelEnabled(enabled) {
-  const statusCard = document.querySelector("job-status-card");
+  const statusCard = statusCardElement();
   if (statusCard?.setCancelEnabled && !statusCard?.renderSnapshot) {
     statusCard.setCancelEnabled(enabled);
     return;
@@ -26,7 +27,7 @@ export function setStatusCardCancelEnabled(enabled) {
 
 export function setLinearProgressView(barId, textId, current, total, fallbackText = "-", percentOverride = null) {
   if (barId === "job-progress-bar" && textId === "job-progress-text") {
-    const statusCard = document.querySelector("job-status-card");
+    const statusCard = statusCardElement();
     if (statusCard?.setProgress && !statusCard?.renderSnapshot) {
       statusCard.setProgress({
         current,

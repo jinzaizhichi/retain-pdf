@@ -20,9 +20,9 @@ from services.rendering.layout.typography.line_metrics import local_line_pitch
 from services.rendering.layout.typography.line_metrics import median_line_height
 from services.rendering.layout.typography.line_metrics import median_line_pitch
 from services.rendering.layout.typography.scalars import percentile_value
-from services.translation.public import item_block_kind
-from services.translation.public import item_is_caption_like
-from services.translation.public import item_is_footnote_like
+from services.document_schema.semantics import block_kind
+from services.document_schema.semantics import is_caption_like_block
+from services.document_schema.semantics import is_footnote_like_block
 
 
 def candidate_text_items(items: list[dict]) -> list[dict]:
@@ -30,13 +30,13 @@ def candidate_text_items(items: list[dict]) -> list[dict]:
     widths = [
         bbox_width(item)
         for item in items
-        if item_block_kind(item) == "text" and not item_is_caption_like(item) and not item_is_footnote_like(item)
+        if block_kind(item) == "text" and not is_caption_like_block(item) and not is_footnote_like_block(item)
     ]
     page_text_width_med = median(widths) if widths else 0.0
     for item in items:
-        if item_block_kind(item) != "text":
+        if block_kind(item) != "text":
             continue
-        if item_is_caption_like(item) or item_is_footnote_like(item):
+        if is_caption_like_block(item) or is_footnote_like_block(item):
             continue
         if source_visual_line_count(item) < 3:
             continue

@@ -6,7 +6,7 @@ use crate::job_failure::classify_job_failure;
 use crate::models::{
     build_artifact_links, build_artifact_manifest, build_job_actions,
     build_job_links_with_workflow, public_request_payload, ArtifactLinksView,
-    JobArtifactManifestView, JobDetailView, JobProgressView, JobSnapshot, JobTimestampsView,
+    JobArtifactManifestView, JobDetailView, JobSnapshot, JobTimestampsView,
 };
 use crate::services::artifacts::list_registry_for_job;
 use crate::storage_paths::{resolve_markdown_path, resolve_output_pdf};
@@ -16,6 +16,7 @@ use super::contracts::build_job_contracts_view;
 use super::helpers::{
     build_book_summary, build_ocr_job_summary, derive_display_name, job_failure_to_legacy_view,
 };
+use super::live_stage::build_progress_view;
 use super::live_stage::load_live_stage_snapshot;
 use super::security::{redacted_error, redacted_log_tail};
 use super::summary_loaders::{
@@ -44,21 +45,7 @@ pub fn build_job_detail_view(
         .as_ref()
         .and_then(|snapshot| snapshot.stage_detail.clone())
         .or_else(|| job.stage_detail.clone());
-    let progress_current = live_stage
-        .as_ref()
-        .and_then(|snapshot| snapshot.progress_current)
-        .or(job.progress_current);
-    let progress_total = live_stage
-        .as_ref()
-        .and_then(|snapshot| snapshot.progress_total)
-        .or(job.progress_total);
-    let progress_unit = live_stage
-        .as_ref()
-        .and_then(|snapshot| snapshot.progress_unit.clone());
-    let percent = match (progress_current, progress_total) {
-        (Some(current), Some(total)) if total > 0 => Some((current as f64 / total as f64) * 100.0),
-        _ => None,
-    };
+    let progress = build_progress_view(job, live_stage.as_ref());
     let failure = job
         .failure
         .clone()
@@ -92,12 +79,7 @@ pub fn build_job_detail_view(
             .and_then(|item| item.provider_trace_id.clone()),
         stage,
         stage_detail,
-        progress: JobProgressView {
-            current: progress_current,
-            total: progress_total,
-            percent,
-            unit: progress_unit,
-        },
+        progress,
         timestamps: JobTimestampsView {
             created_at: job.created_at.clone(),
             updated_at: job.updated_at.clone(),

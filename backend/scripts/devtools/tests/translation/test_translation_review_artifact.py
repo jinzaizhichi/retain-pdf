@@ -10,7 +10,6 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 from services.translation.artifacts.review import write_translation_review
 from services.translation.artifacts.status import blocking_review_error_items
-from services.translation.artifacts.status import enforce_no_blocking_review_errors
 from services.translation.services.agents.review_artifact import build_translation_review
 from services.translation.llm.shared.control_context import GlossaryEntry
 from services.translation.llm.shared.control_context import build_translation_control_context
@@ -53,10 +52,9 @@ def test_build_translation_review_collects_issue_summary() -> None:
     assert review["issues"][0]["page_number"] == 1
     assert review["issues"][0]["block_idx"] == 1
     assert blocking_review_error_items(review) == []
-    enforce_no_blocking_review_errors(review)
 
 
-def test_review_error_gate_blocks_error_severity_issues() -> None:
+def test_review_error_items_are_diagnostic_not_export_gate() -> None:
     payload = {
         0: [
             _item(
@@ -72,13 +70,6 @@ def test_review_error_gate_blocks_error_severity_issues() -> None:
 
     assert len(blocked) == 2
     assert blocked[0]["item_id"] == "p001-b003"
-    try:
-        enforce_no_blocking_review_errors(review)
-    except RuntimeError as exc:
-        assert "translation review gate blocked" in str(exc)
-        assert "p1:p001-b003" in str(exc)
-    else:
-        raise AssertionError("expected review gate to reject error severity issues")
 
 
 def test_write_translation_review_round_trips_json() -> None:

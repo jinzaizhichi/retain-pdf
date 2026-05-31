@@ -1,5 +1,5 @@
 import { stageGroupForRawStage } from "./job-stage-contract.js";
-import { normalizeUserStage } from "./job-stage-presentation-utils.js";
+import { canonicalStageOf, normalizeUserStage } from "./job-stage-presentation-utils.js";
 import { firstNonEmpty, looksLikeProviderPercentProgress } from "./job-status-summary-helpers.js";
 import {
   DETAIL_TEXT_MAP,
@@ -13,6 +13,10 @@ function rawStageOf(payload) {
 }
 
 function stageKeyOf(payload) {
+  const canonicalStage = canonicalStageOf(payload);
+  if (canonicalStage) {
+    return canonicalStage;
+  }
   const explicitUserStage = normalizeUserStage(firstNonEmpty(payload.user_stage, payload.payload?.user_stage));
   if (["ocr", "translate", "render", "done"].includes(explicitUserStage)) {
     return explicitUserStage;
@@ -40,6 +44,9 @@ function stageSubtypeOf(payload) {
     }
     if (explicitSubstage.includes("render_compile")) {
       return "render_compile";
+    }
+    if (explicitSubstage.includes("render_prewarm") || explicitSubstage.includes("prewarm")) {
+      return "render_prewarm";
     }
     if (explicitSubstage.includes("render_pages")) {
       return "render_pages";
@@ -79,6 +86,9 @@ function stageSubtypeOf(payload) {
   }
   if (text.includes("乱码") || text.includes("garbled")) {
     return "garbled";
+  }
+  if (raw.includes("render_prewarm") || text.includes("prewarm")) {
+    return "render_prewarm";
   }
   if (raw.includes("translation_prepare")) {
     return "translation_prepare";

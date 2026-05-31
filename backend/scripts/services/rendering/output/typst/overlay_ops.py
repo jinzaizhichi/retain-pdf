@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import time
+from typing import Callable
 
 import fitz
 
@@ -32,6 +33,7 @@ from services.pipeline_shared.events import emit_render_page_progress
 
 _can_use_pikepdf_book_overlay = can_use_pikepdf_book_overlay
 _extract_failed_overlay_indices = extract_failed_overlay_indices
+TypstRepairRequestFn = Callable[..., str]
 
 
 def overlay_translated_items_on_page(
@@ -47,6 +49,7 @@ def overlay_translated_items_on_page(
     cover_only: bool = False,
     apply_source_overlay: bool = True,
     redaction_strategy: str | None = None,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> None:
     translated_items = mark_image_page_overlay_mode(page, translated_items)
     if apply_source_overlay:
@@ -69,6 +72,7 @@ def overlay_translated_items_on_page(
         font_paths=font_paths,
         temp_root=temp_root,
         work_subdir="single-page",
+        request_chat_content_fn=request_chat_content_fn,
     )
     overlay_doc = fitz.open(overlay_pdf)
     try:
@@ -101,6 +105,7 @@ def overlay_translated_pages_on_doc(
     precomputed_colors_by_item_id: dict[str, dict[str, tuple[float, float, float]]] | None = None,
     pikepdf_output_pdf_path: Path | None = None,
     source_cleanup_strategy: str = "typst_fill",
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> dict[str, object]:
     prepare_started = time.perf_counter()
     translated_pages = prepare_translated_pages_for_render(
@@ -167,12 +172,14 @@ def overlay_translated_pages_on_doc(
     book_specs = [(page_width, page_height, items) for _, page_width, page_height, items, _ in page_specs]
     specs_elapsed = time.perf_counter() - specs_started
     use_typst_overlay_fill_only = len(ordered_page_indices) >= FAST_PATCH_PAGE_THRESHOLD
+    include_cover_rect_in_overlay = bool(cover_fallback_page_indices or use_typst_overlay_fill_only)
     active_prebuilt_source_path, source_prepare_elapsed = resolve_prebuilt_overlay_source(
         prebuilt_source_path=prebuilt_source_path,
         temp_root=temp_root,
         stem=stem,
         book_specs=book_specs,
         font_family=font_family,
+        include_cover_rect=include_cover_rect_in_overlay,
     )
     compile_started = time.perf_counter()
     try:
@@ -186,6 +193,7 @@ def overlay_translated_pages_on_doc(
             book_specs,
             stem=stem,
             font_family=font_family,
+            include_cover_rect=include_cover_rect_in_overlay,
             font_paths=font_paths,
             temp_root=temp_root,
             prebuilt_source_path=active_prebuilt_source_path,
@@ -220,6 +228,7 @@ def overlay_translated_pages_on_doc(
                 redaction_strategy=redaction_strategy,
                 source_base_pdf_path=source_base_pdf_path,
                 pikepdf_output_pdf_path=pikepdf_output_pdf_path,
+                request_chat_content_fn=request_chat_content_fn,
             )
             diagnostics["compile_elapsed_seconds"] = compile_elapsed
             diagnostics["sanitize_elapsed_seconds"] = 0.0
@@ -347,6 +356,7 @@ def overlay_translated_pages_on_doc(
         font_paths=font_paths,
         page_diagnostics=sanitize_page_diagnostics,
         overlay_indices=failed_overlay_indices or None,
+        request_chat_content_fn=request_chat_content_fn,
     )
     sanitize_elapsed = time.perf_counter() - sanitize_started
     emit_render_compile_progress(
@@ -370,6 +380,7 @@ def overlay_translated_pages_on_doc(
                 sanitized_book_specs,
                 stem=stem,
                 font_family=font_family,
+                include_cover_rect=include_cover_rect_in_overlay,
                 font_paths=font_paths,
                 temp_root=temp_root,
             )
@@ -496,6 +507,7 @@ def overlay_translated_pages_on_doc(
         redaction_strategy=redaction_strategy,
         source_base_pdf_path=source_base_pdf_path,
         pikepdf_output_pdf_path=pikepdf_output_pdf_path,
+        request_chat_content_fn=request_chat_content_fn,
     )
     diagnostics["compile_elapsed_seconds"] = (
         first_compile_elapsed

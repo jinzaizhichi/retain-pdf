@@ -77,6 +77,8 @@ pub struct ListJobsQuery {
     pub workflow: Option<WorkflowKind>,
     #[serde(default)]
     pub provider: Option<String>,
+    #[serde(default)]
+    pub q: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -137,4 +139,27 @@ pub struct MarkdownView {
     pub raw_url: String,
     pub images_base_path: String,
     pub images_base_url: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MarkdownImageView {
+    pub path: String,
+    pub url: String,
+    pub content_type: String,
+    pub size_bytes: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MarkdownDocumentView {
+    pub job_id: String,
+    pub ready: bool,
+    pub content: String,
+    pub content_with_absolute_image_urls: String,
+    pub markdown_path: String,
+    pub markdown_url: String,
+    pub raw_path: String,
+    pub raw_url: String,
+    pub images_base_path: String,
+    pub images_base_url: String,
+    pub images: Vec<MarkdownImageView>,
 }

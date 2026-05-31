@@ -1577,6 +1577,39 @@ Response:
 
 - raw `text/markdown; charset=utf-8`
 
+`GET /api/v1/jobs/{job_id}/markdown/document`
+
+Structured response for readers, document preview, and AI Q&A surfaces. It returns
+the published Markdown, a Markdown variant whose local `images/...` links are
+rewritten to absolute API URLs, and a direct image manifest.
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "job_id": "20260327190500-ef3456",
+    "ready": true,
+    "content": "# title\n\n![Image](images/page-1/imgs/chart.png)\n",
+    "content_with_absolute_image_urls": "# title\n\n![Image](http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/markdown/images/page-1/imgs/chart.png)\n",
+    "markdown_path": "/api/v1/jobs/20260327190500-ef3456/markdown/document",
+    "markdown_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/markdown/document",
+    "raw_path": "/api/v1/jobs/20260327190500-ef3456/markdown?raw=true",
+    "raw_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/markdown?raw=true",
+    "images_base_path": "/api/v1/jobs/20260327190500-ef3456/markdown/images/",
+    "images_base_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/markdown/images/",
+    "images": [
+      {
+        "path": "images/page-1/imgs/chart.png",
+        "url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/markdown/images/page-1/imgs/chart.png",
+        "content_type": "image/png",
+        "size_bytes": 12345
+      }
+    ]
+  }
+}
+```
+
 ## 9. Markdown Images
 
 `GET /api/v1/jobs/{job_id}/markdown/images/{path}`

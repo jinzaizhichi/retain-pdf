@@ -4,7 +4,7 @@ from services.document_schema.semantics import is_bodylike_block
 from services.document_schema.semantics import is_caption_like_block
 from services.document_schema.semantics import is_footnote_like_block
 from services.document_schema.semantics import is_title_like_block
-from services.translation.public import item_block_kind
+from services.document_schema.semantics import block_kind
 
 
 COVER_EXPAND_BODY_RATIO = 0.01
@@ -46,7 +46,7 @@ def _expand_policy(item: dict) -> tuple[float, float]:
         return COVER_EXPAND_TITLE_RATIO, COVER_EXPAND_TITLE_MAX_PT
     if is_caption_like_block(item) or is_footnote_like_block(item):
         return COVER_EXPAND_OTHER_RATIO, COVER_EXPAND_OTHER_MAX_PT
-    if item_block_kind(item) == "text" and (
+    if block_kind(item) == "text" and (
         bool(item.get("_is_body_text_candidate"))
         or is_bodylike_block(item)
         or str(item.get("layout_role") or "").lower() == "paragraph"
@@ -56,7 +56,7 @@ def _expand_policy(item: dict) -> tuple[float, float]:
 
 
 def _has_formula_pressure(item: dict) -> bool:
-    if item_block_kind(item) == "formula":
+    if block_kind(item) == "formula":
         return True
     formula_maps = (
         item.get("formula_map"),

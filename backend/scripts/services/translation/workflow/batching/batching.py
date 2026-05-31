@@ -117,9 +117,7 @@ def _build_translation_batches(
 
 
 def _is_batched_fast_batch(batch: list[dict]) -> bool:
-    return bool(batch) and (
-        len(batch) > 1 or any(item.get("_batched_plain_candidate") for item in batch)
-    )
+    return len(batch) > 1
 
 
 def _is_single_slow_batch(batch: list[dict]) -> bool:

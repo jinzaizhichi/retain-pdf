@@ -5,6 +5,7 @@ import { bindDynamicPrimaryActions } from "./main-helpers.js";
 export function bindMainEvents({
   developerFeature,
   glossariesFeature,
+  homeFeature,
   artifactDownloadsFeature,
   statusDetailFeature,
   appShellFeature,
@@ -18,6 +19,7 @@ export function bindMainEvents({
 }) {
   developerFeature?.bindEvents();
   glossariesFeature?.bindEvents();
+  homeFeature?.bindEvents();
   artifactDownloadsFeature?.bindEvents();
   statusDetailFeature?.bindEvents();
   appShellFeature?.bindChrome();
@@ -39,6 +41,8 @@ export function bindMainEvents({
   $("page-range-btn")?.addEventListener("click", () => uploadFeature?.openPageRangeDialog());
   $("page-range-apply-btn")?.addEventListener("click", () => uploadFeature?.applyPageRanges());
   $("page-range-clear-btn")?.addEventListener("click", () => uploadFeature?.clearPageRanges());
+  $("page-range-start")?.addEventListener("input", () => workflowFeature?.refreshSubmitControls());
+  $("page-range-end")?.addEventListener("input", () => workflowFeature?.refreshSubmitControls());
   $("cancel-btn")?.addEventListener("click", () => jobRuntimeFeature?.cancelCurrentJob());
   bindDynamicPrimaryActions({
     state,
@@ -47,6 +51,7 @@ export function bindMainEvents({
     statusDetailFeature,
   });
   $("back-home-btn")?.addEventListener("click", () => jobRuntimeFeature?.returnToHome());
+  document.addEventListener("retainpdf:return-home", () => jobRuntimeFeature?.returnToHome());
   document.addEventListener("retainpdf:retry-stage", (event) => {
     void jobRuntimeFeature?.retryStage(event.detail?.stage);
   });

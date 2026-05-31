@@ -12,6 +12,8 @@ from runtime.pipeline.render_stage import build_book_pipeline
 from runtime.pipeline.render_stage import run_render_stage
 from runtime.pipeline.translation_stage import translate_book_pipeline
 from services.rendering.source.prewarm import prewarm_manifest_path_from_artifacts_dir
+from services.rendering.source.prewarm import RenderPrewarmSpec
+from services.rendering.source.prewarm import start_render_source_prewarm
 from services.translation.public import is_blocking_untranslated
 from services.translation.public import item_final_status
 from services.translation.public import write_translation_debug_index
@@ -112,11 +114,6 @@ def run_book_pipeline(
         glossary_mode=glossary_mode,
         memory_mode=memory_mode,
         invocation=invocation,
-        render_prewarm_output_pdf_path=output_pdf_path,
-        render_prewarm_artifacts_dir=output_dir.parent / ARTIFACTS_DIR_NAME,
-        render_prewarm_mode=render_mode,
-        render_prewarm_pdf_compress_dpi=pdf_compress_dpi,
-        render_prewarm_source_cleanup_strategy=source_cleanup_strategy,
     )
     translate_elapsed = time.perf_counter() - total_started
     diagnostics_path = output_dir.parent / ARTIFACTS_DIR_NAME / "translation_diagnostics.json"
@@ -152,6 +149,24 @@ def run_book_pipeline(
         )
     enforce_no_blocking_review_errors(translation_summary.get("translation_review"))
 
+    render_prewarm_manifest_path = prewarm_manifest_path_from_artifacts_dir(output_dir.parent / ARTIFACTS_DIR_NAME)
+    render_preprocess_started = time.perf_counter()
+    render_preprocess_handle = start_render_source_prewarm(
+        RenderPrewarmSpec(
+            source_pdf_path=source_pdf_path,
+            output_pdf_path=output_pdf_path,
+            artifacts_dir=output_dir.parent / ARTIFACTS_DIR_NAME,
+            translated_pages=translation_summary["translated_pages_map"],
+            render_mode=render_mode,
+            start_page=translation_summary["start_page"],
+            end_page=translation_summary["end_page"],
+            pdf_compress_dpi=pdf_compress_dpi,
+            source_cleanup_strategy=source_cleanup_strategy,
+        )
+    )
+    render_preprocess_handle.wait()
+    render_preprocess_elapsed = time.perf_counter() - render_preprocess_started
+
     save_started = time.perf_counter()
     render_summary = run_render_stage(
         source_pdf_path=source_pdf_path,
@@ -169,7 +184,7 @@ def run_book_pipeline(
         typst_font_family=typst_font_family,
         pdf_compress_dpi=pdf_compress_dpi,
         source_cleanup_strategy=source_cleanup_strategy,
-        render_prewarm_manifest_path=prewarm_manifest_path_from_artifacts_dir(output_dir.parent / ARTIFACTS_DIR_NAME),
+        render_prewarm_manifest_path=render_prewarm_manifest_path,
     )
     save_elapsed = time.perf_counter() - save_started
     total_elapsed = time.perf_counter() - total_started
@@ -183,6 +198,7 @@ def run_book_pipeline(
         "glossary": translation_summary.get("glossary", {}),
         "translate_elapsed": translate_elapsed,
         "save_elapsed": save_elapsed,
+        "render_preprocess_elapsed": render_preprocess_elapsed,
         "total_elapsed": total_elapsed,
         "effective_render_mode": render_summary["effective_render_mode"],
         "translation_diagnostics_path": str(diagnostics_path) if diagnostics_summary else "",

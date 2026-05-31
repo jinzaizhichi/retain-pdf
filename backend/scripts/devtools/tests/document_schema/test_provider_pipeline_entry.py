@@ -113,32 +113,63 @@ def test_provider_pipeline_dispatches_to_paddle_and_writes_standard_artifacts(
                 "schema": "normalized_document_v1",
                 "schema_version": "1.1",
                 "document_id": job_root.name,
+                "page_count": 1,
                 "source": {
                     "provider": "paddle",
                     "provider_version": "PaddleOCR-VL-1.5",
                     "source_path": str(job_dirs.ocr_dir / "result.json"),
                 },
+                "derived": {},
+                "markers": {},
                 "pages": [
                     {
                         "page_index": 0,
-                        "page_number": 1,
+                        "page": 1,
                         "width": 320.0,
                         "height": 480.0,
+                        "unit": "pt",
                         "blocks": [
                             {
-                                "id": "p001-b001",
+                                "block_id": "p001-b001",
+                                "page_index": 0,
+                                "order": 0,
+                                "geometry": {"bbox": [72.0, 60.0, 220.0, 90.0]},
+                                "content": {
+                                    "kind": "text",
+                                    "text": "provider pipeline paddle smoke",
+                                    "line_texts": ["provider pipeline paddle smoke"],
+                                },
+                                "layout_role": "paragraph",
+                                "semantic_role": "body",
+                                "structure_role": "body",
+                                "policy": {"translate": True, "translate_reason": "body"},
+                                "provenance": {
+                                    "provider": "paddle",
+                                    "raw_label": "text",
+                                    "raw_sub_type": "body",
+                                    "raw_bbox": [72.0, 60.0, 220.0, 90.0],
+                                    "raw_path": "layoutParsingResults[0]",
+                                },
+                                "continuation_hint": {
+                                    "source": "",
+                                    "group_id": "",
+                                    "role": "single",
+                                    "scope": "",
+                                    "reading_order": 0,
+                                    "confidence": 0.0,
+                                },
+                                "metadata": {},
+                                "source": {
+                                    "provider": "paddle",
+                                    "raw_type": "text",
+                                    "raw_bbox": [72.0, 60.0, 220.0, 90.0],
+                                },
                                 "bbox": [72.0, 60.0, 220.0, 90.0],
                                 "type": "text",
                                 "sub_type": "body",
                                 "text": "provider pipeline paddle smoke",
                                 "lines": [],
                                 "segments": [],
-                                "source": {
-                                    "provider": "paddle",
-                                    "raw_type": "text",
-                                    "raw_bbox": [72.0, 60.0, 220.0, 90.0],
-                                },
-                                "metadata": {},
                             }
                         ],
                     }
@@ -281,7 +312,7 @@ def test_provider_pipeline_dispatches_to_paddle_and_writes_standard_artifacts(
     assert output_pdf_path.exists()
     assert markdown_path.exists()
     assert markdown_image_path.exists()
-    assert 'src="page-1/imgs/figure-1.png"' in markdown_path.read_text(encoding="utf-8")
+    assert 'src="images/page-1/imgs/figure-1.png"' in markdown_path.read_text(encoding="utf-8")
 
     normalized_payload = json.loads(normalized_json_path.read_text(encoding="utf-8"))
     assert normalized_payload["source"]["provider"] == "paddle"
@@ -340,7 +371,69 @@ def test_materialize_paddle_markdown_artifacts_publishes_markdown_under_md(tmp_p
 
     assert full_md_path == job_root / "md" / "full.md"
     content = full_md_path.read_text(encoding="utf-8")
-    assert 'src="page-1/imgs/a.png"' in content
-    assert 'src="page-2/imgs/b.png"' in content
+    assert "![Image](images/page-1/imgs/a.png)" in content
+    assert "![Image](images/page-2/imgs/b.png)" in content
+    assert "<img" not in content
     assert (job_root / "md" / "images" / "page-1" / "imgs" / "a.png").exists()
     assert (job_root / "md" / "images" / "page-2" / "imgs" / "b.png").exists()
+
+
+def test_materialize_paddle_markdown_artifacts_rewrites_page_prefixed_image_src(tmp_path: Path) -> None:
+    job_root = tmp_path / "job-root"
+    payload = {
+        "layoutParsingResults": [
+            {"markdown": {"text": "page one", "images": {}}},
+            {"markdown": {"text": "page two", "images": {}}},
+            {"markdown": {"text": "page three", "images": {}}},
+            {"markdown": {"text": "page four", "images": {}}},
+            {"markdown": {"text": "page five", "images": {}}},
+            {"markdown": {"text": "page six", "images": {}}},
+            {"markdown": {"text": "page seven", "images": {}}},
+            {"markdown": {"text": "page eight", "images": {}}},
+            {"markdown": {"text": "page nine", "images": {}}},
+            {
+                "markdown": {
+                    "text": '<div style="text-align: center;"><img src="page-10/imgs/img_in_chart_box_270_148_960_366.jpg" alt="Image" width="56%" /></div>',
+                    "images": {
+                        "page-10/imgs/img_in_chart_box_270_148_960_366.jpg": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD3sAAAAASUVORK5CYII="
+                    },
+                }
+            },
+        ]
+    }
+
+    full_md_path = provider_pipeline.materialize_paddle_markdown_artifacts(
+        payload=payload,
+        job_root=job_root,
+    )
+
+    content = full_md_path.read_text(encoding="utf-8")
+    assert "![Image](images/page-10/imgs/img_in_chart_box_270_148_960_366.jpg)" in content
+    assert "<img" not in content
+    assert (job_root / "md" / "images" / "page-10" / "imgs" / "img_in_chart_box_270_148_960_366.jpg").exists()
+
+
+def test_materialize_paddle_markdown_artifacts_rewrites_page_prefixed_src_with_unprefixed_key(tmp_path: Path) -> None:
+    job_root = tmp_path / "job-root"
+    payload = {
+        "layoutParsingResults": [
+            {
+                "markdown": {
+                    "text": '<div style="text-align: center;"><img src="page-5/imgs/img_in_image_box_657_704_1045_962.jpg" alt="Image" width="33%" /></div>',
+                    "images": {
+                        "imgs/img_in_image_box_657_704_1045_962.jpg": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD3sAAAAASUVORK5CYII="
+                    },
+                }
+            },
+        ]
+    }
+
+    full_md_path = provider_pipeline.materialize_paddle_markdown_artifacts(
+        payload=payload,
+        job_root=job_root,
+    )
+
+    content = full_md_path.read_text(encoding="utf-8")
+    assert "![Image](images/page-5/imgs/img_in_image_box_657_704_1045_962.jpg)" in content
+    assert "<img" not in content
+    assert (job_root / "md" / "images" / "page-5" / "imgs" / "img_in_image_box_657_704_1045_962.jpg").exists()

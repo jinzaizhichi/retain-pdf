@@ -72,6 +72,7 @@ export function resetEventsList() {
 export function closeRuntimeDialogs() {
   $("status-detail-dialog")?.close();
   $("page-range-dialog")?.close();
+  document.dispatchEvent(new CustomEvent("retainpdf:close-translation-workflow"));
 }
 
 export function isReaderDialogOpen() {

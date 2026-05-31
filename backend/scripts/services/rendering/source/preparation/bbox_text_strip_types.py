@@ -9,6 +9,7 @@ import fitz
 BBOX_TEXT_STRIP_PAGE_SKIP_NONE = "none"
 BBOX_TEXT_STRIP_PAGE_SKIP_COMPLEX = "complex"
 BBOX_TEXT_STRIP_PAGE_SKIP_NO_TEXT_OVERLAP = "no_text_overlap"
+BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND = "visual_background"
 
 
 @dataclass(frozen=True)
@@ -19,11 +20,13 @@ class BBoxTextStripResult:
     text_show_ops_removed: int = 0
     pages_skipped_complex: int = 0
     pages_skipped_no_text_overlap: int = 0
+    pages_skipped_visual_background: int = 0
     pages_strip_no_effect: int = 0
     forms_changed: int = 0
     changed_page_indices: frozenset[int] = frozenset()
     skipped_complex_page_indices: frozenset[int] = frozenset()
     skipped_no_text_overlap_page_indices: frozenset[int] = frozenset()
+    skipped_visual_background_page_indices: frozenset[int] = frozenset()
     strip_no_effect_page_indices: frozenset[int] = frozenset()
     candidates: BBoxTextStripCandidates | None = None
 
@@ -34,8 +37,10 @@ class BBoxTextStripCandidates:
     page_protected_rects: dict[int, tuple[tuple[float, float, float, float], ...]] | None = None
     pages_skipped_complex: int = 0
     pages_skipped_no_text_overlap: int = 0
+    pages_skipped_visual_background: int = 0
     skipped_complex_page_indices: frozenset[int] = frozenset()
     skipped_no_text_overlap_page_indices: frozenset[int] = frozenset()
+    skipped_visual_background_page_indices: frozenset[int] = frozenset()
 
     def fitz_page_rects(self) -> dict[int, list[fitz.Rect]]:
         return {

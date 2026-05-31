@@ -130,6 +130,7 @@ def main() -> None:
         )
         emit_stage_transition(
             stage="translating",
+            substage="translation_batches",
             message="开始准备翻译和渲染阶段",
         )
         result = run_book_pipeline(

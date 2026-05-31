@@ -1,9 +1,6 @@
 use crate::models::{now_iso, JobRuntimeState, JobStatusKind};
-use crate::ocr_provider::mineru::MineruClient;
-use crate::ocr_provider::paddle::PaddleClient;
 use crate::ocr_provider::parse_provider_kind;
-use crate::ocr_provider::OcrProviderKind;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
 use super::{
     build_normalize_ocr_command, clear_canceled_runtime_artifacts, clear_job_failure,
@@ -12,24 +9,32 @@ use super::{
 
 mod artifacts;
 mod bundle_download;
+mod bundle_download_retry;
+mod bundle_events;
+mod bundle_ready_wait;
+mod bundle_retry_policy;
 mod markdown_bundle;
 mod mineru;
 mod mineru_polling;
 mod mineru_retry;
+mod mineru_status_handlers;
 mod paddle;
+mod paddle_errors;
 mod paddle_markdown;
+mod paddle_payload;
 mod page_subset;
 mod polling;
 mod provider_result;
+mod provider_transport;
 mod status;
 mod support;
 mod transport;
 mod workspace;
 
 use super::cancel_registry::is_cancel_requested_with_registry;
+use provider_transport::execute_provider_transport;
 pub use support::sync_parent_with_ocr_child;
 use support::{fail_missing_source_pdf, fail_ocr_transport, save_ocr_job};
-use transport::{prepare_local_upload_source, recover_remote_source_pdf};
 use workspace::OcrWorkspace;
 
 pub async fn execute_ocr_job(
@@ -113,103 +118,6 @@ pub async fn execute_ocr_job(
     save_ocr_job(&deps, &job, parent_job_id.as_deref()).await?;
 
     execute_process_job(deps, job, &[]).await
-}
-
-async fn execute_provider_transport(
-    deps: &ProcessRuntimeDeps,
-    job: &mut JobRuntimeState,
-    provider_kind: &OcrProviderKind,
-    workspace: &OcrWorkspace,
-    parent_job_id: Option<&str>,
-) -> Result<std::path::PathBuf> {
-    if let Some(upload_path) =
-        prepare_local_upload_source(deps.db.as_ref(), job, &workspace.source_dir)?
-    {
-        match provider_kind {
-            OcrProviderKind::Mineru => {
-                let client = MineruClient::with_runtime(
-                    "",
-                    job.request_payload.ocr.mineru_token.clone(),
-                    deps.mineru_runtime().clone(),
-                );
-                mineru::run_local_ocr_transport_mineru(
-                    deps,
-                    job,
-                    &client,
-                    &upload_path,
-                    &workspace.provider_result_json_path,
-                    parent_job_id,
-                )
-                .await?;
-            }
-            OcrProviderKind::Paddle => {
-                let client = PaddleClient::with_runtime(
-                    job.request_payload.ocr.paddle_api_url.clone(),
-                    job.request_payload.ocr.paddle_token.clone(),
-                    deps.paddle_runtime().clone(),
-                );
-                paddle::run_local_ocr_transport_paddle(
-                    deps,
-                    job,
-                    &client,
-                    &upload_path,
-                    &workspace.provider_result_json_path,
-                    &workspace.job_paths.root,
-                    parent_job_id,
-                )
-                .await?;
-            }
-            OcrProviderKind::Unknown => return Err(anyhow!("unsupported OCR provider")),
-        }
-        return Ok(upload_path);
-    }
-
-    match provider_kind {
-        OcrProviderKind::Mineru => {
-            let client = MineruClient::with_runtime(
-                "",
-                job.request_payload.ocr.mineru_token.clone(),
-                deps.mineru_runtime().clone(),
-            );
-            mineru::run_remote_ocr_transport_mineru(
-                deps,
-                job,
-                &client,
-                &workspace.provider_result_json_path,
-                parent_job_id,
-            )
-            .await?;
-        }
-        OcrProviderKind::Paddle => {
-            let client = PaddleClient::with_runtime(
-                job.request_payload.ocr.paddle_api_url.clone(),
-                job.request_payload.ocr.paddle_token.clone(),
-                deps.paddle_runtime().clone(),
-            );
-            paddle::run_remote_ocr_transport_paddle(
-                deps,
-                job,
-                &client,
-                &workspace.provider_result_json_path,
-                &workspace.job_paths.root,
-                parent_job_id,
-            )
-            .await?;
-        }
-        OcrProviderKind::Unknown => return Err(anyhow!("unsupported OCR provider")),
-    }
-
-    if is_cancel_requested_with_registry(deps.canceled_jobs.as_ref(), &job.job_id).await {
-        return Ok(std::path::PathBuf::new());
-    }
-
-    recover_remote_source_pdf(
-        provider_kind,
-        job,
-        &workspace.source_dir,
-        &workspace.provider_raw_dir,
-    )
-    .await
 }
 
 #[cfg(test)]

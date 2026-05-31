@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Callable
 
 from foundation.config import fonts
 from services.rendering.output.typst.compiler import compile_typst_overlay_pdf
@@ -13,6 +14,8 @@ from services.rendering.output.typst.sanitize_steps import try_selective_formula
 from services.rendering.output.typst.sanitize_steps import try_selective_llm_repair
 from services.rendering.output.typst.sanitize_steps import try_selective_plain_text
 from services.pipeline_shared.events import emit_stage_progress
+
+TypstRepairRequestFn = Callable[..., str]
 
 
 def _llm_repair_enabled() -> bool:
@@ -37,6 +40,7 @@ def sanitize_items_for_typst_compile(
     font_paths: list[Path] | None = None,
     work_dir: Path | None = None,
     diagnostics: dict | None = None,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> list[dict]:
     work_dir = work_dir or TYPST_OVERLAY_DIR
     if diagnostics is not None:
@@ -126,6 +130,7 @@ def sanitize_items_for_typst_compile(
                     font_paths=font_paths,
                     work_dir=work_dir,
                     diagnostics=diagnostics,
+                    request_chat_content_fn=request_chat_content_fn,
                 )
                 if llm_patched_items is not None:
                     if diagnostics is not None:
@@ -172,6 +177,7 @@ def compile_overlay_pdf_resilient(
     font_paths: list[Path] | None = None,
     work_dir: Path | None = None,
     diagnostics: dict | None = None,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> Path:
     work_dir = work_dir or TYPST_OVERLAY_DIR
     sanitized_items = sanitize_items_for_typst_compile(
@@ -187,6 +193,7 @@ def compile_overlay_pdf_resilient(
         font_paths=font_paths,
         work_dir=work_dir,
         diagnostics=diagnostics,
+        request_chat_content_fn=request_chat_content_fn,
     )
     return compile_typst_overlay_pdf(
         page_width,
@@ -211,6 +218,7 @@ def sanitize_page_specs_for_typst_book_background(
     work_dir: Path | None = None,
     page_diagnostics: list[dict] | None = None,
     page_indices: set[int] | None = None,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> list[tuple[int, float, float, list[dict]]]:
     work_dir = work_dir or TYPST_OVERLAY_DIR
     sanitized_specs: list[tuple[int, float, float, list[dict]]] = []
@@ -236,6 +244,7 @@ def sanitize_page_specs_for_typst_book_background(
             font_paths=font_paths,
             work_dir=work_dir,
             diagnostics=diagnostics,
+            request_chat_content_fn=request_chat_content_fn,
         )
         if diagnostics is not None:
             page_diagnostics.append(diagnostics)
@@ -253,6 +262,7 @@ def sanitize_page_specs_for_typst_book_overlay(
     work_dir: Path | None = None,
     page_diagnostics: list[dict] | None = None,
     overlay_indices: set[int] | None = None,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> list[tuple[int, float, float, list[dict], str]]:
     work_dir = work_dir or TYPST_OVERLAY_DIR
     sanitized_specs: list[tuple[int, float, float, list[dict], str]] = []
@@ -263,12 +273,12 @@ def sanitize_page_specs_for_typst_book_overlay(
             continue
         emit_stage_progress(
             stage="rendering",
+            substage="render_pages",
             message=f"正在检查 Typst 兼容性，第 {page_index + 1}/{total_pages} 页",
             progress_current=page_index + 1,
             progress_total=total_pages,
             payload={
                 "user_stage": "render",
-                "substage": "render_pages",
                 "progress_unit": "page",
                 "render_stage": "typst_sanitize",
                 "page_index": page_idx,
@@ -287,6 +297,7 @@ def sanitize_page_specs_for_typst_book_overlay(
             font_paths=font_paths,
             work_dir=work_dir / "page-overlays" / page_stem,
             diagnostics=diagnostics,
+            request_chat_content_fn=request_chat_content_fn,
         )
         if diagnostics is not None:
             page_diagnostics.append(diagnostics)

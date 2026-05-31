@@ -102,6 +102,7 @@ export function mountCredentialAndActionFeatures(features) {
     workflowNeedsCredentials: (workflow) => features.workflowFeature?.workflowNeedsCredentials(workflow) ?? (workflow !== WORKFLOW_RENDER),
     workflowNeedsUpload: (workflow) => features.workflowFeature?.workflowNeedsUpload(workflow) ?? (workflow !== WORKFLOW_RENDER),
     currentRenderSourceJobId: () => features.workflowFeature?.currentRenderSourceJobId() || "",
+    currentBudgetState: () => features.workflowFeature?.currentBudgetState?.(),
     collectRunPayload: () => features.workflowFeature?.collectRunPayload() || {},
     validateBeforeSubmit: () => features.uploadFeature?.validatePageRanges?.() ?? true,
     getBrowserCredentialsFeature: () => features.browserCredentialsFeature,

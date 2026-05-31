@@ -226,6 +226,15 @@ def test_direct_typst_passthrough_keeps_adjacent_short_latex_text_subscripts_ato
     assert r"A_{$" not in markdown
 
 
+def test_direct_typst_passthrough_does_not_demote_formula_text_blocks() -> None:
+    markdown = build_direct_typst_passthrough_text(
+        r"其中 $x^{\text{this is intentionally long text inside math}} + y$ 保持模型输出。"
+    )
+
+    assert r"$x^{\text{this is intentionally long text inside math}} + y$" in markdown
+    assert "intentionally long text inside math $" not in markdown
+
+
 def test_typst_markdown_escapes_literal_double_asterisk_in_plain_text() -> None:
     markdown = build_markdown_from_direct_text(r"使用 6-310** 基组及其对应优化几何结构计算。")
     assert r"6-310\*\*" in markdown

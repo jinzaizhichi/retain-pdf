@@ -14,12 +14,6 @@ if TYPE_CHECKING:
     from services.translation.workflow.execution_plan import TranslationExecutionPlan
 
 
-def _wait_handle(handle: object | None) -> None:
-    wait = getattr(handle, "wait", None)
-    if callable(wait):
-        wait()
-
-
 def run_translation_execution_plan(
     request: TranslationExecutionRequest,
     plan: TranslationExecutionPlan,
@@ -28,23 +22,6 @@ def run_translation_execution_plan(
     from services.translation.workflow.book_flow import translate_book_with_global_continuations
 
     glossary_entries = plan.glossary_entries
-    prewarm_handle: object | None = None
-
-    def _set_prewarm_handle(handle: object | None) -> None:
-        nonlocal prewarm_handle
-        prewarm_handle = handle
-
-    def _start_render_prewarm(page_payloads: dict[int, list[dict]]) -> object | None:
-        nonlocal prewarm_handle
-        if request.render_prewarm_start_fn is None:
-            return None
-        if prewarm_handle is not None:
-            _wait_handle(prewarm_handle)
-        return request.render_prewarm_start_fn(
-            {page_idx: [dict(item) for item in items] for page_idx, items in page_payloads.items()},
-            plan.start,
-            plan.stop,
-        )
 
     with translation_run_diagnostics_scope(plan.run_diagnostics):
         translated_pages_map, summaries = translate_book_with_global_continuations(
@@ -65,11 +42,7 @@ def run_translation_execution_plan(
             domain_guidance=plan.policy_config.domain_guidance,
             translation_context=plan.translation_context,
             run_diagnostics=plan.run_diagnostics,
-            render_prewarm_start_fn=_start_render_prewarm,
-            render_prewarm_handle_sink=lambda handle: _set_prewarm_handle(handle),
         )
-    if prewarm_handle is not None:
-        _wait_handle(prewarm_handle)
     total_items = sum(item["total_items"] for item in summaries)
     translated_items = sum(item["translated_items"] for item in summaries)
     glossary_summary = summarize_glossary_usage(

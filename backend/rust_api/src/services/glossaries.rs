@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
-    build_glossary_id, now_iso, CreateJobInput, GlossaryCsvParseInput,
-    GlossaryEntryInput, GlossaryRecord, GlossaryUpsertInput, ListGlossariesQuery,
+    build_glossary_id, now_iso, CreateJobInput, GlossaryCsvParseInput, GlossaryEntryInput,
+    GlossaryRecord, GlossaryUpsertInput, ListGlossariesQuery,
 };
 
 const MAX_GLOSSARY_ENTRIES: usize = 200;
@@ -71,7 +71,12 @@ pub fn filter_glossaries(
 ) -> Vec<GlossaryRecord> {
     items
         .into_iter()
-        .filter(|item| query.enabled.map(|enabled| item.enabled == enabled).unwrap_or(true))
+        .filter(|item| {
+            query
+                .enabled
+                .map(|enabled| item.enabled == enabled)
+                .unwrap_or(true)
+        })
         .filter(|item| {
             query
                 .source_lang
@@ -241,7 +246,9 @@ fn normalize_glossary_name(name: &str) -> Result<String, AppError> {
 fn normalize_glossary_description(description: &str) -> Result<String, AppError> {
     let normalized = description.trim();
     if normalized.chars().count() > 500 {
-        return Err(AppError::bad_request("glossary description exceeds 500 characters"));
+        return Err(AppError::bad_request(
+            "glossary description exceeds 500 characters",
+        ));
     }
     Ok(normalized.to_string())
 }
@@ -249,7 +256,9 @@ fn normalize_glossary_description(description: &str) -> Result<String, AppError>
 fn normalize_glossary_lang(value: &str) -> Result<String, AppError> {
     let normalized = value.trim();
     if normalized.chars().count() > 64 {
-        return Err(AppError::bad_request("glossary language exceeds 64 characters"));
+        return Err(AppError::bad_request(
+            "glossary language exceeds 64 characters",
+        ));
     }
     Ok(normalized.to_string())
 }
@@ -456,7 +465,7 @@ mod tests {
 
     use crate::config::AppConfig;
     use crate::db::Db;
-    use crate::models::{CreateJobInput, GlossaryEntryInput, glossary_to_csv_export};
+    use crate::models::{glossary_to_csv_export, CreateJobInput, GlossaryEntryInput};
     use crate::AppState;
 
     use super::*;
@@ -633,7 +642,9 @@ mod tests {
 
         let export = glossary_to_csv_export(&record);
 
-        assert!(export.csv_text.starts_with("source,target,note,level,match_mode,context\n"));
+        assert!(export
+            .csv_text
+            .starts_with("source,target,note,level,match_mode,context\n"));
         assert!(export.csv_text.contains("\"density, of states\""));
         assert!(export.csv_text.contains("\"态\"\"密度\""));
     }

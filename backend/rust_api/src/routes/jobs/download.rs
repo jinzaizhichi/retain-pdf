@@ -11,7 +11,8 @@ use axum::response::Response;
 use super::common::build_jobs_route_deps;
 use super::download_adapter::{
     bundle_response, cover_response, download_document_response, markdown_image_response,
-    markdown_response, page_preview_response, registered_artifact_response, thumbnail_response,
+    markdown_document_response, markdown_response, page_preview_response,
+    registered_artifact_response, thumbnail_response,
 };
 
 pub async fn download_pdf(
@@ -172,6 +173,14 @@ pub async fn download_markdown(
     Query(query): Query<MarkdownQuery>,
 ) -> Result<Response, AppError> {
     markdown_response(&build_jobs_route_deps(&state), &headers, job_id, &query).await
+}
+
+pub async fn get_markdown_document(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    markdown_document_response(&build_jobs_route_deps(&state), &headers, &job_id).await
 }
 
 pub async fn download_markdown_image(

@@ -37,6 +37,14 @@ export function bindRecentJobsListEvents(list) {
       item?.classList.toggle("is-confirming-delete");
       return;
     }
+    const readerButton = event.target?.closest?.(".recent-job-reader");
+    if (readerButton && list.contains(readerButton)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const item = readerButton.closest(".recent-job-item");
+      list.__retainPdfRecentJobReader?.(item?.dataset.jobId || "");
+      return;
+    }
     const button = event.target?.closest?.(".recent-job-item");
     if (!button || !list.contains(button)) {
       closeDeletePopovers(list);

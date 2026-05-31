@@ -29,7 +29,7 @@ from services.translation.services.postprocess import GarbledReconstructionRunti
 from services.translation.services.postprocess import reconstruct_garbled_page_payloads
 
 
-def format_translation_progress_message(current: int, total: int, touched_pages: set[int]) -> str:
+def format_translation_progress_message(current: int, total: int, touched_pages: set[int], *, substage: str = "translation_batches") -> str:
     if touched_pages:
         sorted_pages = sorted(page_idx + 1 for page_idx in touched_pages)
         if len(sorted_pages) == 1:
@@ -41,6 +41,8 @@ def format_translation_progress_message(current: int, total: int, touched_pages:
             page_suffix = f"（最近页: {preview}）"
     else:
         page_suffix = ""
+    if substage == "translation_tail_retry":
+        return f"正在处理翻译重试队列，第 {current}/{total} 项{page_suffix}"
     return f"已完成第 {current}/{total} 批翻译{page_suffix}"
 
 
@@ -56,6 +58,7 @@ def run_initial_continuation_pass(
     )
     emit_stage_progress(
         stage="continuation_review",
+        substage="continuation_review",
         message="初始连续段整理完成",
         elapsed_ms=int((time.perf_counter() - stage_started) * 1000),
         payload={"page_count": len(page_payloads)},
@@ -76,6 +79,7 @@ def run_continuation_review(
     review_started = time.perf_counter()
     emit_stage_transition(
         stage="continuation_review",
+        substage="continuation_review",
         message="开始复核跨栏/跨页连续段",
         progress_current=0,
         progress_total=len(page_payloads),
@@ -92,6 +96,7 @@ def run_continuation_review(
         request_chat_content_fn=request_chat_content,
         progress_callback=lambda current, total: emit_stage_progress(
             stage="continuation_review",
+            substage="continuation_review",
             message=f"正在判断跨栏/跨页连续段，第 {current}/{total} 批",
             progress_current=current,
             progress_total=total,
@@ -102,6 +107,7 @@ def run_continuation_review(
         run_diagnostics.mark_phase_end("continuation_review")
     emit_stage_progress(
         stage="continuation_review",
+        substage="continuation_review",
         message="跨栏/跨页连续段复核完成",
         progress_current=len(page_payloads),
         progress_total=len(page_payloads),
@@ -130,6 +136,7 @@ def run_page_policy_stage(
         run_diagnostics.mark_phase_start("page_policies")
     emit_stage_transition(
         stage="page_policies",
+        substage="page_policies",
         message="开始执行页面策略和块分类",
         progress_current=0,
         progress_total=len(page_payloads),
@@ -151,6 +158,7 @@ def run_page_policy_stage(
         request_chat_content_fn=request_chat_content,
         progress_callback=lambda current, total, page_idx, page_classified: emit_stage_progress(
             stage="page_policies",
+            substage="page_policies",
             message=f"正在执行页面策略，第 {current}/{total} 页",
             progress_current=current,
             progress_total=total,
@@ -167,6 +175,7 @@ def run_page_policy_stage(
         run_diagnostics.mark_phase_end("page_policies")
     emit_stage_progress(
         stage="page_policies",
+        substage="page_policies",
         message="页面策略和块分类完成",
         progress_current=len(page_payloads),
         progress_total=len(page_payloads),
@@ -190,12 +199,14 @@ def run_translation_batch_stage(
     mode: str,
     translation_context: TranslationControlContext | None,
     run_diagnostics: TranslationRunDiagnostics | None,
+    flush_callback=None,
 ) -> dict:
     translate_started = time.perf_counter()
     if run_diagnostics is not None:
         run_diagnostics.mark_phase_start("translation_batches")
     emit_stage_transition(
         stage="translating",
+        substage="translation_batches",
         message="开始批量翻译",
     )
     batch_summary = translate_pending_units(
@@ -209,12 +220,15 @@ def run_translation_batch_stage(
         domain_guidance=domain_guidance,
         mode=mode,
         translation_context=translation_context,
-        progress_callback=lambda current, total, touched_pages: emit_stage_progress(
+        flush_callback=flush_callback,
+        progress_callback=lambda current, total, touched_pages, substage: emit_stage_progress(
             stage="translating",
-            message=format_translation_progress_message(current, total, touched_pages),
+            substage=substage,
+            message=format_translation_progress_message(current, total, touched_pages, substage=substage),
             progress_current=current,
             progress_total=total,
             payload={
+                "substage": substage,
                 "touched_page_indexes": sorted(touched_pages),
                 "touched_page_numbers": [page_idx + 1 for page_idx in sorted(touched_pages)],
             },
@@ -240,11 +254,13 @@ def run_translation_batch_stage(
         )
     emit_stage_progress(
         stage="translating",
+        substage="translation_batches",
         message="翻译批次完成",
         progress_current=batch_summary["total_batches"],
         progress_total=batch_summary["total_batches"],
         elapsed_ms=int((time.perf_counter() - translate_started) * 1000),
         payload={
+            "substage": "translation_batches",
             "pending_items": batch_summary["pending_items"],
             "effective_batch_size": batch_summary["effective_batch_size"],
             "fast_queue_workers": batch_summary.get("fast_queue_workers", 0),
@@ -271,6 +287,7 @@ def run_garbled_reconstruction_stage(
         run_diagnostics.mark_phase_start("garbled_reconstruction")
     emit_stage_transition(
         stage="garbled_repair",
+        substage="garbled_repair",
         message="开始修复乱码候选段",
         progress_current=0,
         progress_total=len(page_payloads),
@@ -288,6 +305,7 @@ def run_garbled_reconstruction_stage(
         ),
         progress_callback=lambda current, total, dirty_pages: emit_stage_progress(
             stage="garbled_repair",
+            substage="garbled_repair",
             message=f"正在修复乱码候选段，第 {current}/{total} 项",
             progress_current=current,
             progress_total=total,
@@ -306,6 +324,7 @@ def run_garbled_reconstruction_stage(
         save_pages(page_payloads, translation_paths, dirty_pages)
     emit_stage_progress(
         stage="garbled_repair",
+        substage="garbled_repair",
         message="乱码候选段修复完成",
         progress_current=len(page_payloads),
         progress_total=len(page_payloads),
@@ -396,6 +415,7 @@ def run_agent_repair_stage(
         run_diagnostics.mark_phase_start("agent_repair")
     emit_stage_transition(
         stage="agent_repair",
+        substage="agent_repair",
         message="开始执行翻译结果修复",
         progress_current=0,
         progress_total=repair_limit,
@@ -448,6 +468,7 @@ def run_agent_repair_stage(
         run_diagnostics.mark_phase_end("agent_repair")
     emit_stage_progress(
         stage="agent_repair",
+        substage="agent_repair",
         message="翻译结果修复完成",
         progress_current=summary["repaired_items"],
         progress_total=summary["candidate_items"],
@@ -489,6 +510,7 @@ def run_final_untranslated_recovery_stage(
     started = time.perf_counter()
     emit_stage_transition(
         stage="final_untranslated_recovery",
+        substage="final_untranslated_recovery",
         message="开始最终未翻译收口",
         progress_current=0,
         progress_total=blocking_before,
@@ -506,6 +528,7 @@ def run_final_untranslated_recovery_stage(
     save_pages(page_payloads, translation_paths)
     emit_stage_progress(
         stage="final_untranslated_recovery",
+        substage="final_untranslated_recovery",
         message="最终未翻译收口完成",
         progress_current=summary["attempted_items"],
         progress_total=blocking_before,

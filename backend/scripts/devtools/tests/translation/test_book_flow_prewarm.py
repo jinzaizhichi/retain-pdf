@@ -10,7 +10,7 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 from services.translation.workflow import book_flow
 
 
-def test_book_flow_starts_source_and_final_translated_render_prewarm(monkeypatch, tmp_path: Path) -> None:
+def test_book_flow_does_not_start_render_prewarm_during_translation(monkeypatch, tmp_path: Path) -> None:
     page_payloads = {
         0: [
             {
@@ -21,12 +21,6 @@ def test_book_flow_starts_source_and_final_translated_render_prewarm(monkeypatch
         ]
     }
     translation_paths = {0: tmp_path / "page-1.json"}
-    prewarm_snapshots: list[str] = []
-    handles: list[object] = []
-
-    class Handle:
-        def wait(self) -> None:
-            return None
 
     def fake_load_page_payloads(**kwargs):
         return translation_paths, page_payloads
@@ -36,12 +30,6 @@ def test_book_flow_starts_source_and_final_translated_render_prewarm(monkeypatch
 
     def fake_load_translations(path):
         return page_payloads[0]
-
-    def fake_prewarm_start(snapshot):
-        prewarm_snapshots.append(snapshot[0][0]["protected_translated_text"])
-        handle = Handle()
-        handles.append(handle)
-        return handle
 
     monkeypatch.setattr(book_flow, "load_page_payloads", fake_load_page_payloads)
     monkeypatch.setattr(book_flow, "run_initial_continuation_pass", lambda **kwargs: None)
@@ -75,11 +63,7 @@ def test_book_flow_starts_source_and_final_translated_render_prewarm(monkeypatch
         skip_title_translation=False,
         sci_cutoff_page_idx=None,
         sci_cutoff_block_idx=None,
-        render_prewarm_start_fn=fake_prewarm_start,
-        render_prewarm_handle_sink=lambda handle: None,
     )
 
-    assert prewarm_snapshots == ["", "translated"]
-    assert len(handles) == 2
     assert translated_pages_map[0][0]["protected_translated_text"] == "translated"
     assert summaries == [{"total_items": 1, "translated_items": 1}]

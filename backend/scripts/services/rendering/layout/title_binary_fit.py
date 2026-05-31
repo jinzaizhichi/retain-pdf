@@ -8,8 +8,8 @@ from services.rendering.layout.payload.capacity import estimated_render_height_p
 from services.rendering.layout.payload.capacity import estimated_required_lines
 from services.rendering.layout.payload.capacity import text_demand_units
 from services.rendering.layout.payload.fit_common import fit_inner_bbox
-from services.translation.public import item_layout_role
-from services.translation.public import item_structure_role
+from services.document_schema.semantics import layout_role
+from services.document_schema.semantics import structure_role
 
 
 TITLE_FIT_WIDTH_SAFETY = 0.92
@@ -34,7 +34,7 @@ class TitleFitDecision:
 
 
 def _title_kind(item: dict) -> str:
-    role = item_layout_role(item) or item_structure_role(item)
+    role = layout_role(item) or structure_role(item)
     return "title" if role == "title" else "heading"
 
 

@@ -389,7 +389,7 @@ fn job_detail_view_loads_glossary_summary_from_translation_manifest() {
     let data_root = temp.join("data");
     let translations_dir = data_root.join("jobs/job-glossary/translated");
     fs::create_dir_all(&translations_dir).expect("create translations dir");
-        fs::write(
+    fs::write(
         translations_dir.join("translation-manifest.json"),
         r#"{
           "schema": "translation_manifest_v1",

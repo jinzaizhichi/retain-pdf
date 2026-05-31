@@ -206,6 +206,22 @@ function showMainWindow() {
   mainWindow.focus();
 }
 
+function showExistingDesktopWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    showMainWindow();
+    return true;
+  }
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    if (splashWindow.isMinimized()) {
+      splashWindow.restore();
+    }
+    splashWindow.show();
+    splashWindow.focus();
+    return true;
+  }
+  return false;
+}
+
 function hideMainWindowToTray() {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return;
@@ -276,11 +292,12 @@ function createTray() {
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
+} else {
+  app.on("second-instance", () => {
+    logDesktop("[desktop] second instance requested; restoring existing window");
+    showExistingDesktopWindow();
+  });
 }
-
-app.on("second-instance", () => {
-  showMainWindow();
-});
 
 async function createSplashWindow() {
   splashWindow = new BrowserWindow({
@@ -956,31 +973,33 @@ function resolveFrontendRoot() {
   return generatedFrontendRoot;
 }
 
-app.whenReady().then(() => {
-  desktopLogPath = resolveDesktopLogPath();
-  appendDesktopLog("========== RetainPDF desktop startup ==========");
-  logDesktop(`[desktop] app ready version=${app.getVersion()} packaged=${app.isPackaged} userData=${app.getPath("userData")}`);
-  closeToTrayHintShown = loadDesktopConfig().closeToTrayHintShown;
-  createSplashWindow()
-    .then(() => startBundledBackend())
-    .then(() => {
-      createTray();
-      createWindow();
-      app.on("activate", () => {
-        if (!mainWindow || mainWindow.isDestroyed()) {
-          createWindow();
-          return;
-        }
-        showMainWindow();
+if (gotSingleInstanceLock) {
+  app.whenReady().then(() => {
+    desktopLogPath = resolveDesktopLogPath();
+    appendDesktopLog("========== RetainPDF desktop startup ==========");
+    logDesktop(`[desktop] app ready version=${app.getVersion()} packaged=${app.isPackaged} userData=${app.getPath("userData")}`);
+    closeToTrayHintShown = loadDesktopConfig().closeToTrayHintShown;
+    createSplashWindow()
+      .then(() => startBundledBackend())
+      .then(() => {
+        createTray();
+        createWindow();
+        app.on("activate", () => {
+          if (!mainWindow || mainWindow.isDestroyed()) {
+            createWindow();
+            return;
+          }
+          showMainWindow();
+        });
+      })
+      .catch((error) => {
+        const detail = String(error && error.stack ? error.stack : error && error.message ? error.message : error);
+        logDesktopError(`[desktop] startup failed: ${detail}`);
+        dialog.showErrorBox("RetainPDF startup failed", detail);
+        app.quit();
       });
-    })
-    .catch((error) => {
-      const detail = String(error && error.stack ? error.stack : error && error.message ? error.message : error);
-      logDesktopError(`[desktop] startup failed: ${detail}`);
-      dialog.showErrorBox("RetainPDF startup failed", detail);
-      app.quit();
-    });
-});
+  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin" && isQuitting) {

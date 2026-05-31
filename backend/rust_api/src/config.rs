@@ -72,6 +72,7 @@ pub struct WorkerProcessRuntimeConfig<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct JobSnapshotRuntimeConfig<'a> {
+    pub data_root: &'a Path,
     pub output_root: &'a Path,
     pub worker_command: WorkerCommandRuntimeConfig<'a>,
     pub provider_limits: &'a ProviderLimitsConfig,
@@ -121,6 +122,7 @@ impl AppConfig {
 
     pub fn job_snapshot_runtime(&self) -> JobSnapshotRuntimeConfig<'_> {
         JobSnapshotRuntimeConfig {
+            data_root: &self.data_root,
             output_root: &self.output_root,
             worker_command: self.worker_command_runtime(),
             provider_limits: &self.provider_limits,

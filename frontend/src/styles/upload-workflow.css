@@ -1,38 +1,60 @@
 @layer components {
-  .app-shell.processing-mode .workflow-card,
-  .app-shell.result-mode .workflow-card {
-    display: none;
-  }
-
-  .workflow-card,
   .result-panel {
     box-shadow: 0 12px 34px rgba(15, 23, 42, 0.05);
   }
 
-  .workflow-card,
   .result-panel {
     @apply mx-auto w-full;
     max-width: min(620px, calc(100vw - 2rem));
   }
 
-  .workflow-card {
+  .translation-workflow-card {
     display: grid;
-    justify-items: center;
-    padding: 12px;
-  }
-
-  .app-shell:not(.processing-mode):not(.result-mode) .workflow-card {
-    margin-top: 0;
-    margin-bottom: 0;
-  }
-
-  .workflow-card .form {
     width: 100%;
+    max-width: none;
+    min-height: 0;
+    overflow: auto;
+    padding: 12px 14px 14px;
     justify-items: center;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
   }
 
-  .workflow-card .vertical-actions {
+  .translation-workflow-card .form {
     width: 100%;
+  }
+
+  .translation-workflow-card .upload-tile {
+    min-height: 348px;
+    aspect-ratio: auto;
+    padding: 24px 22px;
+    border: 1px dashed #d2d2d7;
+    border-radius: 18px;
+    background: #f5f5f7;
+    box-shadow: none;
+    gap: 10px;
+  }
+
+  .translation-workflow-card .upload-tile:hover {
+    border-color: #1d1d1f;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .translation-workflow-card .upload-glyph {
+    width: 76px;
+    height: 76px;
+  }
+
+  .translation-workflow-card #file-label {
+    font-size: 1rem;
+  }
+
+  .translation-workflow-card #upload-help,
+  .translation-workflow-card .upload-meta {
+    display: flex;
   }
 
   .upload-tile {
@@ -414,6 +436,43 @@
     color: #6e6e73;
     margin-top: 4px;
     cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .translation-budget-note {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    max-width: min(100%, 460px);
+    min-height: 22px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid #d2d2d7;
+    background: rgba(255, 255, 255, 0.88);
+    color: #6e6e73;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.35;
+    text-align: center;
+  }
+
+  .translation-budget-note.hidden {
+    display: none !important;
+  }
+
+  .translation-budget-note.is-valid {
+    color: #1d1d1f;
+  }
+
+  .translation-budget-note.is-error {
+    border-color: #a11b16;
+    color: #a11b16;
+  }
+
+  .translation-budget-note a {
+    color: inherit;
     text-decoration: underline;
     text-underline-offset: 2px;
   }

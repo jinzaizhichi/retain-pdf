@@ -11,7 +11,7 @@ from services.rendering.layout.payload.metrics import estimated_render_height_pt
 from services.rendering.layout.payload.metrics import estimated_required_lines
 from services.rendering.layout.payload.metrics import text_demand_units
 from services.rendering.policy import typography_policy as typography
-from services.translation.public import item_block_kind
+from services.document_schema.semantics import block_kind
 
 
 BODY_DENSITY_TARGET_MIN = 0.82
@@ -180,7 +180,7 @@ def is_body_context_text_payload(payload: dict) -> bool:
     item = payload.get("item") or {}
     if is_caption_like_block(item) or is_footnote_like_block(item):
         return False
-    return payload["is_body"] or item_block_kind(item) == "text" or is_bodylike_block(item)
+    return payload["is_body"] or block_kind(item) == "text" or is_bodylike_block(item)
 
 
 def body_context_anchors(body_payloads: list[dict], *, page_text_width_med: float) -> list[dict]:

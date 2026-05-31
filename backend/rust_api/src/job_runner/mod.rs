@@ -1,5 +1,6 @@
 use crate::models::{JobRuntimeState, JobSnapshot};
 
+mod artifact_requirements;
 mod cancel_registry;
 mod execution_queue;
 mod lifecycle;
@@ -8,6 +9,7 @@ mod pipeline_plan;
 mod process_contract;
 mod process_runner;
 mod render_flow;
+mod render_flow_artifacts;
 mod runtime_deps;
 mod runtime_state;
 mod stage_contract;

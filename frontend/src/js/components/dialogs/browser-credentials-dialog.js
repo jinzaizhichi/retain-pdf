@@ -6,9 +6,6 @@ class BrowserCredentialsDialog extends HTMLElement {
       return;
     }
     this.dataset.hydrated = "1";
-    const ocrProviderOptions = OCR_PROVIDER_DEFINITIONS.map((provider) => `
-      <option value="${provider.id}">${provider.label}</option>
-    `).join("");
     const secretToggleIcon = `
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path>
@@ -17,14 +14,13 @@ class BrowserCredentialsDialog extends HTMLElement {
     `;
     const ocrProviderPanels = OCR_PROVIDER_DEFINITIONS.map((provider, index) => `
       <section class="credential-panel credential-provider-panel${index === 0 ? " is-active" : ""}" data-ocr-provider-panel="${provider.id}" role="tabpanel" ${index === 0 ? "" : "hidden"}>
-        <div class="credential-card-head">
-          <h3>${provider.tokenLabel}</h3>
-          <a class="credential-card-link" href="${provider.docsUrl}" target="_blank" rel="noopener noreferrer">${provider.docsLabel}</a>
-        </div>
         <label>
-          <span class="credential-secret-field">
-            <input id="browser-${provider.id}-token" type="password" autocomplete="off" placeholder="${provider.tokenPlaceholder}" />
-            <button type="button" class="credential-secret-toggle" data-toggle-secret="browser-${provider.id}-token" aria-label="显示或隐藏 ${provider.tokenLabel}" title="显示或隐藏">${secretToggleIcon}</button>
+          <span class="credential-input-row">
+            <span class="credential-secret-field">
+              <input id="browser-${provider.id}-token" type="password" autocomplete="off" placeholder="${provider.tokenPlaceholder}" />
+              <button type="button" class="credential-secret-toggle" data-toggle-secret="browser-${provider.id}-token" aria-label="显示或隐藏 ${provider.tokenLabel}" title="显示或隐藏">${secretToggleIcon}</button>
+            </span>
+            <a class="credential-card-link" href="${provider.docsUrl}" target="_blank" rel="noopener noreferrer">${provider.docsLabel}</a>
           </span>
         </label>
         <div class="credential-card-actions">
@@ -50,19 +46,11 @@ class BrowserCredentialsDialog extends HTMLElement {
             </div>
             <div class="credential-panels">
               <section class="credential-panel is-active" data-credential-panel="api" role="tabpanel">
-                <div class="credential-card-grid credential-card-grid-compact">
+                <div class="credential-card-grid credential-card-grid-compact credential-api-grid">
                   <section class="credential-card">
                     <div class="credential-card-head">
-                      <h3>OCR 凭证</h3>
+                      <h3>OCR</h3>
                     </div>
-                    <label>
-                      <span class="developer-label">
-                        <span>服务</span>
-                      </span>
-                      <select id="browser-ocr-provider-select" aria-label="OCR Provider">
-                        ${ocrProviderOptions}
-                      </select>
-                    </label>
                     <div class="credential-provider-panels">
                       ${ocrProviderPanels}
                     </div>
@@ -71,37 +59,20 @@ class BrowserCredentialsDialog extends HTMLElement {
                   <section class="credential-card">
                     <div class="credential-card-head">
                       <h3>${TRANSLATION_PROVIDER_DEFINITION.label}</h3>
-                      <a class="credential-card-link" href="${TRANSLATION_PROVIDER_DEFINITION.docsUrl}" target="_blank" rel="noopener noreferrer">${TRANSLATION_PROVIDER_DEFINITION.docsLabel}</a>
                     </div>
                     <label>
-                      <span class="developer-label">
-                        <span>API Key</span>
+                      <span class="credential-input-row">
+                        <span class="credential-secret-field">
+                          <input id="browser-api-key" type="password" autocomplete="off" placeholder="${TRANSLATION_PROVIDER_DEFINITION.keyPlaceholder}" />
+                          <button type="button" class="credential-secret-toggle" data-toggle-secret="browser-api-key" aria-label="显示或隐藏 DeepSeek API Key" title="显示或隐藏">${secretToggleIcon}</button>
+                        </span>
+                        <a class="credential-card-link" href="${TRANSLATION_PROVIDER_DEFINITION.docsUrl}" target="_blank" rel="noopener noreferrer">${TRANSLATION_PROVIDER_DEFINITION.docsLabel}</a>
                       </span>
-                      <span class="credential-secret-field">
-                        <input id="browser-api-key" type="password" autocomplete="off" placeholder="${TRANSLATION_PROVIDER_DEFINITION.keyPlaceholder}" />
-                        <button type="button" class="credential-secret-toggle" data-toggle-secret="browser-api-key" aria-label="显示或隐藏 DeepSeek API Key" title="显示或隐藏">${secretToggleIcon}</button>
-                      </span>
-                    </label>
-                    <label>
-                      <span class="developer-label">
-                        <span>Base URL</span>
-                      </span>
-                      <input id="browser-model-base-url" type="text" autocomplete="off" placeholder="例如 https://api.deepseek.com/v1" />
-                    </label>
-                    <label>
-                      <span class="developer-label">
-                        <span>模型名称</span>
-                      </span>
-                      <input id="browser-model-name" type="text" autocomplete="off" placeholder="例如 deepseek-v4-flash" />
                     </label>
                     <div class="credential-card-actions">
                       <button id="browser-deepseek-validate-btn" type="button" class="secondary">${TRANSLATION_PROVIDER_DEFINITION.validationButtonLabel}</button>
                       <span id="browser-deepseek-validation" class="token-inline-status hidden">${TRANSLATION_PROVIDER_DEFINITION.validationIdleMessage}</span>
-                    </div>
-                    <div id="browser-deepseek-account-status" class="credential-account-status hidden">
-                      <span class="credential-account-label">账户状态</span>
-                      <strong id="browser-deepseek-account-summary">未检测</strong>
-                      <span id="browser-deepseek-account-time">-</span>
+                      <a id="browser-deepseek-top-up-link" class="credential-top-up-link hidden" href="https://platform.deepseek.com/top_up" target="_blank" rel="noopener noreferrer">充值</a>
                     </div>
                   </section>
                 </div>

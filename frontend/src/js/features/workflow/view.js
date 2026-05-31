@@ -87,11 +87,36 @@ export function readDeveloperWorkflowValue() {
 
 export function setSubmitControls({ disabled, label, actionVisible, pageRangeVisible }) {
   if ($("submit-btn")) {
-    $("submit-btn").disabled = disabled;
+    const busy = $("submit-btn").dataset.busy === "1";
+    $("submit-btn").disabled = disabled || busy;
     $("submit-btn").textContent = label;
   }
   $("upload-action-slot")?.classList.toggle("hidden", !actionVisible);
   $("page-range-btn")?.classList.toggle("hidden", !pageRangeVisible);
+}
+
+export function renderTranslationBudgetNote(budget) {
+  const note = $("translation-budget-note");
+  if (!note) {
+    return;
+  }
+  note.replaceChildren();
+  note.classList.toggle("hidden", !budget?.visible);
+  note.classList.toggle("is-error", budget?.tone === "error");
+  note.classList.toggle("is-valid", budget?.tone === "valid");
+  if (!budget?.visible) {
+    return;
+  }
+  note.append(document.createTextNode(budget.message || ""));
+  if (budget.blocking) {
+    note.append(document.createTextNode(" · "));
+    const link = document.createElement("a");
+    link.href = budget.topUpUrl;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "去充值";
+    note.append(link);
+  }
 }
 
 export function applyMockUploadView({ mockScenario, submitLabel, showPageRangeButton }) {

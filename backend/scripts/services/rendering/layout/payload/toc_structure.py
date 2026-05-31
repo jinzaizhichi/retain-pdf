@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import re
 
+from services.document_schema.toc import build_toc_entries
 from services.rendering.layout.model.models import RenderTocEntry
+
+TRANSLATED_TOC_LINE_RE = re.compile(
+    r"^\s*(?P<title>.+?)"
+    r"(?:\s*(?:\.{2,}|…+)\s*|\s+)"
+    r"\(?(?P<page>\d+[A-Za-z]?|[ivxlcdmIVXLCDM]+)\)?\s*$"
+)
+PAREN_PAGE_SUFFIX_RE = re.compile(r"^\s*(?P<title>.+?)\s*\((?P<page>\d+[A-Za-z]?|[ivxlcdmIVXLCDM]+)\)\s*$")
 
 
 def _translated_lines(text: str) -> list[str]:
@@ -13,7 +21,7 @@ def _strip_toc_page_label(text: str, page_label: str) -> str:
     value = str(text or "").strip()
     page = re.escape(str(page_label or "").strip())
     if page:
-        value = re.sub(rf"(?:\.{{2,}}|…+)?\s*{page}\s*$", "", value).strip()
+        value = re.sub(rf"(?:\.{{2,}}|…+)?\s*\(?{page}\)?\s*$", "", value).strip()
     return value.strip(" .\t")
 
 
@@ -61,10 +69,73 @@ def _bbox_from_entry(entry: dict) -> list[float] | None:
     return line_bbox
 
 
-def render_toc_entries_for_item(item: dict, translated_text: str) -> list[RenderTocEntry]:
-    entries = item.get("toc_entries") or []
-    if not isinstance(entries, list) or not entries:
+def _fallback_toc_entries(item: dict) -> list[dict]:
+    structure_role = str(item.get("structure_role") or "").strip().lower()
+    semantic_role = str(item.get("semantic_role") or item.get("layout_role") or "").strip().lower()
+    if structure_role != "table_of_contents" and semantic_role != "table_of_contents":
         return []
+    line_texts = item.get("source_line_texts") or []
+    lines = item.get("lines") or []
+    if not isinstance(line_texts, list) or not isinstance(lines, list):
+        return []
+    return build_toc_entries(lines=lines, line_texts=[str(line) for line in line_texts])
+
+
+def _line_bbox(item: dict, index: int) -> list[float] | None:
+    lines = item.get("lines") or []
+    if not isinstance(lines, list) or index < 0 or index >= len(lines):
+        return None
+    line = lines[index]
+    if not isinstance(line, dict):
+        return None
+    return _coerce_bbox(line.get("bbox"))
+
+
+def _coerce_bbox(value: object) -> list[float] | None:
+    if not isinstance(value, list) or len(value) != 4:
+        return None
+    try:
+        bbox = [float(v) for v in value]
+    except (TypeError, ValueError):
+        return None
+    if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+        return None
+    return bbox
+
+
+def _split_translated_toc_line(line: str) -> tuple[str, str]:
+    value = str(line or "").strip()
+    if not value:
+        return "", ""
+    match = PAREN_PAGE_SUFFIX_RE.match(value) or TRANSLATED_TOC_LINE_RE.match(value)
+    if match is None:
+        return value.strip(" .\t"), ""
+    title = str(match.group("title") or "").strip(" .\t")
+    page_label = str(match.group("page") or "").strip()
+    return title, page_label
+
+
+def _render_toc_entries_from_translated_lines(item: dict, translated_text: str) -> list[RenderTocEntry]:
+    structure_role = str(item.get("structure_role") or "").strip().lower()
+    semantic_role = str(item.get("semantic_role") or item.get("layout_role") or "").strip().lower()
+    if structure_role != "table_of_contents" and semantic_role != "table_of_contents":
+        return []
+    rendered: list[RenderTocEntry] = []
+    for index, line in enumerate(_translated_lines(translated_text)):
+        bbox = _line_bbox(item, index)
+        if bbox is None:
+            continue
+        title, page_label = _split_translated_toc_line(line)
+        if not title:
+            continue
+        rendered.append(RenderTocEntry(title=title, page_label=page_label, bbox=bbox, number="", level=1))
+    return rendered
+
+
+def render_toc_entries_for_item(item: dict, translated_text: str) -> list[RenderTocEntry]:
+    entries = item.get("toc_entries") or _fallback_toc_entries(item)
+    if not isinstance(entries, list) or not entries:
+        return _render_toc_entries_from_translated_lines(item, translated_text)
     lines = _translated_lines(translated_text)
     rendered: list[RenderTocEntry] = []
     for index, entry in enumerate(entries):

@@ -8,6 +8,20 @@
     height: 100%;
   }
 
+  .translation-status-panel > job-status-card .status-ring-shell {
+    min-height: 0;
+    height: 100%;
+    justify-content: center;
+  }
+
+  .translation-status-panel > job-status-card .status-focus-card {
+    width: min(100%, 520px);
+  }
+
+  .translation-status-panel > job-status-card .status-card-footer {
+    width: min(100%, 520px);
+  }
+
   .status-focus-card {
     width: min(100%, 520px);
     min-height: 308px;

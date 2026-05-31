@@ -22,6 +22,7 @@ from services.rendering.source.prewarm import try_load_render_payload_prewarm
 from services.rendering.source.prewarm import try_load_prewarmed_render_source_pdf
 from services.rendering.source.prewarm import _pages_for_prewarm_mode_probe
 from services.rendering.workflow.executor import execute_render_plan
+from runtime.pipeline.render_preprocess import run_ocr_render_preprocess
 
 
 def _source_pdf(path: Path) -> None:
@@ -30,6 +31,83 @@ def _source_pdf(path: Path) -> None:
     page.insert_text((20, 40), "inside source", fontsize=12)
     doc.save(path)
     doc.close()
+
+
+def _pseudo_editable_scan_pdf(path: Path) -> None:
+    doc = fitz.open()
+    page = doc.new_page(width=200, height=200)
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 200, 200), False)
+    pix.clear_with(255)
+    page.insert_image(page.rect, pixmap=pix)
+    page.insert_textbox(
+        fitz.Rect(10, 20, 150, 60),
+        "inside source",
+        fontsize=12,
+    )
+    doc.save(path)
+    doc.close()
+
+
+def _document_v1(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        """
+{
+  "schema": "normalized_document_v1",
+  "schema_version": "1.1",
+  "document_id": "test-doc",
+  "source": {"provider": "test"},
+  "page_count": 1,
+  "derived": {},
+  "markers": {},
+  "pages": [
+    {
+      "page_index": 0,
+      "page": 1,
+      "width": 200,
+      "height": 200,
+      "unit": "pt",
+      "blocks": [
+        {
+          "block_id": "p001-b001",
+          "page_index": 0,
+          "order": 0,
+          "type": "text",
+          "sub_type": "text",
+          "bbox": [10.0, 20.0, 150.0, 60.0],
+          "text": "inside source",
+          "geometry": {"bbox": [10.0, 20.0, 150.0, 60.0]},
+          "content": {"kind": "text", "text": "inside source", "text_flow": "flow"},
+          "layout_role": "paragraph",
+          "semantic_role": "body",
+          "structure_role": "body",
+          "policy": {"translate": true, "translate_reason": "test"},
+          "provenance": {
+            "provider": "test",
+            "raw_label": "text",
+            "raw_sub_type": "text",
+            "raw_bbox": [10.0, 20.0, 150.0, 60.0],
+            "raw_path": "$.pages[0].blocks[0]"
+          },
+          "continuation_hint": {
+            "source": "",
+            "group_id": "",
+            "role": "single",
+            "scope": "",
+            "reading_order": 0,
+            "confidence": 0.0
+          },
+          "metadata": {},
+          "source": {"provider": "test", "raw_type": "text"},
+          "lines": []
+        }
+      ]
+    }
+  ]
+}
+""".strip(),
+        encoding="utf-8",
+    )
 
 
 def _page_payload() -> dict[int, list[dict]]:
@@ -187,6 +265,115 @@ def test_render_source_prewarm_manifest_is_reused_without_temp_cleanup() -> None
         assert any(path.name.endswith(".source-bbox-text-stripped.pdf") for path in artifacts_dir.rglob("*.pdf"))
 
 
+def test_render_plan_persists_sync_source_prewarm_for_next_render() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "rendered" / "out.pdf"
+        artifacts_dir = root / "artifacts"
+        translations_dir = root / "translated"
+        output_pdf.parent.mkdir()
+        translations_dir.mkdir()
+        _source_pdf(source_pdf)
+        manifest_path = prewarm_manifest_path_from_artifacts_dir(artifacts_dir)
+        render_plan = RenderPlan(
+            render_inputs=RenderInputs(
+                source_pdf_path=source_pdf,
+                translations_dir=translations_dir,
+                translation_manifest_path=None,
+            ),
+            selected_pages=_translated_page_payload(),
+            effective_render_mode="overlay",
+        )
+
+        def _fake_overlay(*, source_pdf_path, translated_pages, context):
+            assert source_pdf_path.exists()
+            return 1, {"route": "sync-cache-test"}
+
+        with mock.patch(
+            "services.rendering.workflow.executor.run_overlay_render",
+            side_effect=_fake_overlay,
+        ):
+            pages = execute_render_plan(
+                render_plan=render_plan,
+                output_pdf_path=output_pdf,
+                start_page=0,
+                end_page=0,
+                pdf_compress_dpi=0,
+                source_cleanup_strategy="bbox_text_strip",
+                render_prewarm_manifest_path=manifest_path,
+            )
+
+        assert pages == 1
+        assert manifest_path.exists()
+        assert any(path.name.endswith(".source-bbox-text-stripped.pdf") for path in artifacts_dir.rglob("*.pdf"))
+
+        with mock.patch(
+            "services.rendering.workflow.executor.build_render_source_pdf",
+            side_effect=AssertionError("persisted sync render source should be reused"),
+        ), mock.patch(
+            "services.rendering.workflow.executor.run_overlay_render",
+            side_effect=_fake_overlay,
+        ):
+            pages = execute_render_plan(
+                render_plan=render_plan,
+                output_pdf_path=output_pdf,
+                start_page=0,
+                end_page=0,
+                pdf_compress_dpi=0,
+                source_cleanup_strategy="bbox_text_strip",
+                render_prewarm_manifest_path=manifest_path,
+            )
+
+        assert pages == 1
+
+
+def test_ocr_render_preprocess_manifest_matches_translated_payload() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        source_json = root / "ocr" / "normalized" / "document.v1.json"
+        output_pdf = root / "rendered" / "out.pdf"
+        artifacts_dir = root / "artifacts"
+        output_pdf.parent.mkdir()
+        _source_pdf(source_pdf)
+        _document_v1(source_json)
+
+        manifest_path = run_ocr_render_preprocess(
+            source_json_path=source_json,
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            artifacts_dir=artifacts_dir,
+            render_mode="overlay",
+            start_page=0,
+            end_page=0,
+            pdf_compress_dpi=0,
+            source_cleanup_strategy="bbox_text_strip",
+            math_mode="direct_typst",
+        )
+
+        translated_payload = _translated_page_payload()
+        translated_payload[0][0]["item_id"] = "p001-b000"
+        translated_payload[0][0]["translation_unit_id"] = "p001-b000"
+        translated_payload[0][0]["translation_unit_member_ids"] = ["p001-b000"]
+        translated_payload[0][0]["raw_block_type"] = "text"
+        translated_payload[0][0]["normalized_sub_type"] = "text"
+
+        assert manifest_path == prewarm_manifest_path_from_artifacts_dir(artifacts_dir)
+        prepared = try_load_prewarmed_render_source_pdf(
+            manifest_path=manifest_path,
+            source_pdf_path=source_pdf,
+            translated_pages=translated_payload,
+            effective_render_mode="overlay",
+            start_page=0,
+            end_page=0,
+            pdf_compress_dpi=0,
+            source_cleanup_strategy="bbox_text_strip",
+        )
+        assert prepared is not None
+        assert prepared.path.exists()
+
+
 def test_prewarm_mode_probe_uses_source_text_without_mutating_payload() -> None:
     pages = _page_payload()
     assert pages[0][0].get("render_protected_text") is None
@@ -195,6 +382,63 @@ def test_prewarm_mode_probe_uses_source_text_without_mutating_payload() -> None:
 
     assert probed[0][0]["render_protected_text"] == "inside source"
     assert pages[0][0].get("render_protected_text") is None
+
+
+def test_second_prewarm_reuses_existing_source_and_refreshes_payload() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "rendered" / "out.pdf"
+        artifacts_dir = root / "artifacts"
+        output_pdf.parent.mkdir()
+        _source_pdf(source_pdf)
+
+        first_handle = start_render_source_prewarm(
+            RenderPrewarmSpec(
+                source_pdf_path=source_pdf,
+                output_pdf_path=output_pdf,
+                artifacts_dir=artifacts_dir,
+                translated_pages=_page_payload(),
+                render_mode="overlay",
+                start_page=0,
+                end_page=0,
+                pdf_compress_dpi=0,
+                source_cleanup_strategy="bbox_text_strip",
+            )
+        )
+        manifest_path = first_handle.wait()
+
+        with mock.patch(
+            "services.rendering.source.prewarm.build_render_source_pdf",
+            side_effect=AssertionError("existing prewarmed source should be reused"),
+        ):
+            second_handle = start_render_source_prewarm(
+                RenderPrewarmSpec(
+                    source_pdf_path=source_pdf,
+                    output_pdf_path=output_pdf,
+                    artifacts_dir=artifacts_dir,
+                    translated_pages=_translated_page_payload(),
+                    render_mode="overlay",
+                    start_page=0,
+                    end_page=0,
+                    pdf_compress_dpi=0,
+                    source_cleanup_strategy="bbox_text_strip",
+                )
+            )
+            assert second_handle.wait() == manifest_path
+
+        payload_prewarm = try_load_render_payload_prewarm(
+            manifest_path=manifest_path,
+            source_pdf_path=source_pdf,
+            translated_pages=_translated_page_payload(),
+            effective_render_mode="overlay",
+            start_page=0,
+            end_page=0,
+            pdf_compress_dpi=0,
+            source_cleanup_strategy="bbox_text_strip",
+        )
+        assert payload_prewarm is not None
+        assert payload_prewarm.render_colors_by_item_id
 
 
 def test_payload_prewarm_manifest_exposes_bbox_candidates() -> None:
@@ -310,6 +554,47 @@ def test_render_source_prewarm_keeps_no_text_overlap_pages_as_precleaned() -> No
             end_page=0,
             pdf_compress_dpi=0,
             source_cleanup_strategy="bbox_text_strip",
+        )
+
+        assert prepared is not None
+        assert prepared.bbox_text_stripped_page_indices == frozenset()
+        assert prepared.bbox_text_strip_skipped_page_indices == frozenset({0})
+        assert prepared.source_text_precleaned_page_indices == frozenset()
+
+
+def test_pseudo_editable_scan_pages_keep_cover_fallback_after_text_strip() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "rendered" / "out.pdf"
+        artifacts_dir = root / "artifacts"
+        output_pdf.parent.mkdir()
+        _pseudo_editable_scan_pdf(source_pdf)
+
+        handle = start_render_source_prewarm(
+            RenderPrewarmSpec(
+                source_pdf_path=source_pdf,
+                output_pdf_path=output_pdf,
+                artifacts_dir=artifacts_dir,
+                translated_pages=_page_payload(),
+                render_mode="overlay",
+                start_page=0,
+                end_page=0,
+                pdf_compress_dpi=0,
+                source_cleanup_strategy="pikepdf_text_strip",
+            )
+        )
+        manifest_path = handle.wait()
+
+        prepared = try_load_prewarmed_render_source_pdf(
+            manifest_path=manifest_path,
+            source_pdf_path=source_pdf,
+            translated_pages=_page_payload(),
+            effective_render_mode="overlay",
+            start_page=0,
+            end_page=0,
+            pdf_compress_dpi=0,
+            source_cleanup_strategy="pikepdf_text_strip",
         )
 
         assert prepared is not None

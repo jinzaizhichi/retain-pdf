@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from typing import Callable
 
 from services.translation.llm.shared.provider_runtime import DEFAULT_BASE_URL
 from services.translation.llm.shared.provider_runtime import DEFAULT_MODEL
@@ -41,12 +40,6 @@ class TranslationExecutionRequest:
     glossary_mode: str = "matched"
     memory_mode: str = "matched"
     invocation: dict[str, Any] | None = None
-    render_prewarm_output_pdf_path: Path | None = None
-    render_prewarm_artifacts_dir: Path | None = None
-    render_prewarm_mode: str = "auto"
-    render_prewarm_pdf_compress_dpi: int = 0
-    render_prewarm_source_cleanup_strategy: str = "pikepdf_text_strip"
-    render_prewarm_start_fn: Callable[[dict[int, list[dict]], int, int], object | None] | None = None
 
 
 def execute_translation_request(request: TranslationExecutionRequest) -> dict:

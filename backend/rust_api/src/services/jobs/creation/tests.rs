@@ -241,6 +241,19 @@ fn seed_ocr_checkpoint_source_job(state: &AppState, job_id: &str) {
     state.db.save_job(&job).expect("save source job");
 }
 
+fn seed_ocr_checkpoint_source_job_with_missing_files(state: &AppState, job_id: &str) {
+    let mut input = base_translation_input(WorkflowKind::Ocr);
+    input.runtime.job_id = job_id.to_string();
+    let mut job = JobSnapshot::new(job_id.to_string(), input, vec!["noop".to_string()]);
+    if let Some(artifacts) = job.artifacts.as_mut() {
+        artifacts.source_pdf = Some(format!("jobs/{job_id}/source/input.pdf"));
+        artifacts.normalized_document_json = Some(format!(
+            "jobs/{job_id}/ocr/normalized/document.v1.json"
+        ));
+    }
+    state.db.save_job(&job).expect("save source job");
+}
+
 #[test]
 fn create_translation_job_rejects_missing_upload_id_for_translate_workflow() {
     let state = test_state("translate-missing-upload");
@@ -270,6 +283,23 @@ fn create_translation_job_allows_translate_workflow_from_existing_artifact_job()
         job.command,
         vec!["translate-workflow-pending-ocr".to_string()]
     );
+}
+
+#[test]
+fn create_translation_job_rejects_artifact_job_with_missing_ocr_files() {
+    let state = test_state("translate-artifact-source-missing-files");
+    seed_ocr_checkpoint_source_job_with_missing_files(&state, "missing-ocr-source-job");
+    let mut input = base_translation_input(WorkflowKind::Translate);
+    input.source.artifact_job_id = "missing-ocr-source-job".to_string();
+
+    let err = create_translation_job(&submit_context(&state), &input)
+        .expect_err("missing OCR files should fail before launch");
+    match err {
+        AppError::BadRequest(message) => assert!(message.contains(
+            "normalized_document_json not found for missing-ocr-source-job"
+        )),
+        other => panic!("unexpected error: {other:?}"),
+    }
 }
 
 #[test]

@@ -14,7 +14,8 @@ let pdfDocumentModulePromise = null;
 
 async function loadPdfDocument() {
   if (!pdfDocumentModulePromise) {
-    pdfDocumentModulePromise = import("../../../../vendor/pdf-lib/dist/pdf-lib.esm.js")
+    const pdfLibUrl = new URL("./vendor/pdf-lib/dist/pdf-lib.esm.js", window.location.href).toString();
+    pdfDocumentModulePromise = import(pdfLibUrl)
       .then((module) => module.PDFDocument);
   }
   return pdfDocumentModulePromise;

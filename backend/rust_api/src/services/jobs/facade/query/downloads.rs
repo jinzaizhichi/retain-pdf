@@ -1,10 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
-use crate::models::PagePreviewQuery;
+use crate::models::{MarkdownDocumentView, PagePreviewQuery};
 use crate::services::jobs::downloads::{
-    bundle_download, cover_download, document_download, markdown_download, markdown_image_download,
-    page_preview_download, thumbnail_download, FileDownload, MarkdownDownload,
+    bundle_download, cover_download, document_download, markdown_document_view, markdown_download,
+    markdown_image_download, page_preview_download, thumbnail_download, FileDownload,
+    MarkdownDownload,
 };
 
 use super::super::JobsFacade;
@@ -30,6 +31,14 @@ impl<'a> JobsFacade<'a> {
 
     pub async fn markdown_document(&self, job_id: String) -> Result<MarkdownDownload, AppError> {
         markdown_download(&self.query, job_id).await
+    }
+
+    pub async fn markdown_document_view(
+        &self,
+        job_id: &str,
+        base_url: &str,
+    ) -> Result<MarkdownDocumentView, AppError> {
+        markdown_document_view(&self.query, job_id, base_url).await
     }
 
     pub fn markdown_image_download(

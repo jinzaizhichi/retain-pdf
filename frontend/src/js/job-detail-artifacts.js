@@ -200,6 +200,9 @@ export function renderMarkdownContract({
     contract.imagesBaseUrl,
   );
   const content = typeof markdownPayload?.content === "string" ? markdownPayload.content : "";
+  const previewContent = typeof markdownPayload?.content_with_absolute_image_urls === "string"
+    ? markdownPayload.content_with_absolute_image_urls
+    : content;
   setText("detail-markdown-json-url", jsonUrl || "-");
   setText("detail-markdown-raw-url", rawUrl || "-");
   setText("detail-markdown-images-base-url", imagesBaseUrl || "-");
@@ -222,10 +225,12 @@ export function renderMarkdownContract({
     setText("detail-markdown-status", "已发布，正在读取内容…");
     return;
   }
-  const refs = collectMarkdownImageRefs(content);
+  const refs = Array.isArray(markdownPayload?.images) && markdownPayload.images.length > 0
+    ? markdownPayload.images.map((item) => item?.path || item?.url).filter(Boolean)
+    : collectMarkdownImageRefs(previewContent);
   const fileName = firstNonEmptyText(markdownPayload?.file_name, markdownArtifact.file_name);
   const sizeText = formatSizeBytes(markdownPayload?.size_bytes ?? markdownArtifact.size_bytes);
-  const statusBits = ["已加载 /markdown JSON"];
+  const statusBits = [markdownPayload?.content_with_absolute_image_urls ? "已加载 /markdown/document" : "已加载 /markdown JSON"];
   if (fileName) {
     statusBits.push(fileName);
   }
@@ -234,7 +239,7 @@ export function renderMarkdownContract({
   }
   setText("detail-markdown-status", statusBits.join(" · "));
   setText("detail-markdown-image-count", `${refs.length}`);
-  setText("detail-markdown-preview", truncatePreview(content));
+  setText("detail-markdown-preview", truncatePreview(previewContent));
 }
 
 export async function renderMarkdownImagePreview({
@@ -249,8 +254,10 @@ export async function renderMarkdownImagePreview({
     return;
   }
   revokeMarkdownImageUrls(markdownImageUrls);
-  const refs = collectMarkdownImageRefs(markdownPayload?.content);
-  if (refs.length === 0 || !imagesBaseUrl) {
+  const refs = Array.isArray(markdownPayload?.images) && markdownPayload.images.length > 0
+    ? markdownPayload.images.map((item) => item?.url || item?.path).filter(Boolean)
+    : collectMarkdownImageRefs(markdownPayload?.content_with_absolute_image_urls || markdownPayload?.content);
+  if (refs.length === 0 || (!imagesBaseUrl && !Array.isArray(markdownPayload?.images))) {
     grid.innerHTML = "";
     grid.classList.add("hidden");
     empty.classList.remove("hidden");

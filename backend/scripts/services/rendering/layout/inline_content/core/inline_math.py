@@ -288,6 +288,5 @@ def build_direct_typst_passthrough_markdown(text: str) -> str:
     normalized = normalize_direct_typst_math_boundaries(str(text or "").strip())
     normalized = normalize_direct_typst_inline_math_whitespace(normalized)
     markdown = apply_to_non_math_segments(normalized, escape_literal_asterisks_preserving_emphasis)
-    markdown = demote_text_heavy_inline_math(markdown)
     markdown = sanitize_direct_typst_inline_math(markdown)
     return surround_inline_math_with_spaces(markdown)

@@ -9,6 +9,7 @@ import {
 } from "./job-stage-contract.js";
 import {
   compareProgressEventOrder,
+  canonicalStageOf,
   eventIdentity,
   normalizeUserStage,
   progressUnitOf,
@@ -19,9 +20,11 @@ import {
   progressPercentFromEvent,
 } from "./job-stage-event-progress.js";
 import { compositeRenderProgressFromEvents } from "./job-stage-render-progress.js";
+import { eventLooksLikeRender } from "./job-stage-render-detection.js";
 
 export function stagePayloadFromEvent(job, item, progress) {
-  const userStage = normalizeUserStage(item?.user_stage || item?.payload?.user_stage || "");
+  const canonicalStage = canonicalStageOf(item);
+  const userStage = canonicalStage || normalizeUserStage(item?.user_stage || item?.payload?.user_stage || "");
   const rawStage = item?.stage || item?.provider_stage || userStage;
   return {
     ...job,
@@ -102,7 +105,8 @@ export function normalizeProgressRecord(job, item, itemStage) {
   ) {
     return null;
   }
-  const payload = stagePayloadFromEvent(job, { ...item, stage: itemStage }, progress);
+  const stageForPayload = eventLooksLikeRender(item) ? "rendering" : itemStage;
+  const payload = stagePayloadFromEvent(job, { ...item, stage: stageForPayload }, progress);
   const stageKey = summarizeStageKey(payload);
   if (!["ocr", "translate", "render"].includes(stageKey)) {
     return null;

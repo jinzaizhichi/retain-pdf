@@ -9,7 +9,7 @@ export function recentJobsDialogTemplate() {
           </div>
           <button id="query-dialog-close-btn" type="submit" class="dialog-close-btn" aria-label="关闭">×</button>
         </div>
-        <div class="recent-jobs-sidebar-body">
+        <div id="recent-jobs-scroll-body" class="recent-jobs-sidebar-body">
           <div id="recent-jobs-summary" class="status-panel-note">Stage Spec 0 · Legacy CLI 0 · Unknown 0</div>
           <div id="recent-jobs-empty" class="events-empty hidden">暂无最近任务</div>
           <div id="recent-jobs-list" class="recent-jobs-list hidden"></div>

@@ -16,6 +16,7 @@ from foundation.shared.stage_specs import build_stage_invocation_metadata
 from foundation.shared.stage_specs import resolve_credential_ref
 from foundation.shared.tee_output import enable_job_log_capture
 from runtime.pipeline.book_pipeline import run_book_pipeline
+from runtime.pipeline.render_preprocess import run_ocr_render_preprocess
 from services.document_schema import adapt_path_to_document_v1_with_report
 from services.document_schema import DOCUMENT_SCHEMA_REPORT_FILE_NAME
 from services.document_schema import validate_saved_document_path
@@ -250,6 +251,7 @@ def main() -> None:
         if provider == "mineru":
             emit_stage_transition(
                 stage="ocr_processing",
+                substage="ocr_processing",
                 message="开始执行 MinerU OCR provider 流程",
                 provider=provider,
             )
@@ -257,6 +259,7 @@ def main() -> None:
         elif provider == "paddle":
             emit_stage_transition(
                 stage="ocr_processing",
+                substage="ocr_processing",
                 message="开始执行 Paddle OCR provider 流程",
                 provider=provider,
             )
@@ -272,8 +275,21 @@ def main() -> None:
         output_pdf_path = job_dirs.rendered_dir / translated_pdf_name
         emit_stage_progress(
             stage="normalizing",
+            substage="normalizing",
             message="OCR provider 已完成，标准化文档已就绪",
             provider=provider,
+        )
+        run_ocr_render_preprocess(
+            source_json_path=translation_source_json_path,
+            source_pdf_path=source_pdf_path,
+            output_pdf_path=output_pdf_path,
+            artifacts_dir=job_dirs.artifacts_dir,
+            render_mode=args.render_mode,
+            start_page=args.start_page,
+            end_page=args.end_page,
+            pdf_compress_dpi=args.pdf_compress_dpi,
+            source_cleanup_strategy=args.source_cleanup_strategy,
+            math_mode=args.math_mode,
         )
         api_key = get_api_key(
             args.api_key,
@@ -281,6 +297,7 @@ def main() -> None:
         )
         emit_stage_transition(
             stage="translation_prepare",
+            substage="translation_prepare",
             message="开始准备翻译和渲染阶段",
             provider=provider,
         )

@@ -9,6 +9,7 @@ import {
   readModelApiKey,
   readOcrProviderValue,
   readOcrTokenValue,
+  renderTranslationBudgetNote,
   setDeveloperDialogValues,
   setDeveloperGlossaryOptions,
   setDeveloperWorkflowFormState,
@@ -34,6 +35,7 @@ import {
   defaultDeveloperDialogReadOptions,
 } from "./developer-dialog.js";
 import { resolveSubmitControlState } from "./submit-controls.js";
+import { resolveTranslationBudgetState } from "./budget.js";
 
 export function mountWorkflowFeature({
   state,
@@ -126,6 +128,10 @@ export function mountWorkflowFeature({
     return resolveWorkflowSubmitLabel(workflow, constants);
   }
 
+  function workflowUsesTranslation(workflow = currentWorkflow()) {
+    return workflow === WORKFLOW_BOOK || workflow === WORKFLOW_TRANSLATE;
+  }
+
   function workflowHeadline(workflow = currentWorkflow()) {
     return resolveWorkflowHeadline(workflow, constants);
   }
@@ -141,7 +147,7 @@ export function mountWorkflowFeature({
 
   function refreshSubmitControls() {
     const workflow = currentWorkflow();
-    setSubmitControls(resolveSubmitControlState({
+    const submitState = resolveSubmitControlState({
       workflow,
       isMock: isMockMode(),
       desktopMode: state.desktopMode,
@@ -151,7 +157,23 @@ export function mountWorkflowFeature({
       workflowNeedsUpload,
       workflowNeedsCredentials,
       workflowSubmitLabel,
-    }));
+    });
+    const budget = currentBudgetState(workflow);
+    renderTranslationBudgetNote(budget);
+    setSubmitControls({
+      ...submitState,
+      disabled: submitState.disabled || budget.blocking,
+    });
+  }
+
+  function currentBudgetState(workflow = currentWorkflow()) {
+    return resolveTranslationBudgetState({
+      pageRanges: currentPageRanges(),
+      uploadedPageCount: state.uploadedPageCount,
+      balanceCny: state.deepseekBalanceCny,
+      balanceChecked: state.deepseekBalanceChecked,
+      needsTranslation: workflowNeedsUpload(workflow) && workflowUsesTranslation(workflow) && Boolean(state.uploadId),
+    });
   }
 
   function updateCredentialGate() {
@@ -288,6 +310,7 @@ export function mountWorkflowFeature({
     collectRunPayload,
     currentRenderSourceJobId,
     currentWorkflow,
+    currentBudgetState,
     developerConfigWithDefaults,
     loadGlossaryOptions,
     refreshSubmitControls,

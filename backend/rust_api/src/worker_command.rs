@@ -729,10 +729,6 @@ mod tests {
                 "model",
                 "base_url",
                 "credential_ref",
-                "render_prewarm_output_pdf_path",
-                "render_prewarm_mode",
-                "render_prewarm_pdf_compress_dpi",
-                "render_prewarm_source_cleanup_strategy",
             ],
         );
 

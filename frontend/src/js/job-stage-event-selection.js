@@ -2,8 +2,9 @@ import {
   summarizeStageKey,
   stageSubtypeOf,
 } from "./job-status-summary.js";
+import { eventLooksLikeRender } from "./job-stage-render-detection.js";
 import { progressFromEvent } from "./job-stage-event-progress.js";
-import { normalizeUserStage, stageRank } from "./job-stage-presentation-utils.js";
+import { canonicalStageOf, normalizeUserStage, stageRank } from "./job-stage-presentation-utils.js";
 
 function strongestStageKey(...payloads) {
   return payloads
@@ -22,21 +23,22 @@ export function latestStageEvent(job, eventsPayload) {
   const items = Array.isArray(eventsPayload?.items) ? eventsPayload.items : [];
   const currentStage = `${job?.current_stage || job?.stage || ""}`.trim();
   const currentStageKey = summarizeStageKey(job);
-  const findMatchingEvent = (allowBroadStage, requireProgress = false) => {
-    for (let index = items.length - 1; index >= 0; index -= 1) {
-      const item = items[index] || {};
-      const itemStage = `${item.stage || ""}`.trim();
-      const providerStage = `${item.provider_stage || ""}`.trim();
-      const userStage = normalizeUserStage(item.user_stage || item.payload?.user_stage || "");
-      const itemStageForMatch = itemStage || providerStage || userStage;
-      if (!itemStageForMatch) {
-        continue;
-      }
-      const progress = progressFromEvent(item);
-      if (requireProgress && (progress.current === null || progress.total === null)) {
-        continue;
-      }
-      const itemPayload = {
+  const payloadForItem = (item = {}) => {
+    const itemStage = `${item.stage || ""}`.trim();
+    const providerStage = `${item.provider_stage || ""}`.trim();
+    const canonicalStage = canonicalStageOf(item);
+    const userStage = canonicalStage || normalizeUserStage(item.user_stage || item.payload?.user_stage || "");
+    const itemStageForMatch = canonicalStage || (eventLooksLikeRender(item)
+      ? "rendering"
+      : itemStage || providerStage || userStage);
+    if (!itemStageForMatch) {
+      return null;
+    }
+    const progress = progressFromEvent(item);
+    return {
+      itemStageForMatch,
+      progress,
+      payload: {
         ...job,
         current_stage: itemStageForMatch,
         stage_detail: item.stage_detail || item.message || "",
@@ -44,7 +46,35 @@ export function latestStageEvent(job, eventsPayload) {
         substage: item.substage || item.payload?.substage || "",
         progress_current: progress.current,
         progress_total: progress.total,
-      };
+      },
+    };
+  };
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index] || {};
+    const candidate = payloadForItem(item);
+    if (!candidate) {
+      continue;
+    }
+    const itemStageKey = summarizeStageKey(candidate.payload);
+    if (stageRank(itemStageKey) <= stageRank(currentStageKey)) {
+      continue;
+    }
+    if (!item.stage_detail && !item.message && candidate.progress.current === null) {
+      continue;
+    }
+    return item;
+  }
+  const findMatchingEvent = (allowBroadStage, requireProgress = false) => {
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index] || {};
+      const candidate = payloadForItem(item);
+      if (!candidate) {
+        continue;
+      }
+      const { itemStageForMatch, progress, payload: itemPayload } = candidate;
+      if (requireProgress && (progress.current === null || progress.total === null)) {
+        continue;
+      }
       const itemStageKey = summarizeStageKey(itemPayload);
       if (currentStage) {
         const exactMatch = itemStageForMatch === currentStage;
@@ -69,23 +99,11 @@ export function latestStageEvent(job, eventsPayload) {
     if (desiredSubstageKey) {
       for (let index = items.length - 1; index >= 0; index -= 1) {
         const item = items[index] || {};
-        const itemStage = `${item.stage || ""}`.trim();
-        const providerStage = `${item.provider_stage || ""}`.trim();
-        const userStage = normalizeUserStage(item.user_stage || item.payload?.user_stage || "");
-        const itemStageForMatch = itemStage || providerStage || userStage;
-        if (!itemStageForMatch) {
+        const candidate = payloadForItem(item);
+        if (!candidate) {
           continue;
         }
-        const progress = progressFromEvent(item);
-        const itemPayload = {
-          ...job,
-          current_stage: itemStageForMatch,
-          stage_detail: item.stage_detail || item.message || "",
-          user_stage: userStage,
-          substage: item.substage || item.payload?.substage || "",
-          progress_current: progress.current,
-          progress_total: progress.total,
-        };
+        const itemPayload = candidate.payload;
         if (summarizeStageKey(itemPayload) === currentStageKey && stageSubtypeOf(itemPayload) === desiredSubstageKey) {
           return item;
         }

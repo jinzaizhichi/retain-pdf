@@ -4,7 +4,7 @@ import re
 
 from services.rendering.layout.inline_content.core.markdown import build_markdown_from_direct_text
 from services.rendering.layout.inline_content.fallback.latex_normalizer import normalize_formula_for_latex_math
-from services.translation.public import re_protect_restored_formulas
+from services.rendering.layout.protected_tokens import re_protect_restored_formulas
 
 
 def formula_map_lookup(formula_map: list[dict]) -> dict[str, str]:

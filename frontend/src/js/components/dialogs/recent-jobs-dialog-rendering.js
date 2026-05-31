@@ -49,7 +49,7 @@ async function loadRecentJobImage(rawUrl) {
   return request;
 }
 
-function hydrateRecentJobImages(list) {
+export function hydrateRecentJobImages(list) {
   list.querySelectorAll(".recent-job-cover[data-image-url]").forEach((cover) => {
     const rawUrl = cover.getAttribute("data-image-url") || "";
     if (!rawUrl || cover.dataset.loaded === "1") {
@@ -71,12 +71,14 @@ function hydrateRecentJobImages(list) {
 }
 
 export function recentJobsElements(host) {
+  const root = host || document;
   return {
-    summary: host.querySelector("#recent-jobs-summary"),
-    list: host.querySelector("#recent-jobs-list"),
-    empty: host.querySelector("#recent-jobs-empty"),
-    loadMoreButton: host.querySelector("#load-more-jobs-btn"),
-    dialog: host.querySelector("#query-dialog"),
+    summary: root.querySelector("#recent-jobs-summary"),
+    list: root.querySelector("#recent-jobs-list"),
+    empty: root.querySelector("#recent-jobs-empty"),
+    loadMoreButton: root.querySelector("#load-more-jobs-btn"),
+    body: root.querySelector("#recent-jobs-scroll-body"),
+    dialog: root.querySelector("#query-dialog"),
   };
 }
 
@@ -141,13 +143,14 @@ export function renderRecentJobsError(host, message, { reset = false } = {}) {
   loadMoreButton.textContent = "更多";
 }
 
-export function renderRecentJobsList(host, markup, { reset = false, hasMore = false, onSelect, onDelete } = {}) {
+export function renderRecentJobsList(host, markup, { reset = false, hasMore = false, onSelect, onDelete, onReader } = {}) {
   const { list, empty, loadMoreButton } = recentJobsElements(host);
   if (!list || !empty || !loadMoreButton) {
     return;
   }
   list.__retainPdfRecentJobSelect = onSelect;
   list.__retainPdfRecentJobDelete = onDelete;
+  list.__retainPdfRecentJobReader = onReader;
   if (!list.__retainPdfRecentJobBound) {
     list.__retainPdfRecentJobBound = true;
     list.addEventListener("click", (event) => {
@@ -178,6 +181,14 @@ export function renderRecentJobsList(host, markup, { reset = false, hasMore = fa
           }
         });
         item?.classList.toggle("is-confirming-delete");
+        return;
+      }
+      const readerButton = event.target?.closest?.(".recent-job-reader");
+      if (readerButton && list.contains(readerButton)) {
+        event.preventDefault();
+        event.stopPropagation();
+        const item = readerButton.closest(".recent-job-item");
+        list.__retainPdfRecentJobReader?.(item?.dataset.jobId || "");
         return;
       }
       const button = event.target?.closest?.(".recent-job-item");
@@ -221,4 +232,13 @@ export function setRecentJobsLoadMoreLoading(host) {
   }
   loadMoreButton.disabled = true;
   loadMoreButton.textContent = "加载中...";
+}
+
+export function shouldAutoLoadRecentJobs(host) {
+  const { body, loadMoreButton } = recentJobsElements(host);
+  if (!body || !loadMoreButton || loadMoreButton.classList.contains("hidden") || loadMoreButton.disabled) {
+    return false;
+  }
+  const remaining = body.scrollHeight - body.scrollTop - body.clientHeight;
+  return remaining < Math.max(260, body.clientHeight * 0.35);
 }

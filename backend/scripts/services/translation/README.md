@@ -44,6 +44,10 @@ Translation 阶段的正式输入和输出固定为：
 
 这些选项只影响 prompt 上下文预算和术语/记忆注入范围，不影响最终质量兜底。空译、严重英文残留和占位符错误仍然必须进入后续修复链路。
 
+默认执行时，自动文档记忆只在任务开始时读取一次 `JobMemorySnapshot`，worker 并发翻译期间不会实时写回
+`job-memory.json`。这样可以避免大 PDF 高并发时反复锁文件、刷新 prompt 记忆和拖慢尾批次。需要调试旧行为时，
+可以设置 `RETAIN_TRANSLATION_LIVE_MEMORY_UPDATES=1`，让结果回填阶段继续实时更新 job memory。
+
 当前稳定交接点：
 
 - 上游 OCR 阶段应先把 provider 结果收敛成 `document.v1.json`

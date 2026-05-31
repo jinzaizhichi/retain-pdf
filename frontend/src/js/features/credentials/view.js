@@ -18,11 +18,8 @@ export function setCredentialDialogModeView({ setupMode = false, activateCredent
   $("browser-credentials-title").textContent = setupMode ? "首次配置" : "接口设置";
   const subtitle = $("browser-credentials-subtitle");
   if (subtitle) {
-    const text = setupMode
-      ? "填写 OCR Token 和 DeepSeek Key，检测通过后保存。"
-      : "";
-    subtitle.textContent = text;
-    subtitle.classList.toggle("hidden", !text);
+    subtitle.textContent = "";
+    subtitle.classList.add("hidden");
   }
   $("browser-credentials-save-btn").textContent = setupMode ? "保存并启动" : "保存";
   $("browser-credentials-tabs")?.classList.toggle("hidden", setupMode);
@@ -84,10 +81,12 @@ export function setOcrValidationMessage(message, tone = "", providerId = "") {
     return;
   }
   const content = `${message || ""}`.trim();
-  el.textContent = content || definition.validationIdleMessage;
+  el.textContent = validationIcon(tone, content);
+  el.title = content || definition.validationIdleMessage || "";
   el.classList.toggle("hidden", !content);
   el.classList.toggle("is-valid", tone === "valid");
   el.classList.toggle("is-error", tone === "error");
+  el.classList.toggle("is-pending", !!content && !tone);
 }
 
 export function setDeepSeekValidationMessage(message, tone = "") {
@@ -96,25 +95,33 @@ export function setDeepSeekValidationMessage(message, tone = "") {
     return;
   }
   const content = `${message || ""}`.trim();
-  el.textContent = content || TRANSLATION_PROVIDER_DEFINITION.validationIdleMessage;
+  el.textContent = validationIcon(tone, content);
+  el.title = content || TRANSLATION_PROVIDER_DEFINITION.validationIdleMessage || "";
   el.classList.toggle("hidden", !content);
   el.classList.toggle("is-valid", tone === "valid");
   el.classList.toggle("is-error", tone === "error");
+  el.classList.toggle("is-pending", !!content && !tone);
 }
 
-export function setDeepSeekAccountStatus(summary = "", tone = "", checkedAt = "") {
-  const box = $("browser-deepseek-account-status");
-  const summaryEl = $("browser-deepseek-account-summary");
-  const timeEl = $("browser-deepseek-account-time");
-  const content = `${summary || ""}`.trim();
-  if (!box || !summaryEl || !timeEl) {
+export function setDeepSeekTopUpVisible(visible = false) {
+  const link = $("browser-deepseek-top-up-link");
+  if (!link) {
     return;
   }
-  box.classList.toggle("hidden", !content);
-  box.classList.toggle("is-valid", tone === "valid");
-  box.classList.toggle("is-error", tone === "error");
-  summaryEl.textContent = content || "未检测";
-  timeEl.textContent = checkedAt ? `检测时间 ${checkedAt}` : "-";
+  link.classList.toggle("hidden", !visible);
+}
+
+function validationIcon(tone = "", content = "") {
+  if (!content) {
+    return "";
+  }
+  if (tone === "valid") {
+    return "✓";
+  }
+  if (tone === "error") {
+    return "!";
+  }
+  return "…";
 }
 
 export function browserCredentialElements() {

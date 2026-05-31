@@ -8,6 +8,7 @@ from services.rendering.source.compression.pdf_copy import build_image_compresse
 from services.rendering.source.preparation.bbox_text_strip import build_bbox_text_stripped_pdf_copy
 from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripCandidates
 from services.rendering.source.preparation.hidden_text_strip import build_hidden_text_stripped_pdf_copy
+from services.rendering.source.preparation.xobject_sanitize import build_invalid_xobject_sanitized_pdf_copy
 from services.rendering.output.typst.shared import default_typst_temp_root
 from foundation.config import layout
 
@@ -44,6 +45,24 @@ def build_render_source_pdf(
     bbox_text_strip_skipped_page_indices: frozenset[int] = frozenset()
     source_text_precleaned_page_indices: frozenset[int] = frozenset()
 
+    sanitize_started = time.perf_counter()
+    sanitized_source_path = work_root / f"{output_pdf_path.stem}.source-xobject-sanitized.pdf"
+    sanitize_result = build_invalid_xobject_sanitized_pdf_copy(
+        source_pdf_path=render_source_path,
+        output_pdf_path=sanitized_source_path,
+    )
+    print(f"render source pdf: invalid-xobject sanitize elapsed={time.perf_counter() - sanitize_started:.2f}s", flush=True)
+    if sanitize_result.changed and sanitize_result.output_pdf_path is not None:
+        render_source_path = sanitize_result.output_pdf_path
+        if not artifact_mode:
+            temp_paths.append(render_source_path)
+        print(
+            f"render source pdf: using invalid-xobject sanitized copy {render_source_path}",
+            flush=True,
+        )
+    else:
+        sanitized_source_path.unlink(missing_ok=True)
+
     if strip_hidden_text:
         hidden_started = time.perf_counter()
         hidden_text_stripped_path = work_root / f"{output_pdf_path.stem}.source-hidden-text-stripped.pdf"
@@ -79,6 +98,7 @@ def build_render_source_pdf(
         bbox_text_strip_skipped_page_indices = (
             bbox_text_result.skipped_complex_page_indices
             | bbox_text_result.skipped_no_text_overlap_page_indices
+            | bbox_text_result.skipped_visual_background_page_indices
             | bbox_text_result.strip_no_effect_page_indices
         )
         source_text_precleaned_page_indices = bbox_text_result.changed_page_indices
@@ -131,7 +151,6 @@ def build_render_source_pdf(
         source_text_precleaned_page_indices=source_text_precleaned_page_indices,
         bbox_text_strip_candidates=bbox_text_strip_candidates,
     )
-
 
 def prepare_render_source_pdf(
     *,

@@ -45,8 +45,12 @@ def _append_context_lines(lines: list[str], item: TranslationItemContext) -> Non
 
 
 def _append_text_flow_guidance(lines: list[str], item: TranslationItemContext) -> None:
-    if item.toc_entries:
-        lines.append("结构提示：当前原文是目录页。逐行翻译目录标题；保留章节编号、点线省略号和页码，不要合并行，不要改动页码。")
+    structure_role = str((item.metadata or {}).get("structure_role", "") or "").strip().lower()
+    if item.toc_entries or structure_role == "table_of_contents" or str(item.semantic_role or "").strip().lower() == "table_of_contents":
+        lines.append(
+            "结构提示：当前原文是目录/图表清单。必须逐行翻译，每个原文行输出一个译文行；"
+            "翻译行首标签和标题，保留行尾页码且不要改动页码；不要合并行，不要输出解释。"
+        )
         return
     if not item.preserve_line_structure_for_prompt or not item.line_texts:
         return

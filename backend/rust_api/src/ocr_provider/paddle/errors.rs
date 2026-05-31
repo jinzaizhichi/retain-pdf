@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fmt;
 
 use reqwest::StatusCode;
+use serde::Deserialize;
 
 use crate::ocr_provider::types::{OcrErrorCategory, OcrProviderErrorInfo};
 
@@ -50,22 +51,36 @@ impl PaddleProviderError {
         trace_id: Option<&str>,
         detail: Option<&str>,
     ) -> Self {
-        let category = match status {
-            StatusCode::UNAUTHORIZED => OcrErrorCategory::Unauthorized,
-            StatusCode::FORBIDDEN => OcrErrorCategory::PermissionDenied,
-            StatusCode::REQUEST_TIMEOUT | StatusCode::GATEWAY_TIMEOUT => {
-                OcrErrorCategory::RemoteReadTimeout
-            }
-            StatusCode::BAD_REQUEST
-            | StatusCode::UNPROCESSABLE_ENTITY
-            | StatusCode::METHOD_NOT_ALLOWED => OcrErrorCategory::InvalidRequest,
-            StatusCode::TOO_MANY_REQUESTS => OcrErrorCategory::QueueFull,
-            StatusCode::SERVICE_UNAVAILABLE | StatusCode::BAD_GATEWAY => {
-                OcrErrorCategory::ServiceUnavailable
-            }
-            _ if status.is_server_error() => OcrErrorCategory::ServiceUnavailable,
-            _ => OcrErrorCategory::HttpStatus,
-        };
+        let parsed_error = parse_paddle_error_body(body_excerpt);
+        let provider_code = parsed_error
+            .as_ref()
+            .and_then(|error| error.code.map(|code| code.to_string()));
+        let provider_message = parsed_error
+            .as_ref()
+            .and_then(|error| error.message())
+            .or_else(|| sanitize_body_excerpt(body_excerpt));
+        let resolved_trace_id = trace_id
+            .map(str::to_string)
+            .or_else(|| parsed_error.as_ref().and_then(|error| error.trace_id()));
+        let category = provider_code
+            .as_deref()
+            .and_then(category_for_provider_code)
+            .unwrap_or_else(|| match status {
+                StatusCode::UNAUTHORIZED => OcrErrorCategory::Unauthorized,
+                StatusCode::FORBIDDEN => OcrErrorCategory::PermissionDenied,
+                StatusCode::REQUEST_TIMEOUT | StatusCode::GATEWAY_TIMEOUT => {
+                    OcrErrorCategory::RemoteReadTimeout
+                }
+                StatusCode::BAD_REQUEST
+                | StatusCode::UNPROCESSABLE_ENTITY
+                | StatusCode::METHOD_NOT_ALLOWED => OcrErrorCategory::InvalidRequest,
+                StatusCode::TOO_MANY_REQUESTS => OcrErrorCategory::QueueFull,
+                StatusCode::SERVICE_UNAVAILABLE | StatusCode::BAD_GATEWAY => {
+                    OcrErrorCategory::ServiceUnavailable
+                }
+                _ if status.is_server_error() => OcrErrorCategory::ServiceUnavailable,
+                _ => OcrErrorCategory::HttpStatus,
+            });
         let message = format!(
             "HTTP {}{}",
             status.as_u16(),
@@ -77,9 +92,9 @@ impl PaddleProviderError {
             stage,
             category,
             detail.unwrap_or("Paddle HTTP 请求失败").to_string(),
-            trace_id,
-            None,
-            Some(message),
+            resolved_trace_id.as_deref(),
+            provider_code,
+            provider_message.or(Some(message)),
             Some("请检查 Paddle API 地址、Token 和服务状态"),
         )
         .with_http_status(status.as_u16())
@@ -91,15 +106,16 @@ impl PaddleProviderError {
         provider_message: &str,
         trace_id: Option<&str>,
     ) -> Self {
-        let category = match provider_code {
-            401 | 403 => OcrErrorCategory::Unauthorized,
-            404 => OcrErrorCategory::TaskNotFound,
-            408 => OcrErrorCategory::RemoteReadTimeout,
-            409 => OcrErrorCategory::OperationNotAllowed,
-            429 => OcrErrorCategory::QueueFull,
-            code if code >= 500 => OcrErrorCategory::ServiceUnavailable,
-            _ => OcrErrorCategory::ProviderFailed,
-        };
+        let category =
+            category_for_provider_code(&provider_code.to_string()).unwrap_or(match provider_code {
+                401 | 403 => OcrErrorCategory::Unauthorized,
+                404 => OcrErrorCategory::TaskNotFound,
+                408 => OcrErrorCategory::RemoteReadTimeout,
+                409 => OcrErrorCategory::OperationNotAllowed,
+                429 => OcrErrorCategory::QueueFull,
+                code if code >= 500 => OcrErrorCategory::ServiceUnavailable,
+                _ => OcrErrorCategory::ProviderFailed,
+            });
         Self::new(
             stage,
             category,
@@ -262,6 +278,49 @@ fn sanitize_body_excerpt(text: &str) -> Option<String> {
     Some(excerpt)
 }
 
+fn category_for_provider_code(code: &str) -> Option<OcrErrorCategory> {
+    match code.trim() {
+        "10010" | "429" => Some(OcrErrorCategory::QueueFull),
+        "401" | "403" => Some(OcrErrorCategory::Unauthorized),
+        "404" => Some(OcrErrorCategory::TaskNotFound),
+        "408" => Some(OcrErrorCategory::RemoteReadTimeout),
+        "409" => Some(OcrErrorCategory::OperationNotAllowed),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct PaddleErrorBody {
+    #[serde(default, alias = "errorCode")]
+    code: Option<i64>,
+    #[serde(default, alias = "errorMsg", alias = "message")]
+    msg: Option<String>,
+    #[serde(default, rename = "traceId", alias = "logId")]
+    trace_id: Option<String>,
+}
+
+impl PaddleErrorBody {
+    fn message(&self) -> Option<String> {
+        self.msg
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    }
+
+    fn trace_id(&self) -> Option<String> {
+        self.trace_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    }
+}
+
+fn parse_paddle_error_body(text: &str) -> Option<PaddleErrorBody> {
+    serde_json::from_str::<PaddleErrorBody>(text.trim()).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,6 +347,27 @@ mod tests {
         assert_eq!(err.info().category, OcrErrorCategory::QueueFull);
         assert_eq!(err.info().provider_code.as_deref(), Some("429"));
         assert_eq!(err.info().provider_message.as_deref(), Some("busy"));
+    }
+
+    #[test]
+    fn http_status_extracts_paddle_queue_full_body() {
+        let err = PaddleProviderError::http_status(
+            "submit",
+            StatusCode::BAD_REQUEST,
+            r#"{"traceId":"trace-queue","code":10010,"msg":"任务提交队列已满，请稍后重试"}"#,
+            None,
+            None,
+        );
+
+        assert_eq!(err.info().category, OcrErrorCategory::QueueFull);
+        assert_eq!(err.info().http_status, Some(400));
+        assert_eq!(err.info().provider_code.as_deref(), Some("10010"));
+        assert_eq!(
+            err.info().provider_message.as_deref(),
+            Some("任务提交队列已满，请稍后重试")
+        );
+        assert_eq!(err.info().trace_id.as_deref(), Some("trace-queue"));
+        assert!(err.stage_detail().contains("任务提交队列已满"));
     }
 
     #[test]

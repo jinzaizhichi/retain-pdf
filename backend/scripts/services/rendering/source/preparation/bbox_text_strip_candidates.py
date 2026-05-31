@@ -12,8 +12,10 @@ from services.rendering.source.preparation.bbox_text_strip_page_gate import bbox
 from services.rendering.source.preparation.bbox_text_strip_rects import merge_rects
 from services.rendering.source.preparation.bbox_text_strip_segments import strip_segments_for_text_rect
 from services.rendering.source.preparation.bbox_text_strip_types import BBOX_TEXT_STRIP_PAGE_SKIP_NONE
+from services.rendering.source.preparation.bbox_text_strip_types import BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND
 from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripCandidates
 from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripPagePlan
+from services.rendering.source.background.detect import page_has_large_background_image
 
 
 def build_bbox_text_strip_candidates(
@@ -54,11 +56,18 @@ def plan_bbox_text_strip_page(
     )
     if items_skip_reason != BBOX_TEXT_STRIP_PAGE_SKIP_NONE:
         return BBoxTextStripPagePlan(skip_reason=items_skip_reason)
+    if page_has_large_background_image(page):
+        return BBoxTextStripPagePlan(skip_reason=BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND)
 
     item_rects = build_source_item_rects(translated_items)
     if not item_rects:
         return BBoxTextStripPagePlan()
-    skip_reason = bbox_text_strip_page_skip_reason(doc, page, source_item_rects=item_rects)
+    skip_reason = bbox_text_strip_page_skip_reason(
+        doc,
+        page,
+        source_item_rects=item_rects,
+        allow_vector_overlap=_allow_vector_overlap_for_page(translated_items),
+    )
     if skip_reason != BBOX_TEXT_STRIP_PAGE_SKIP_NONE:
         return BBoxTextStripPagePlan(skip_reason=skip_reason)
 
@@ -105,3 +114,24 @@ def build_formula_guard_rects(
 
 def build_page_strip_source_rects_for_page(page: fitz.Page, *, translated_items: list[dict]) -> list[fitz.Rect]:
     return merge_rects([rect for _item, rect in iter_strip_item_rects_for_page(page, translated_items)])
+
+
+def _allow_vector_overlap_for_page(translated_items: list[dict]) -> bool:
+    strip_items = [
+        item
+        for item in translated_items
+        if str(item.get("block_kind") or item.get("block_type") or "").strip().lower() == "text"
+    ]
+    if not strip_items:
+        return False
+    safe_roles = {"heading", "title", "toc", "table_of_contents", "page_number"}
+    for item in strip_items:
+        role_values = {
+            str(item.get("layout_role") or "").strip().lower(),
+            str(item.get("semantic_role") or "").strip().lower(),
+            str(item.get("structure_role") or "").strip().lower(),
+            str(item.get("normalized_sub_type") or "").strip().lower(),
+        }
+        if not (role_values & safe_roles):
+            return False
+    return True

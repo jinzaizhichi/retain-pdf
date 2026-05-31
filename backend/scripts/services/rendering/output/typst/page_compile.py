@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
 from pathlib import Path
 import time
+from typing import Callable
 
 from foundation.config import fonts
 from services.rendering.output.typst.overlay_compile import compile_page_overlay_pdf
@@ -11,6 +12,7 @@ from services.rendering.output.typst.shared import default_compile_workers
 from services.pipeline_shared.events import emit_render_page_progress
 
 OverlayPageSpec = tuple[int, float, float, list[dict], str]
+TypstRepairRequestFn = Callable[..., str]
 
 
 def compile_overlay_page_specs(
@@ -23,6 +25,7 @@ def compile_overlay_page_specs(
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
     font_paths: list[Path] | None = None,
     temp_root: Path | None = None,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> tuple[dict[int, Path], dict[int, dict[str, object]], float]:
     overlay_paths: dict[int, Path] = {}
     page_compile_diagnostics: dict[int, dict[str, object]] = {}
@@ -49,6 +52,7 @@ def compile_overlay_page_specs(
             font_paths=font_paths,
             temp_root=temp_root,
             diagnostics=compile_diag,
+            request_chat_content_fn=request_chat_content_fn,
         )
         return path, compile_diag
 

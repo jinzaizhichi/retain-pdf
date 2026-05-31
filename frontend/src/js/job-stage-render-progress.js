@@ -1,4 +1,5 @@
 import { normalizeUserStage } from "./job-stage-presentation-utils.js";
+import { eventLooksLikeRender } from "./job-stage-render-detection.js";
 
 export function compositeRenderProgressFromEvents(
   job,
@@ -11,10 +12,13 @@ export function compositeRenderProgressFromEvents(
 ) {
   const items = Array.isArray(eventsPayload?.items) ? eventsPayload.items : [];
   let latestPrepareProgress = null;
+  let latestPrewarmProgress = null;
   let latestPageProgress = null;
   let latestCompileProgress = null;
   for (const item of items) {
-    const itemStage = `${item?.stage || item?.provider_stage || normalizeUserStage(item?.user_stage || item?.payload?.user_stage) || ""}`.trim();
+    const itemStage = eventLooksLikeRender(item)
+      ? "rendering"
+      : `${item?.stage || item?.provider_stage || normalizeUserStage(item?.user_stage || item?.payload?.user_stage) || ""}`.trim();
     if (!itemStage) {
       continue;
     }
@@ -25,6 +29,9 @@ export function compositeRenderProgressFromEvents(
     if (next.substageKey === "render_prepare" && next.progressUnit === "step" && shouldReplaceCurrentStageProgress(latestPrepareProgress, next)) {
       latestPrepareProgress = next;
     }
+    if (next.substageKey === "render_prewarm" && next.progressUnit === "step" && shouldReplaceCurrentStageProgress(latestPrewarmProgress, next)) {
+      latestPrewarmProgress = next;
+    }
     if (next.progressUnit === "page" && shouldReplaceCurrentStageProgress(latestPageProgress, next)) {
       latestPageProgress = next;
     }
@@ -32,7 +39,7 @@ export function compositeRenderProgressFromEvents(
       latestCompileProgress = next;
     }
   }
-  const latest = latestCompileProgress || latestPageProgress || latestPrepareProgress || fallbackProgress;
+  const latest = latestCompileProgress || latestPageProgress || latestPrewarmProgress || latestPrepareProgress || fallbackProgress;
   if (!latest) {
     return null;
   }
@@ -76,6 +83,28 @@ export function compositeRenderProgressFromEvents(
         progress_unit: "percent",
       },
       indeterminate: latestPageProgress.current <= 0,
+    };
+  }
+  if (
+    latestPrewarmProgress
+    && latestPrewarmProgress.current !== null
+    && latestPrewarmProgress.total !== null
+    && latestPrewarmProgress.total > 0
+  ) {
+    const prewarmRatio = Math.max(0, Math.min(1, latestPrewarmProgress.current / latestPrewarmProgress.total));
+    const prewarmText = `预热 ${latestPrewarmProgress.current}/${latestPrewarmProgress.total}`;
+    return {
+      ...latestPrewarmProgress,
+      current: Math.round(prewarmRatio * 10),
+      total: 100,
+      progressUnit: "percent",
+      progressText: prewarmText,
+      payload: {
+        ...latestPrewarmProgress.payload,
+        stage_detail: prewarmText,
+        progress_unit: "percent",
+      },
+      indeterminate: latestPrewarmProgress.current <= 0,
     };
   }
   if (

@@ -62,7 +62,12 @@
 
 列表：
 
-`GET /api/v1/library/books?limit=20&offset=0`
+`GET /api/v1/library/books?limit=20&offset=0&q=physics`
+
+查询参数：
+
+- `limit` / `offset`：分页。
+- `q`：可选，全库搜索书名、源文件名、job_id、源 URL 和状态文本。
 
 返回 `data.items[]`：
 
@@ -243,14 +248,64 @@
 
 阶段事件稳定字段：
 
-- `user_stage`
 - `stage`
 - `substage`
+- `lane`
 - `stage_detail`
 - `event_type`
-- `progress_current`
-- `progress_total`
-- `progress_unit`
+- `raw_event_type`
+- `progress`
+- `message`
+- `payload`
+
+`stage` 是公共展示阶段，当前只按这层理解：
+
+- `ocr`
+- `translation`
+- `render`
+- `done`
+
+`substage` 是机器可读子阶段，例如：
+
+- `ocr_processing`
+- `translation_batches`
+- `translation_tail_retry`
+- `continuation_review`
+- `page_policies`
+- `domain_inference`
+- `garbled_repair`
+- `agent_repair`
+- `final_untranslated_recovery`
+- `render_prepare`
+- `render_prewarm`
+- `render_pages`
+- `render_compile`
+
+`lane` 可为：
+
+- `main`：主状态卡可展示。
+- `background`：后台预热或缓存构建，不应覆盖主状态。
+- `artifact`：产物发布。
+- `diagnostic`：诊断信息。
+
+`event_type` 可为：
+
+- `progress`
+- `artifact`
+- `terminal`
+- `error`
+- `diagnostic`
+
+`progress` 对象：
+
+```json
+{
+  "unit": "page",
+  "current": 37,
+  "total": 142,
+  "percent": 26.056338028169012
+}
+```
 
 `progress_unit` 可为：
 
@@ -259,6 +314,12 @@
 - `step`
 - `percent`
 - `none`
+
+兼容说明：
+
+- API 输出中的 `progress_current` / `progress_total` / `progress_unit` 是内部兼容字段，默认不序列化；前端优先读 `progress`。
+- `message` 只给人看，前端不要靠它判断阶段。
+- Python 原始事件里的 `user_stage` 不作为公共 API 字段暴露；排障时看 `payload.raw_user_stage`。
 
 主任务事件流会合并 OCR 子任务页进度。任务完成后仍保留历史事件。
 
@@ -311,6 +372,7 @@
 - `GET /api/v1/jobs/{job_id}/artifacts/{artifact_key}`
 - `GET /api/v1/jobs/{job_id}/pdf`
 - `GET /api/v1/jobs/{job_id}/markdown`
+- `GET /api/v1/jobs/{job_id}/markdown/document`
 - `GET /api/v1/jobs/{job_id}/markdown?raw=true`
 - `GET /api/v1/jobs/{job_id}/markdown/images/*path`
 - `GET /api/v1/jobs/{job_id}/download`
@@ -327,6 +389,7 @@
 Markdown 注意：
 
 - `/markdown` 默认返回 JSON 包装
+- `/markdown/document` 返回结构化文档视图，包含 `content`、`content_with_absolute_image_urls`、`images[]` 图片直链清单，适合前端预览和 AI 问答
 - `/markdown?raw=true` 返回原始 Markdown
 - 图片通过 `/markdown/images/*path` 读取
 

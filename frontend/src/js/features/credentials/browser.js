@@ -12,7 +12,7 @@ import {
   credentialDialog,
   openCredentialDialog,
   setCredentialDialogModeView,
-  setDeepSeekAccountStatus,
+  setDeepSeekTopUpVisible,
   setDeepSeekValidationMessage,
   setDialogStatus,
   setOcrValidationMessage,
@@ -95,7 +95,9 @@ export function mountBrowserCredentialsFeature({
     setOcrValidationMessage("", "", "mineru");
     setOcrValidationMessage("", "", "paddle");
     setDeepSeekValidationMessage("", "");
-    setDeepSeekAccountStatus("", "");
+    setDeepSeekTopUpVisible(false);
+    state.deepseekBalanceCny = null;
+    state.deepseekBalanceChecked = false;
     setDialogStatus("", "");
   }
 
@@ -193,8 +195,22 @@ export function mountBrowserCredentialsFeature({
 
   async function handleBrowserDeepSeekValidate() {
     await runBrowserDeepSeekValidate({
+      state,
+      defaultModelApiKey,
       validateDeepSeekToken,
       queryDeepSeekBalance,
+      onBalanceChange: onCredentialStateChange,
+    });
+  }
+
+  async function refreshDeepSeekBalance({ silent = true } = {}) {
+    return runBrowserDeepSeekValidate({
+      state,
+      defaultModelApiKey,
+      validateDeepSeekToken,
+      queryDeepSeekBalance,
+      onBalanceChange: onCredentialStateChange,
+      silent,
     });
   }
 
@@ -227,6 +243,8 @@ export function mountBrowserCredentialsFeature({
       if (state.desktopMode) {
         await persistDesktopCredentials({
           currentOcrProvider,
+          defaultModelApiKey,
+          defaultModelBaseUrl,
           saveTaskOptions,
           saveDesktopConfig,
           checkApiConnectivity,
@@ -235,6 +253,8 @@ export function mountBrowserCredentialsFeature({
         persistBrowserCredentials({
           applyKeyInputs,
           currentOcrProvider,
+          defaultModelApiKey,
+          defaultModelBaseUrl,
           saveTaskOptions,
           saveBrowserStoredConfig,
         });
@@ -260,6 +280,10 @@ export function mountBrowserCredentialsFeature({
     },
     resetDeepSeekValidation: () => {
       setDeepSeekValidationMessage("", "");
+      setDeepSeekTopUpVisible(false);
+      state.deepseekBalanceCny = null;
+      state.deepseekBalanceChecked = false;
+      onCredentialStateChange?.();
     },
     validateOcr: handleBrowserOcrValidate,
     validateDeepSeek: handleBrowserDeepSeekValidate,
@@ -278,6 +302,7 @@ export function mountBrowserCredentialsFeature({
     ensureOcrCredentialsReady,
     hasBrowserCredentials,
     openBrowserCredentialsDialog,
+    refreshDeepSeekBalance,
     setDialogStatus,
     updateCredentialGate,
   };

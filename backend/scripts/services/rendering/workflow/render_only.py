@@ -115,6 +115,7 @@ def main() -> None:
         print(format_stdout_kv(STDOUT_LABEL_EVENTS_JSONL, event_writer.path))
         emit_stage_transition(
             stage="render_prepare",
+            substage="render_prepare",
             message="开始准备纯渲染阶段",
         )
         started = time.perf_counter()

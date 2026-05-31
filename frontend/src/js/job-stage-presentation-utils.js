@@ -51,6 +51,23 @@ export function normalizeUserStage(value = "") {
   return stage === "translation" ? "translate" : stage;
 }
 
+export function canonicalStageOf(payload = {}) {
+  const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : {};
+  const candidates = [
+    payload.stage,
+    nestedPayload.stage,
+    payload.user_stage,
+    nestedPayload.user_stage,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeUserStage(candidate);
+    if (["ocr", "translate", "render", "done"].includes(normalized)) {
+      return normalized;
+    }
+  }
+  return "";
+}
+
 export function progressUnitOf(payload = {}) {
   const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : {};
   return `${payload?.progress_unit

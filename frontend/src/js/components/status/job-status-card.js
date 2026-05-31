@@ -53,7 +53,7 @@ class JobStatusCard extends HTMLElement {
       return;
     }
     this.dataset.hydrated = "1";
-    this.id = this.id || "status-section";
+    this.id = this.id || "job-status-card";
     this.classList.add("card", "status-card", "hidden");
     this.#stageAnimationController = createStatusStageAnimationController(this);
     this.innerHTML = jobStatusCardTemplate({
@@ -204,6 +204,7 @@ class JobStatusCard extends HTMLElement {
       stageKey: selected,
       current: selectedProgress?.current,
       total: selectedProgress?.total,
+      progressUnit: selectedProgress?.progressUnit,
     });
     if (errorSummaryEl) {
       errorSummaryEl.textContent = errorText;

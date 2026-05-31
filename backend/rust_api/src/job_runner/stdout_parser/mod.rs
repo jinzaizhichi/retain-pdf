@@ -1,8 +1,10 @@
 use crate::models::JobSnapshot;
 
+mod artifact_fields;
 mod artifact_rules;
 mod failure;
 mod labels;
+mod metric_rules;
 mod stage_rules;
 mod state;
 
@@ -24,7 +26,7 @@ pub fn apply_line(job: &mut JobSnapshot, line: &str) {
     job.append_log(stripped);
 
     artifact_rules::apply_artifact_line(job, stripped);
-    artifact_rules::apply_metric_line(job, stripped);
+    metric_rules::apply_metric_line(job, stripped);
     stage_rules::apply_stage_line(job, stripped);
 }
 

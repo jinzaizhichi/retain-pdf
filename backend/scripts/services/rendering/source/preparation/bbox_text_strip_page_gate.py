@@ -26,12 +26,13 @@ def bbox_text_strip_page_skip_reason(
     page: fitz.Page,
     *,
     source_item_rects: list[fitz.Rect],
+    allow_vector_overlap: bool = False,
 ) -> str:
     if not source_item_rects:
         return BBOX_TEXT_STRIP_PAGE_SKIP_NONE
     if page_content_stream_too_large(doc, page):
         return BBOX_TEXT_STRIP_PAGE_SKIP_COMPLEX
-    if page_has_vector_overlap_in_text_rects(page, source_item_rects):
+    if not allow_vector_overlap and page_has_vector_overlap_in_text_rects(page, source_item_rects):
         return BBOX_TEXT_STRIP_PAGE_SKIP_COMPLEX
     if not page_has_text_overlap(page, source_item_rects):
         return BBOX_TEXT_STRIP_PAGE_SKIP_NO_TEXT_OVERLAP

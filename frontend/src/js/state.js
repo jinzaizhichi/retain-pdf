@@ -2,6 +2,7 @@ import { createCredentialState, resetOcrValidationState as resetOcrValidationSta
 import { createDesktopState } from "./state/desktop-state.js";
 import { createDeveloperState } from "./state/developer-state.js";
 import { createJobState, resetJobSecondaryState as resetJobSecondaryStateSlice, resetJobState as resetJobStateSlice } from "./state/job-state.js";
+import { createHomeState, setHomeRecentJobsLoadingState as setHomeRecentJobsLoadingStateSlice, setHomeViewMode as setHomeViewModeSlice } from "./state/home-state.js";
 import { createRecentJobsState, resetRecentJobsListState as resetRecentJobsListStateSlice } from "./state/recent-jobs-state.js";
 import { createTimerState } from "./state/timer-state.js";
 import { createUploadState, resetUploadState as resetUploadStateSlice, setUploadState as setUploadStateSlice } from "./state/upload-state.js";
@@ -11,6 +12,7 @@ export {
   createDesktopState,
   createDeveloperState,
   createJobState,
+  createHomeState,
   createRecentJobsState,
   createTimerState,
   createUploadState,
@@ -20,6 +22,7 @@ export function createInitialState() {
   return {
     ...createTimerState(),
     ...createJobState(),
+    ...createHomeState(),
     ...createUploadState(),
     ...createRecentJobsState(),
     ...createCredentialState(),
@@ -52,4 +55,12 @@ export function resetRecentJobsListState(target = state) {
 
 export function resetOcrValidationState(target = state) {
   resetOcrValidationStateSlice(target);
+}
+
+export function setHomeViewMode(target = state, mode) {
+  setHomeViewModeSlice(target, mode);
+}
+
+export function setHomeRecentJobsLoadingState(target = state, loadingState, error = "") {
+  setHomeRecentJobsLoadingStateSlice(target, loadingState, error);
 }

@@ -16,7 +16,9 @@ from services.translation.llm.shared.control_context import build_translation_co
 from services.translation.llm.shared.control_context import resolve_engine_profile
 from services.translation.core.orchestration.units import finalize_payload_orchestration_metadata
 from services.translation.core.payload.parts.units import pending_translation_items
+from services.translation.services.memory import JobMemorySnapshot
 from services.translation.services.results.applier import expand_duplicate_results as _expand_duplicate_results
+from services.translation.workflow.batching import pending_units
 
 
 def _item(item_id: str, text: str, **overrides):
@@ -428,8 +430,8 @@ def test_queue_classification_routes_only_true_slow_blocks_to_single_slow() -> N
             ],
         ]
     )
-    assert [[item["item_id"] for item in batch] for batch in batched_fast_batches] == [["body-a"], ["body-b", "body-c"]]
-    assert [[item["item_id"] for item in batch] for batch in single_fast_batches] == [["__cg__:cg-1"], ["formula-1"]]
+    assert [[item["item_id"] for item in batch] for batch in batched_fast_batches] == [["body-b", "body-c"]]
+    assert [[item["item_id"] for item in batch] for batch in single_fast_batches] == [["body-a"], ["__cg__:cg-1"], ["formula-1"]]
     assert [[item["item_id"] for item in batch] for batch in single_slow_batches] == [["formula-heavy"]]
 
 
@@ -505,7 +507,7 @@ def test_translation_batch_run_stats_reports_queue_worker_split() -> None:
     assert stats["slow_worker_limit"] == 2
 
 
-def test_direct_typst_singleton_uses_batched_fast_when_marked_batchable() -> None:
+def test_direct_typst_singleton_uses_single_fast_even_when_marked_batchable() -> None:
     batched_fast_batches, single_fast_batches, single_slow_batches = _classify_translation_batches(
         [
             [
@@ -518,8 +520,8 @@ def test_direct_typst_singleton_uses_batched_fast_when_marked_batchable() -> Non
             ]
         ]
     )
-    assert [[item["item_id"] for item in batch] for batch in batched_fast_batches] == [["dt-1"]]
-    assert single_fast_batches == []
+    assert batched_fast_batches == []
+    assert [[item["item_id"] for item in batch] for batch in single_fast_batches] == [["dt-1"]]
     assert single_slow_batches == []
 
 
@@ -610,3 +612,75 @@ def test_duplicate_plain_items_keep_origin_when_representative_result_failed() -
     assert expanded["b"]["translation_diagnostics"]["fallback_to"] == "keep_origin"
     assert "fast_path_keep_origin" in expanded["b"]["translation_diagnostics"]["route_path"]
     assert expanded["b"]["translation_diagnostics"]["degradation_reason"] == "duplicate_representative_not_expandable"
+
+
+def test_translate_pending_units_uses_readonly_memory_snapshot_by_default(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeApplier:
+        def __init__(self, **kwargs) -> None:
+            captured["memory_store"] = kwargs["memory_store"]
+
+        def apply_immediate(self, _translated):
+            return set()
+
+    monkeypatch.setattr(pending_units, "TranslationResultApplier", _FakeApplier)
+    def _capture_parallel(**kwargs) -> None:
+        captured["worker_memory_store"] = kwargs["memory_store"]
+
+    monkeypatch.setattr(pending_units, "run_translation_batches_parallel", _capture_parallel)
+    monkeypatch.setattr(pending_units, "run_translation_batches_sequential", lambda **_kwargs: None)
+    monkeypatch.setattr(pending_units, "_save_flush_interval", lambda **_kwargs: 1)
+
+    payload = {"pages": []}
+    page_payloads = {0: [_item("a", "SCF cycle converges before energy evaluation.", page_idx=0)]}
+    translation_paths = {0: tmp_path / "page-0001.json"}
+
+    stats = pending_units.translate_pending_units(
+        page_payloads=page_payloads,
+        translation_paths=translation_paths,
+        batch_size=1,
+        workers=2,
+        api_key="sk-test",
+        model="deepseek-chat",
+        base_url="https://api.deepseek.com/v1",
+        translation_context=build_translation_control_context(),
+    )
+
+    assert payload == {"pages": []}
+    assert stats["pending_items"] == 1
+    assert captured["memory_store"] is None
+    assert isinstance(captured["worker_memory_store"], JobMemorySnapshot)
+
+
+def test_translate_pending_units_can_enable_live_memory_updates(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("RETAIN_TRANSLATION_LIVE_MEMORY_UPDATES", "1")
+    captured: dict[str, object] = {}
+
+    class _FakeApplier:
+        def __init__(self, **kwargs) -> None:
+            captured["memory_store"] = kwargs["memory_store"]
+
+        def apply_immediate(self, _translated):
+            return set()
+
+    monkeypatch.setattr(pending_units, "TranslationResultApplier", _FakeApplier)
+    monkeypatch.setattr(pending_units, "run_translation_batches_parallel", lambda **_kwargs: None)
+    monkeypatch.setattr(pending_units, "run_translation_batches_sequential", lambda **_kwargs: None)
+    monkeypatch.setattr(pending_units, "_save_flush_interval", lambda **_kwargs: 1)
+
+    page_payloads = {0: [_item("a", "SCF cycle converges before energy evaluation.", page_idx=0)]}
+    translation_paths = {0: tmp_path / "page-0001.json"}
+
+    pending_units.translate_pending_units(
+        page_payloads=page_payloads,
+        translation_paths=translation_paths,
+        batch_size=1,
+        workers=2,
+        api_key="sk-test",
+        model="deepseek-chat",
+        base_url="https://api.deepseek.com/v1",
+        translation_context=build_translation_control_context(),
+    )
+
+    assert captured["memory_store"] is not None

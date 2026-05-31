@@ -119,7 +119,23 @@ fn normalize_failure_event(item: &mut JobEventRecord, resolved_failure: Option<&
         return;
     };
 
-    item.stage = Some(failure.failed_stage_value().to_string());
+    let failed_stage = failure.failed_stage_value().to_string();
+    let mut payload = failure.write_formal_fields_into_payload(item.payload.as_ref());
+    if let Some(object) = payload.as_object_mut() {
+        object
+            .entry("failure_stage".to_string())
+            .or_insert_with(|| serde_json::Value::String(failed_stage.clone()));
+    }
+    if item
+        .stage
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+    {
+        item.stage = Some(failure.stage.clone());
+        item.user_stage = Some(failure.stage.clone());
+    }
     item.provider = failure
         .provider
         .clone()
@@ -140,7 +156,7 @@ fn normalize_failure_event(item: &mut JobEventRecord, resolved_failure: Option<&
     if item.message.trim().is_empty() {
         item.message = failure.summary.clone();
     }
-    item.payload = Some(failure.write_formal_fields_into_payload(item.payload.as_ref()));
+    item.payload = Some(payload);
 }
 
 fn take_non_empty(value: Option<String>) -> Option<String> {

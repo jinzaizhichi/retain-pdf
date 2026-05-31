@@ -6,6 +6,7 @@ import {
   fetchJobArtifactsManifest,
   fetchJobEvents,
   fetchJobMarkdown,
+  fetchJobMarkdownDocument,
   fetchJobPayload,
   fetchResumePlan,
   rerunJob,
@@ -259,7 +260,8 @@ async function initializePage() {
   setActionLink("detail-pdf-btn", actions.pdf, actions.pdfEnabled && !!actions.pdf);
 
   try {
-    const markdownPayload = await fetchJobMarkdown(jobId, API_PREFIX);
+    const markdownPayload = await fetchJobMarkdownDocument(jobId, API_PREFIX)
+      || await fetchJobMarkdown(jobId, API_PREFIX);
     detailPageState.markdownPayload = markdownPayload;
     renderMarkdownContract(job, markdownPayload);
     if (markdownPayload) {

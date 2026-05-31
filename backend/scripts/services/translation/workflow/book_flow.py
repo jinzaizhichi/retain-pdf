@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from collections.abc import Callable
 
 from services.translation.workflow.stages import run_continuation_review
 from services.translation.workflow.stages import run_agent_repair_stage
@@ -40,8 +39,6 @@ def translate_book_with_global_continuations(
     domain_guidance: str = "",
     translation_context: TranslationControlContext | None = None,
     run_diagnostics: TranslationRunDiagnostics | None = None,
-    render_prewarm_start_fn: Callable[[dict[int, list[dict]]], object] | None = None,
-    render_prewarm_handle_sink: Callable[[object | None], None] | None = None,
 ) -> tuple[dict[int, list[dict]], list[dict]]:
     if translation_context is not None:
         domain_guidance = translation_context.merged_guidance
@@ -91,19 +88,6 @@ def translate_book_with_global_continuations(
     if context_window_updates:
         print(f"book: translation context windows updated={context_window_updates}", flush=True)
     save_pages(page_payloads, translation_paths)
-    def _start_render_prewarm(label: str) -> None:
-        if render_prewarm_start_fn is None:
-            return
-        try:
-            handle = render_prewarm_start_fn(page_payloads)
-            if render_prewarm_handle_sink is not None:
-                render_prewarm_handle_sink(handle)
-            print(f"book: render prewarm started ({label})", flush=True)
-        except Exception as exc:
-            print(f"book: render prewarm start failed ({label}) {type(exc).__name__}: {exc}", flush=True)
-
-    _start_render_prewarm("source")
-
     run_translation_batch_stage(
         page_payloads=page_payloads,
         translation_paths=translation_paths,
@@ -116,6 +100,7 @@ def translate_book_with_global_continuations(
         mode=mode,
         translation_context=translation_context,
         run_diagnostics=run_diagnostics,
+        flush_callback=None,
     )
 
     run_garbled_reconstruction_stage(
@@ -147,8 +132,6 @@ def translate_book_with_global_continuations(
         translation_context=translation_context,
         workers=workers,
     )
-    _start_render_prewarm("translated")
-
     translated_pages_map = {page_idx: load_translations(translation_paths[page_idx]) for page_idx in sorted(page_payloads)}
     summaries = build_page_summaries(
         translated_pages_map=translated_pages_map,

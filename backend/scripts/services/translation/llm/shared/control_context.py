@@ -13,7 +13,7 @@ from services.translation.core.terms import build_terms_guidance
 from services.translation.core.terms import matched_abbreviation_entries
 from services.translation.core.terms import matched_glossary_entries
 from services.translation.core.terms import normalize_glossary_entries
-from services.translation.llm.shared.tail_retry_queue import TransportTailRetryQueue
+from services.translation.llm.shared.tail_retry_queue import TranslationTailQueue
 
 
 @dataclass(frozen=True)
@@ -115,7 +115,8 @@ class TranslationControlContext:
     term_scope_source_text_count: int = 0
     term_scope_glossary_total_count: int = 0
     term_scope_abbreviation_total_count: int = 0
-    transport_tail_retry_queue: TransportTailRetryQueue | None = None
+    translation_tail_queue: TranslationTailQueue | None = None
+    transport_tail_retry_queue: TranslationTailQueue | None = None
     _term_scope_cache: dict[tuple[str, ...], tuple[list[GlossaryEntry], list[AbbreviationEntry]]] = field(
         default_factory=dict,
         compare=False,
@@ -286,6 +287,7 @@ def build_translation_control_context(
     engine_profile: EngineProfile | None = None,
 ) -> TranslationControlContext:
     resolved_profile = engine_profile or EngineProfile()
+    tail_queue = TranslationTailQueue()
     return TranslationControlContext(
         mode=mode,
         source_lang=source_lang,
@@ -306,7 +308,8 @@ def build_translation_control_context(
         glossary_entries=normalize_glossary_entries(glossary_entries),
         abbreviation_entries=list(abbreviation_entries or []),
         retrieval_entries=list(retrieval_entries or []),
-        transport_tail_retry_queue=TransportTailRetryQueue(),
+        translation_tail_queue=tail_queue,
+        transport_tail_retry_queue=tail_queue,
     )
 
 

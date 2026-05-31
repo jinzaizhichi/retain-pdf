@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from foundation.config import fonts
 from foundation.config import paths
 from services.rendering.output.typst.compiler import compile_typst_book_overlay_pdf
 from services.rendering.output.typst.sanitize import compile_overlay_pdf_resilient
 from services.rendering.output.typst.shared import prepare_typst_work_dir
+
+TypstRepairRequestFn = Callable[..., str]
 
 
 def compile_page_overlay_pdf(
@@ -24,6 +27,7 @@ def compile_page_overlay_pdf(
     temp_root: Path | None = None,
     work_subdir: str = "page-overlays",
     diagnostics: dict | None = None,
+    request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> Path:
     base_dir = temp_root or paths.OUTPUT_DIR
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -41,6 +45,7 @@ def compile_page_overlay_pdf(
         font_paths=font_paths,
         work_dir=work_dir,
         diagnostics=diagnostics,
+        request_chat_content_fn=request_chat_content_fn,
     )
 
 

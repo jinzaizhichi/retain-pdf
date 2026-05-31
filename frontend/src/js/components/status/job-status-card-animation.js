@@ -34,7 +34,7 @@ export function createStatusStageAnimationController(host) {
   }
 
   function speedForProgressDelta(stageKey, previous, next) {
-    if (stageKey !== "translate" || !previous || previous.stageKey !== stageKey || previous.total !== next.total) {
+    if (!["ocr", "translate", "render"].includes(stageKey) || !previous || previous.stageKey !== stageKey || previous.total !== next.total) {
       return 1;
     }
     const elapsedSeconds = Math.max(0.25, (next.time - previous.time) / 1000);
@@ -42,27 +42,60 @@ export function createStatusStageAnimationController(host) {
     if (!Number.isFinite(delta) || delta <= 0) {
       return 0.75;
     }
-    const batchesPerSecond = delta / elapsedSeconds;
-    if (batchesPerSecond >= 50) {
+    const unitsPerSecond = delta / elapsedSeconds;
+    if (stageKey === "render") {
+      if (next.progressUnit === "step") {
+        return Math.min(1.6, Math.max(0.85, 0.85 + delta * 0.25));
+      }
+      if (next.progressUnit === "percent") {
+        return Math.min(2, Math.max(0.8, 0.8 + unitsPerSecond / 10));
+      }
+      if (unitsPerSecond >= 18) {
+        return 2.8;
+      }
+      if (unitsPerSecond >= 8) {
+        return 2.2;
+      }
+      if (unitsPerSecond >= 3) {
+        return 1.55;
+      }
+      if (unitsPerSecond >= 1) {
+        return 1.15;
+      }
+      return 0.8;
+    }
+    if (stageKey === "ocr") {
+      if (unitsPerSecond >= 20) {
+        return 2.4;
+      }
+      if (unitsPerSecond >= 8) {
+        return 1.8;
+      }
+      if (unitsPerSecond >= 2) {
+        return 1.25;
+      }
+      return 0.85;
+    }
+    if (unitsPerSecond >= 50) {
       return 3;
     }
-    if (batchesPerSecond >= 20) {
+    if (unitsPerSecond >= 20) {
       return 2.4;
     }
-    if (batchesPerSecond >= 8) {
+    if (unitsPerSecond >= 8) {
       return 1.8;
     }
-    if (batchesPerSecond >= 2) {
+    if (unitsPerSecond >= 2) {
       return 1.25;
     }
     return 0.85;
   }
 
-  function syncProgressSpeed({ stageKey = "", current = NaN, total = NaN } = {}) {
+  function syncProgressSpeed({ stageKey = "", current = NaN, total = NaN, progressUnit = "" } = {}) {
     const normalizedStageKey = `${stageKey || ""}`.trim();
     const numericCurrent = Number(current);
     const numericTotal = Number(total);
-    if (normalizedStageKey !== "translate" || !Number.isFinite(numericCurrent) || !Number.isFinite(numericTotal) || numericTotal <= 0) {
+    if (!["ocr", "translate", "render"].includes(normalizedStageKey) || !Number.isFinite(numericCurrent) || !Number.isFinite(numericTotal) || numericTotal <= 0) {
       lastProgressSample = null;
       playbackSpeed = 1;
       applyPlaybackSpeed();
@@ -72,6 +105,7 @@ export function createStatusStageAnimationController(host) {
       stageKey: normalizedStageKey,
       current: numericCurrent,
       total: numericTotal,
+      progressUnit: `${progressUnit || ""}`.trim(),
       time: Date.now(),
     };
     playbackSpeed = speedForProgressDelta(normalizedStageKey, lastProgressSample, nextSample);

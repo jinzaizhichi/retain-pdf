@@ -6,7 +6,7 @@ from services.rendering.layout.inline_content.core.markdown import build_plain_t
 from services.rendering.layout.model.render_text import get_render_formula_map
 from services.rendering.layout.model.render_text import get_render_protected_text
 from services.rendering.layout.model.render_text import restore_render_protected_text
-from services.translation.public import item_is_bodylike
+from services.document_schema.semantics import is_plain_bodylike_block
 
 
 FORMULA_TOKEN_PATTERN = r"<[futnvc]\d+-[0-9a-z]{3}/>|\[\[FORMULA_\d+]]|\$(?!\s)(?:\\.|[^$\n]){1,240}?\$"
@@ -27,7 +27,7 @@ def is_flag_like_plain_text_block(item: dict) -> bool:
         return False
     if len(item.get("formula_map", [])) > 0:
         return False
-    if item_is_bodylike(item):
+    if is_plain_bodylike_block(item):
         return False
     line_count = len(item.get("lines", []))
     if line_count > 1:

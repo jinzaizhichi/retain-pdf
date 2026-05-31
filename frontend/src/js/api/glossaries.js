@@ -125,6 +125,30 @@ export async function deleteGlossary(apiPrefix, glossaryId) {
   return unwrapEnvelope(await resp.json());
 }
 
+export async function exportGlossaryCsv(apiPrefix, glossaryId) {
+  const normalizedGlossaryId = `${glossaryId || ""}`.trim();
+  if (!normalizedGlossaryId) {
+    throw new Error("导出术语表失败: 缺少 glossary_id");
+  }
+  if (isMockMode()) {
+    void apiPrefix;
+    return new Response("source,target,note,level,match_mode,context\nHartree-Fock,,保留英文,preserve,case_insensitive,\n", {
+      headers: {
+        "content-type": "text/csv; charset=utf-8",
+        "content-disposition": `attachment; filename="${normalizedGlossaryId}.csv"`,
+      },
+    });
+  }
+  const resp = await fetch(buildApiEndpoint(apiPrefix, `glossaries/${encodeURIComponent(normalizedGlossaryId)}/export.csv`), {
+    headers: buildApiHeaders(),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`导出术语表失败: ${resp.status} ${text || "unknown error"}`);
+  }
+  return resp;
+}
+
 export async function parseGlossaryCsv(apiPrefix, csvText) {
   if (isMockMode()) {
     void apiPrefix;

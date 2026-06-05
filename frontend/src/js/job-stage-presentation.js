@@ -113,7 +113,8 @@ export function resolveDisplayedStagePresentation(job, eventsPayload) {
         progress_total: latestCurrentProgress.total,
       }
     : null;
-  const currentProgressText = latestProgressPayload ? summarizeStageProgressText(latestProgressPayload) : eventProgressText;
+  const currentProgressText = latestCurrentProgress?.progressText
+    || (latestProgressPayload ? summarizeStageProgressText(latestProgressPayload) : eventProgressText);
   const currentVisualPayload = latestProgressPayload || eventPayload;
   const currentSubstagePayload = latestProgressPayload || eventPayload;
   const currentProgressIndeterminate = latestCurrentProgress

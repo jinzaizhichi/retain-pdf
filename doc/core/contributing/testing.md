@@ -75,9 +75,12 @@ python3 backend/scripts/devtools/check_pipeline_architecture.py
 前端与桌面端：
 
 ```bash
+npm --prefix frontend test
 npm --prefix frontend run build
 npm --prefix desktop run verify-frontend-sync
 ```
+
+`npm --prefix frontend test` 使用 Node 原生 test runner，优先覆盖任务进度、状态整形等不依赖浏览器和后端服务的纯函数回归。
 
 前端端到端状态 smoke 会真实提交任务，通常需要本地 Rust API、OCR token、模型 key 和样本 PDF；具备这些条件时再跑：
 

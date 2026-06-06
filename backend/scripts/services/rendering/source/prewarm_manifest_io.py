@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripCandidates
+from services.rendering.source_cleanup.types import BBoxTextStripCandidates
 from services.rendering.source.prewarm_color_profile import render_colors_from_manifest
 from services.rendering.source.prewarm_contracts import BBOX_TEXT_STRIP_ALGORITHM_VERSION
 from services.rendering.source.prewarm_contracts import RENDER_PREWARM_SCHEMA

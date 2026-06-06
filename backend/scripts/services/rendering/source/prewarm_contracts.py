@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from services.rendering.layout.model.models import RenderPageSpec
-from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripCandidates
+from services.rendering.source_cleanup.types import BBoxTextStripCandidates
 
 
 RENDER_PREWARM_DIR_NAME = "render_prewarm"

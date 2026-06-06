@@ -5,9 +5,11 @@ from services.rendering.policy.cleanup_policy import build_render_page_policy
 from services.rendering.policy.cleanup_policy import formula_neighbor_text_item_ids
 from services.rendering.policy.cleanup_policy import item_has_render_source_or_output_text
 from services.rendering.policy.cleanup_policy import item_has_formula_region
+from services.rendering.policy.cleanup_policy import item_is_marked_non_translated
 from services.rendering.policy.cleanup_policy import item_render_output_text
 from services.rendering.policy.cleanup_policy import item_render_source_text
 from services.rendering.policy.cleanup_policy import item_should_bbox_text_strip
+from services.rendering.policy.cleanup_policy import item_will_render_translated_overlay
 from services.rendering.policy.cleanup_policy import page_should_skip_bbox_text_strip
 from services.rendering.policy.cleanup_policy import page_has_formula_region
 from services.rendering.policy.compat import item_cleanup_mode
@@ -38,12 +40,14 @@ __all__ = [
     "item_formula_protection_role",
     "item_has_formula_region",
     "item_overlay_fill",
+    "item_is_marked_non_translated",
     "item_render_policy",
     "item_render_policy_reason",
     "item_render_output_text",
     "item_render_source_text",
     "item_requires_visual_cover_only",
     "item_should_bbox_text_strip",
+    "item_will_render_translated_overlay",
     "item_uses_white_overlay_fill",
     "page_has_formula_region",
     "page_should_skip_bbox_text_strip",

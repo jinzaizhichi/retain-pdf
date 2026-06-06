@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import fitz
 
-from services.rendering.policy import formula_neighbor_text_item_ids
-from services.rendering.policy import item_has_formula_region
-from services.rendering.policy import item_should_bbox_text_strip
-from services.rendering.policy import page_should_skip_bbox_text_strip
+from services.rendering.policy.cleanup_policy import formula_neighbor_text_item_ids
+from services.rendering.policy.cleanup_policy import item_has_formula_region
+from services.rendering.policy.cleanup_policy import item_should_bbox_text_strip
+from services.rendering.policy.cleanup_policy import page_should_skip_bbox_text_strip
 from services.rendering.policy.formula_guard import expanded_formula_guard
 from services.rendering.policy.formula_guard import expanded_formula_guards
-from services.rendering.policy.formula_guard import split_rect_away_from_formula_guards
 
 
 def should_skip_page_for_bbox_text_strip(items: list[dict], *, skip_formula_pages: bool) -> bool:
@@ -33,7 +32,3 @@ def expanded_formula_guard_rect(formula_rect: fitz.Rect, strip_rects: list[fitz.
 
 def expanded_formula_guard_rects(formula_rects: list[fitz.Rect], strip_rects: list[fitz.Rect]) -> list[fitz.Rect]:
     return expanded_formula_guards(formula_rects, strip_rects)
-
-
-def split_rect_away_from_formula_guard_rects(rect: fitz.Rect, guards: list[fitz.Rect]) -> list[fitz.Rect]:
-    return split_rect_away_from_formula_guards(rect, guards)

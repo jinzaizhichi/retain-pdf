@@ -6,6 +6,9 @@ from typing import Iterable
 
 
 RectTuple = tuple[float, float, float, float]
+MIN_PROTECTED_OVERLAP_AREA_PT2 = 1.0
+MIN_PROTECTED_OVERLAP_TEXT_RATIO = 0.15
+MIN_PROTECTED_OVERLAP_HEIGHT_RATIO = 0.2
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,21 @@ class RectIndex:
                 return True
         return False
 
+    def protects_text_rect(self, x: float, y: float, rect: RectTuple) -> bool:
+        if self.bounds is None:
+            return False
+        point_may_match = _point_in_rect(x, y, self.bounds)
+        rect_may_match = _rect_intersects(rect, self.bounds)
+        if not point_may_match and not rect_may_match:
+            return False
+        limit = bisect_right(self.y0_sorted, max(y, rect[3]))
+        return any(
+            _point_in_rect(x, y, candidate)
+            or _rect_substantially_overlaps_text(rect, candidate)
+            for candidate in self.rects[:limit]
+            if candidate[3] >= min(y, rect[1])
+        )
+
 
 def inside_any_rect(x: float, y: float, rects: list[object]) -> bool:
     return RectIndex.build(rects).contains_point(x, y)
@@ -90,7 +108,7 @@ def is_protected_text_op(
     index = protected_index or RectIndex.build(protected_rects or [])
     if not index.rects:
         return False
-    return index.contains_point_or_intersects(user_point[0], user_point[1], text_rect)
+    return index.protects_text_rect(user_point[0], user_point[1], text_rect)
 
 
 def _rect_tuple(rect: object) -> RectTuple:
@@ -110,6 +128,33 @@ def _point_in_rect(x: float, y: float, rect: RectTuple) -> bool:
 
 def _rect_intersects(left: RectTuple, right: RectTuple) -> bool:
     return left[0] < right[2] and left[2] > right[0] and left[1] < right[3] and left[3] > right[1]
+
+
+def _rect_substantially_overlaps_text(text_rect: RectTuple, protected_rect: RectTuple) -> bool:
+    overlap = _rect_intersection(text_rect, protected_rect)
+    overlap_area = _rect_area(overlap)
+    if overlap_area < MIN_PROTECTED_OVERLAP_AREA_PT2:
+        return False
+    text_area = max(_rect_area(text_rect), 0.001)
+    overlap_height = max(0.0, overlap[3] - overlap[1])
+    text_height = max(text_rect[3] - text_rect[1], 0.001)
+    return (
+        overlap_area / text_area >= MIN_PROTECTED_OVERLAP_TEXT_RATIO
+        and overlap_height / text_height >= MIN_PROTECTED_OVERLAP_HEIGHT_RATIO
+    )
+
+
+def _rect_intersection(left: RectTuple, right: RectTuple) -> RectTuple:
+    return (
+        max(left[0], right[0]),
+        max(left[1], right[1]),
+        min(left[2], right[2]),
+        min(left[3], right[3]),
+    )
+
+
+def _rect_area(rect: RectTuple) -> float:
+    return max(0.0, rect[2] - rect[0]) * max(0.0, rect[3] - rect[1])
 
 
 __all__ = [

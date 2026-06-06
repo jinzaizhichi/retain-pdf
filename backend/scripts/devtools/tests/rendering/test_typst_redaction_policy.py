@@ -129,15 +129,17 @@ def test_background_redaction_items_split_around_display_formula_guard() -> None
 
     protected = protect_formula_regions_in_redaction_items(redaction_items, translated_items)
 
-    assert len(protected) == 2
     rects = [fitz.Rect(item["bbox"]) for item in protected]
     formula = fitz.Rect(translated_items[1]["bbox"])
+    assert len(protected) == 4
     assert all((rect & formula).is_empty for rect in rects)
-    assert rects[0].y1 <= 70.0
-    assert rects[1].y0 >= 112.0
+    assert any(rect.y1 <= 70.0 for rect in rects)
+    assert any(rect.y0 >= 112.0 for rect in rects)
+    assert any(rect.x1 <= formula.x0 and rect.y0 < formula.y1 and rect.y1 > formula.y0 for rect in rects)
+    assert any(rect.x0 >= formula.x1 and rect.y0 < formula.y1 and rect.y1 > formula.y0 for rect in rects)
     assert all(item.get("_formula_guard_fragment") for item in protected)
     cover_rects = cover_rects_from_valid_items([(rect, item, "译文") for rect, item in zip(rects, protected)])
-    assert len(cover_rects) == 2
+    assert len(cover_rects) == 4
     assert all((rect & formula).is_empty for rect in cover_rects)
 
 
@@ -242,7 +244,7 @@ def test_display_formula_neighbors_stay_deletable() -> None:
 
     protected = protect_formula_regions_in_redaction_items(redaction_items, translated_items)
 
-    assert len(protected) == 2
+    assert len(protected) == 6
     assert all(not item_requires_visual_cover_only(item) for item in protected)
     assert all(item_render_policy_reason(item) == "" for item in protected)
 
@@ -332,4 +334,3 @@ def test_build_clean_background_pdf_visual_cover_keeps_hidden_text_layer() -> No
             assert "Intermolecular Heck Coupling" in cleaned[0].get_text("text")
         finally:
             cleaned.close()
-

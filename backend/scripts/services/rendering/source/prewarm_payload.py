@@ -13,8 +13,8 @@ from services.rendering.layout.payload.first_line_indent import detect_first_lin
 from services.rendering.layout.payload.first_line_indent import is_first_line_indent_candidate
 from services.rendering.layout.payload.render_item import get_render_first_line_indent_pt
 from services.rendering.layout.payload.render_item import seed_render_fields
-from services.rendering.source.preparation.bbox_text_strip_candidates import build_bbox_text_strip_candidates
-from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripCandidates
+from services.rendering.source_cleanup.types import BBoxTextStripCandidates
+from services.rendering.source_cleanup import plan_source_cleanup
 from services.rendering.source.prewarm_color_profile import build_render_color_profile_manifest
 from services.rendering.source.prewarm_contracts import FIRST_LINE_INDENT_ALGORITHM_VERSION
 from services.rendering.source.prewarm_contracts import GEOMETRY_ADJUSTMENT_ALGORITHM_VERSION
@@ -62,7 +62,7 @@ def build_payload_prewarm(
         try:
             bbox_candidates = (
                 bbox_text_strip_candidates
-                or build_bbox_text_strip_candidates(
+                or plan_source_cleanup(
                     source_pdf_path=source_pdf_path,
                     translated_pages=translated_pages,
                     skip_formula_pages=False,

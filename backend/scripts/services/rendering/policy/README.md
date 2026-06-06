@@ -12,8 +12,8 @@ Policy code should decide what should happen:
 
 Execution code should only consume those decisions:
 
-- `source/preparation/bbox_text_strip_candidates.py` builds strip/protection
-  regions from policy decisions. The current pikepdf path protects
+- `source_cleanup/planning` builds strip/protection regions from policy
+  decisions. The current pikepdf path protects
   `formula` / `display_formula` bbox instead of skipping an entire page just
   because it contains a formula.
 - `source/background/stage.py` selects redaction strategy from page policy.

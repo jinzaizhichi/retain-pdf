@@ -8,21 +8,110 @@ from unittest import mock
 import fitz
 import pikepdf
 import pytest
+from pikepdf import Name
 
 
 REPO_SCRIPTS_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 
-from services.rendering.source.preparation import bbox_text_strip_document
-from services.rendering.source.preparation.bbox_text_strip import build_bbox_text_stripped_pdf_copy
-from services.rendering.source.preparation.bbox_text_strip import strip_bbox_text_rects_from_pdf_copy
 from services.rendering.source.preparation.redact_restore_formula import build_redact_restore_formula_pdf_copy
-from services.rendering.source.preparation.bbox_text_strip_pdf_math import IDENTITY_MATRIX
-from services.rendering.source.preparation.bbox_text_strip_text_ops import TextState
-from services.rendering.source.preparation.bbox_text_strip_text_ops import estimated_text_rect
-from services.rendering.source.preparation.bbox_text_strip_text_ops import estimated_user_text_geometry
-from services.rendering.source.preparation.bbox_text_strip_text_ops import text_advance_tx
+from services.rendering.source_cleanup.pdf import document as source_cleanup_document
+from services.rendering.source_cleanup.pdf.hit_test import RectIndex
+from services.rendering.source_cleanup.pdf.hit_test import is_protected_text_op
+from services.rendering.source_cleanup.pdf import pdf_math
+from services.rendering.source_cleanup.pdf import text_ops
+from services.rendering.source_cleanup import build_bbox_text_stripped_pdf_copy
+from services.rendering.source_cleanup import strip_bbox_text_rects_from_pdf_copy
+from services.rendering.source_cleanup.planning.intent_classifier import classify_source_cleanup_intent
+from services.rendering.source_cleanup.planning import segments
+
+
+def test_bbox_text_strip_segments_keep_inline_formula_sides_deletable() -> None:
+    text_rect = fitz.Rect(10, 20, 210, 50)
+    formula_rect = fitz.Rect(80, 22, 140, 48)
+
+    split_segments = segments.strip_segments_for_text_rect(text_rect, [formula_rect])
+
+    assert len(split_segments) == 2
+    assert split_segments[0].x0 <= 10
+    assert split_segments[0].x1 <= formula_rect.x0
+    assert split_segments[1].x0 >= formula_rect.x1
+    assert split_segments[1].x1 >= 210
+    assert all((segment & formula_rect).is_empty for segment in split_segments)
+
+
+def test_source_cleanup_intent_preserves_textual_formula_without_overlay() -> None:
+    intent = classify_source_cleanup_intent(
+        {
+            "item_id": "p001-b001",
+            "block_kind": "formula",
+            "block_type": "formula",
+            "source_text": r"$$ \mathrm{f=lateral friction for design speed} $$",
+        }
+    )
+
+    assert intent.source_role == "textual_formula"
+    assert intent.cleanup_action == "protect_source"
+
+
+def test_source_cleanup_intent_strips_textual_formula_with_overlay() -> None:
+    intent = classify_source_cleanup_intent(
+        {
+            "item_id": "p001-b001",
+            "block_kind": "formula",
+            "block_type": "formula",
+            "source_text": r"$$ \mathrm{f=lateral friction for design speed} $$",
+            "protected_translated_text": "f = 设计速度对应的侧向摩擦系数",
+        }
+    )
+
+    assert intent.source_role == "textual_formula"
+    assert intent.cleanup_action == "strip_text"
+
+
+def test_source_cleanup_intent_classifies_math_formula_as_protect_source() -> None:
+    intent = classify_source_cleanup_intent(
+        {
+            "item_id": "p001-b001",
+            "block_kind": "formula",
+            "block_type": "formula",
+            "source_text": r"$$ E=mc^2 $$",
+        }
+    )
+
+    assert intent.source_role == "math_formula"
+    assert intent.cleanup_action == "protect_source"
+
+
+def test_source_cleanup_intent_preserves_mixed_text_with_display_formula() -> None:
+    intent = classify_source_cleanup_intent(
+        {
+            "item_id": "p001-b001",
+            "block_kind": "text",
+            "block_type": "text",
+            "source_text": "body text\n$$ E=mc^2 $$",
+            "protected_translated_text": "正文\n$$ E=mc^2 $$",
+        }
+    )
+
+    assert intent.source_role == "mixed_math_text"
+    assert intent.cleanup_action == "protect_source"
+
+
+def test_source_cleanup_intent_keeps_inline_math_text_deletable() -> None:
+    intent = classify_source_cleanup_intent(
+        {
+            "item_id": "p001-b001",
+            "block_kind": "text",
+            "block_type": "text",
+            "source_text": "Method-2: rate $ Ls=2.7V^2/R $",
+            "protected_translated_text": "方法2：变化率 $ Ls=2.7V^2/R $",
+        }
+    )
+
+    assert intent.source_role == "body_text"
+    assert intent.cleanup_action == "strip_text"
 
 
 def test_bbox_text_strip_removes_text_inside_bbox_without_redaction_bloat() -> None:
@@ -63,7 +152,39 @@ def test_bbox_text_strip_removes_text_inside_bbox_without_redaction_bloat() -> N
         assert "outside text" in text
 
 
-def test_bbox_text_strip_accepts_untranslated_template_source_text() -> None:
+def test_bbox_text_strip_preserves_text_block_with_embedded_display_formula() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "stripped.pdf"
+        doc = fitz.open()
+        page = doc.new_page(width=260, height=180)
+        page.insert_text((30, 50), "body text", fontsize=12)
+        page.insert_text((30, 90), "E = mc2", fontsize=12)
+        doc.save(source_pdf)
+        doc.close()
+
+        result = build_bbox_text_stripped_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            translated_pages={
+                0: [
+                    {
+                        "block_kind": "text",
+                        "block_type": "text",
+                        "bbox": [20.0, 30.0, 230.0, 105.0],
+                        "source_text": "body text\n$$ E=mc^2 $$",
+                        "protected_translated_text": "正文\n$$ E=mc^2 $$",
+                    },
+                ]
+            },
+        )
+
+        assert result.changed is False
+        assert output_pdf.exists() is False
+
+
+def test_bbox_text_strip_keeps_source_text_when_no_translated_overlay() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         source_pdf = root / "source.pdf"
@@ -90,14 +211,41 @@ def test_bbox_text_strip_accepts_untranslated_template_source_text() -> None:
             },
         )
 
-        assert result.changed is True
-        stripped = fitz.open(output_pdf)
-        try:
-            text = stripped[0].get_text()
-        finally:
-            stripped.close()
-        assert "inside source" not in text
-        assert "outside source" in text
+        assert result.changed is False
+        assert output_pdf.exists() is False
+
+
+def test_bbox_text_strip_keeps_non_translated_items_even_with_render_text() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "stripped.pdf"
+        doc = fitz.open()
+        page = doc.new_page(width=200, height=200)
+        page.insert_text((20, 40), "keep original", fontsize=12)
+        page.insert_text((20, 140), "outside source", fontsize=12)
+        doc.save(source_pdf)
+        doc.close()
+
+        result = build_bbox_text_stripped_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            translated_pages={
+                0: [
+                    {
+                        "block_kind": "text",
+                        "bbox": [10.0, 20.0, 140.0, 55.0],
+                        "protected_source_text": "keep original",
+                        "protected_translated_text": "keep original",
+                        "final_status": "kept_origin",
+                        "decision": "keep_origin",
+                    }
+                ]
+            },
+        )
+
+        assert result.changed is False
+        assert output_pdf.exists() is False
 
 
 def test_bbox_text_strip_skips_large_background_image_page_before_deletion() -> None:
@@ -135,7 +283,7 @@ def test_bbox_text_strip_skips_large_background_image_page_before_deletion() -> 
         assert output_pdf.exists() is False
 
 
-def test_bbox_text_strip_skips_page_when_text_bbox_overlaps_vector_line() -> None:
+def test_bbox_text_strip_drops_rect_when_text_bbox_overlaps_unsafe_vector_line() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         source_pdf = root / "source.pdf"
@@ -163,7 +311,45 @@ def test_bbox_text_strip_skips_page_when_text_bbox_overlaps_vector_line() -> Non
 
         assert result.changed is False
         assert output_pdf.exists() is False
-        assert result.skipped_complex_page_indices == frozenset({0})
+        assert result.skipped_complex_page_indices == frozenset()
+
+
+def test_bbox_text_strip_allows_fill_only_background_overlap() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "stripped.pdf"
+        doc = fitz.open()
+        page = doc.new_page(width=240, height=180)
+        page.draw_rect(fitz.Rect(12, 25, 180, 75), color=None, fill=(1.0, 0.95, 0.82))
+        page.insert_text((20, 50), "inside text", fontsize=12)
+        doc.save(source_pdf)
+        doc.close()
+
+        result = build_bbox_text_stripped_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            translated_pages={
+                0: [
+                    {
+                        "block_kind": "text",
+                        "bbox": [10.0, 20.0, 190.0, 80.0],
+                        "protected_translated_text": "译文",
+                    }
+                ]
+            },
+        )
+
+        assert result.changed is True
+        assert result.skipped_complex_page_indices == frozenset()
+        stripped = fitz.open(output_pdf)
+        try:
+            text = stripped[0].get_text()
+            drawings = stripped[0].get_drawings()
+        finally:
+            stripped.close()
+        assert "inside text" not in text
+        assert drawings
 
 
 def test_bbox_text_strip_allows_toc_leader_vector_overlap() -> None:
@@ -247,6 +433,99 @@ def test_bbox_text_strip_keeps_fast_path_when_vector_line_is_outside_text_bbox()
         assert "inside text" not in text
 
 
+def test_bbox_text_strip_formula_guard_edge_touch_does_not_protect_whole_text_op() -> None:
+    protected_index = RectIndex.build([fitz.Rect(68.5, 667.0, 249.0, 681.0)])
+
+    assert not is_protected_text_op(
+        user_point=(72.02, 684.22),
+        text_rect=(72.02, 680.73, 136.76, 694.68),
+        protected_index=protected_index,
+    )
+
+
+def test_bbox_text_strip_formula_guard_protects_substantial_text_overlap() -> None:
+    protected_index = RectIndex.build([fitz.Rect(68.5, 667.0, 249.0, 681.0)])
+
+    assert is_protected_text_op(
+        user_point=(72.02, 676.0),
+        text_rect=(72.02, 672.0, 136.76, 686.0),
+        protected_index=protected_index,
+    )
+
+
+def test_bbox_text_strip_preserves_textual_formula_without_overlay_and_keeps_math_formula() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "stripped.pdf"
+        doc = fitz.open()
+        page = doc.new_page(width=260, height=180)
+        page.insert_text((30, 50), "f = lateral friction for design speed", fontsize=12)
+        page.insert_text((30, 90), "E = mc2", fontsize=12)
+        doc.save(source_pdf)
+        doc.close()
+
+        result = build_bbox_text_stripped_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            translated_pages={
+                0: [
+                    {
+                        "block_kind": "formula",
+                        "block_type": "formula",
+                        "bbox": [20.0, 30.0, 230.0, 65.0],
+                        "source_text": r"$$ \mathrm{f=lateral friction for design speed} $$",
+                    },
+                    {
+                        "block_kind": "formula",
+                        "block_type": "formula",
+                        "bbox": [20.0, 70.0, 130.0, 105.0],
+                        "source_text": r"$$ E=mc^2 $$",
+                    },
+                ]
+            },
+        )
+
+        assert result.changed is False
+        assert output_pdf.exists() is False
+
+
+def test_bbox_text_strip_removes_textual_formula_when_overlay_exists() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "stripped.pdf"
+        doc = fitz.open()
+        page = doc.new_page(width=260, height=180)
+        page.insert_text((30, 50), "f = lateral friction for design speed", fontsize=12)
+        doc.save(source_pdf)
+        doc.close()
+
+        result = build_bbox_text_stripped_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            translated_pages={
+                0: [
+                    {
+                        "block_kind": "formula",
+                        "block_type": "formula",
+                        "bbox": [20.0, 30.0, 230.0, 65.0],
+                        "source_text": r"$$ \mathrm{f=lateral friction for design speed} $$",
+                        "protected_translated_text": "f = 设计速度对应的侧向摩擦系数",
+                    },
+                ]
+            },
+        )
+
+        assert result.changed is True
+        stripped = fitz.open(output_pdf)
+        try:
+            text = stripped[0].get_text()
+        finally:
+            stripped.close()
+        assert "lateral friction" not in text
+
+
 def test_bbox_text_strip_skips_formula_pages() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -262,6 +541,7 @@ def test_bbox_text_strip_skips_formula_pages() -> None:
         result = build_bbox_text_stripped_pdf_copy(
             source_pdf_path=source_pdf,
             output_pdf_path=output_pdf,
+            skip_formula_pages=True,
             translated_pages={
                 0: [
                     {
@@ -356,6 +636,53 @@ def test_strip_bbox_text_rects_from_pdf_copy_removes_text_without_translated_pag
         assert "keep me" in text
 
 
+def test_bbox_text_strip_clones_shared_form_xobject_before_rewrite() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "stripped.pdf"
+        pdf = pikepdf.Pdf.new()
+        page = pdf.add_blank_page(page_size=(240, 180))
+        form = pdf.make_stream(b"BT /F1 12 Tf 0 0 Td (FORMTEXT) Tj ET")
+        form[Name("/Type")] = Name("/XObject")
+        form[Name("/Subtype")] = Name("/Form")
+        form[Name("/BBox")] = pikepdf.Array([0, 0, 120, 30])
+        form[Name("/Resources")] = pikepdf.Dictionary(
+            Font=pikepdf.Dictionary(
+                F1=pikepdf.Dictionary(
+                    Type=Name("/Font"),
+                    Subtype=Name("/Type1"),
+                    BaseFont=Name("/Helvetica"),
+                )
+            )
+        )
+        page.obj[Name("/Resources")] = pikepdf.Dictionary(
+            XObject=pikepdf.Dictionary(Fm1=form)
+        )
+        page.obj[Name("/Contents")] = pdf.make_stream(
+            b"q 1 0 0 1 30 50 cm /Fm1 Do Q\n"
+            b"q 1 0 0 1 30 120 cm /Fm1 Do Q\n"
+        )
+        pdf.save(source_pdf)
+
+        result = strip_bbox_text_rects_from_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            page_rects={0: [fitz.Rect(20.0, 40.0, 180.0, 75.0)]},
+            recurse_forms=True,
+        )
+
+        assert result.changed is True
+        assert result.forms_changed == 1
+
+        stripped = fitz.open(output_pdf)
+        try:
+            text = stripped[0].get_text()
+        finally:
+            stripped.close()
+        assert text.count("FORMTEXT") == 1
+
+
 def test_bbox_text_strip_single_worker_preserves_form_recursion(monkeypatch: pytest.MonkeyPatch) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -369,7 +696,7 @@ def test_bbox_text_strip_single_worker_preserves_form_recursion(monkeypatch: pyt
         doc.close()
 
         monkeypatch.setenv("RETAIN_BBOX_TEXT_STRIP_WORKERS", "1")
-        monkeypatch.setattr(bbox_text_strip_document, "BBOX_TEXT_STRIP_PARALLEL_PAGE_THRESHOLD", 1)
+        monkeypatch.setattr(source_cleanup_document, "BBOX_TEXT_STRIP_PARALLEL_PAGE_THRESHOLD", 1)
         seen_recurse_forms: list[bool] = []
 
         def fake_strip_page(
@@ -383,7 +710,7 @@ def test_bbox_text_strip_single_worker_preserves_form_recursion(monkeypatch: pyt
             seen_recurse_forms.append(recurse_forms)
             return page_idx, b"", 0, 0
 
-        with mock.patch.object(bbox_text_strip_document, "_strip_page_in_open_pdf", side_effect=fake_strip_page):
+        with mock.patch.object(source_cleanup_document, "_strip_page_in_open_pdf", side_effect=fake_strip_page):
             strip_bbox_text_rects_from_pdf_copy(
                 source_pdf_path=source_pdf,
                 output_pdf_path=output_pdf,
@@ -396,26 +723,26 @@ def test_bbox_text_strip_single_worker_preserves_form_recursion(monkeypatch: pyt
 
 
 def test_bbox_text_strip_parallel_worker_count_scales_for_medium_documents() -> None:
-    assert bbox_text_strip_document._parallel_worker_count(30) >= 2
-    assert bbox_text_strip_document._parallel_worker_count(500) <= bbox_text_strip_document.BBOX_TEXT_STRIP_PARALLEL_MAX_WORKERS
+    assert source_cleanup_document._parallel_worker_count(30) >= 2
+    assert source_cleanup_document._parallel_worker_count(500) <= source_cleanup_document.BBOX_TEXT_STRIP_PARALLEL_MAX_WORKERS
 
 
 def test_text_state_advance_uses_font_size_spacing_and_tj_adjustments() -> None:
-    state = TextState(font_size=12.0, char_spacing=1.0, word_spacing=3.0)
+    state = text_ops.TextState(font_size=12.0, char_spacing=1.0, word_spacing=3.0)
 
-    plain = text_advance_tx(IDENTITY_MATRIX, ["hello"], text_state=state)
-    with_space = text_advance_tx(IDENTITY_MATRIX, ["a b"], text_state=state)
-    with_tj_pull = text_advance_tx(IDENTITY_MATRIX, [pikepdf.Array(["a", -120, "b"])], text_state=state)
+    plain = text_ops.text_advance_tx(pdf_math.IDENTITY_MATRIX, ["hello"], text_state=state)
+    with_space = text_ops.text_advance_tx(pdf_math.IDENTITY_MATRIX, ["a b"], text_state=state)
+    with_tj_pull = text_ops.text_advance_tx(pdf_math.IDENTITY_MATRIX, [pikepdf.Array(["a", -120, "b"])], text_state=state)
 
     assert plain == pytest.approx(35.0)
     assert with_space == pytest.approx(24.0)
-    assert with_tj_pull > text_advance_tx(IDENTITY_MATRIX, ["ab"], text_state=state)
+    assert with_tj_pull > text_ops.text_advance_tx(pdf_math.IDENTITY_MATRIX, ["ab"], text_state=state)
 
 
 def test_estimated_text_rect_uses_font_size_from_text_state() -> None:
-    state = TextState(font_size=12.0)
-    _point, rect = estimated_user_text_geometry(
-        IDENTITY_MATRIX,
+    state = text_ops.TextState(font_size=12.0)
+    _point, rect = text_ops.estimated_user_text_geometry(
+        pdf_math.IDENTITY_MATRIX,
         (1, 0, 0, 1, 20, 40),
         state,
         text_length=4,

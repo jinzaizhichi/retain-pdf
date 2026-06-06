@@ -9,6 +9,32 @@ from services.rendering.policy.models import RenderPagePolicy
 from services.document_schema.semantics import block_kind
 
 
+NON_TRANSLATED_FINAL_STATUSES = frozenset(
+    {
+        "empty_translation",
+        "failed",
+        "ignored",
+        "keep_origin",
+        "kept_origin",
+        "not_translated",
+        "preserve_source",
+        "source_preserved",
+        "skipped",
+        "skip_translation",
+    }
+)
+NON_TRANSLATED_DECISIONS = frozenset(
+    {
+        "ignore",
+        "keep_origin",
+        "preserve_source",
+        "skip",
+        "skip_translation",
+    }
+)
+SKIP_TRANSLATION_TAGS = frozenset({"skip_translation", "keep_origin", "preserve_source"})
+
+
 def item_has_formula_region(item: dict) -> bool:
     normalized_sub_type = str(item.get("normalized_sub_type") or "").strip().lower()
     raw_block_type = str(item.get("raw_block_type") or "").strip().lower()
@@ -123,6 +149,27 @@ def item_has_render_source_or_output_text(item: dict) -> bool:
     return bool(item_render_output_text(item) or item_render_source_text(item))
 
 
+def item_will_render_translated_overlay(item: dict) -> bool:
+    if item_is_marked_non_translated(item):
+        return False
+    return bool(item_render_output_text(item))
+
+
+def item_is_marked_non_translated(item: dict) -> bool:
+    status = str(item.get("final_status") or item.get("translation_status") or item.get("status") or "").strip().lower()
+    if status in NON_TRANSLATED_FINAL_STATUSES:
+        return True
+    decision = str(item.get("decision") or item.get("translation_decision") or "").strip().lower()
+    if decision in NON_TRANSLATED_DECISIONS:
+        return True
+    tags = item.get("tags")
+    if isinstance(tags, list):
+        normalized_tags = {str(tag).strip().lower() for tag in tags}
+        if normalized_tags & SKIP_TRANSLATION_TAGS:
+            return True
+    return False
+
+
 def item_render_output_text(item: dict) -> str:
     return str(
         item.get("protected_translated_text")
@@ -144,7 +191,7 @@ def item_render_source_text(item: dict) -> str:
 def item_should_bbox_text_strip(item: dict, *, skip_item_ids: set[str] | None = None) -> bool:
     if skip_item_ids and str(item.get("item_id") or "").strip() in skip_item_ids:
         return False
-    return block_kind(item) == "text" and item_has_render_source_or_output_text(item)
+    return block_kind(item) == "text" and item_will_render_translated_overlay(item)
 
 
 def _page_formula_rects(items: list[dict]) -> list[fitz.Rect]:

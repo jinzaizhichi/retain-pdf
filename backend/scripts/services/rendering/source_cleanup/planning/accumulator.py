@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from services.rendering.source.preparation.bbox_text_strip_geometry import rect_tuple
-from services.rendering.source.preparation.bbox_text_strip_types import BBOX_TEXT_STRIP_PAGE_SKIP_COMPLEX
-from services.rendering.source.preparation.bbox_text_strip_types import BBOX_TEXT_STRIP_PAGE_SKIP_NO_TEXT_OVERLAP
-from services.rendering.source.preparation.bbox_text_strip_types import BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND
-from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripCandidates
-from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripPagePlan
+from services.rendering.source_cleanup.planning.geometry import rect_tuple
+from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_PAGE_SKIP_COMPLEX
+from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_PAGE_SKIP_NO_TEXT_OVERLAP
+from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND
+from services.rendering.source_cleanup.types import BBoxTextStripCandidates
+from services.rendering.source_cleanup.types import BBoxTextStripPagePlan
 
 
 @dataclass

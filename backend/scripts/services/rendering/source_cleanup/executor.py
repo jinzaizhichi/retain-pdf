@@ -4,10 +4,35 @@ from dataclasses import replace
 from pathlib import Path
 import time
 
-from services.rendering.source.preparation.bbox_text_strip_candidates import build_bbox_text_strip_candidates
-from services.rendering.source.preparation.bbox_text_strip_document import strip_bbox_text_rects_from_pdf_copy
-from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripCandidates
-from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripResult
+from foundation.config import layout
+from services.rendering.source_cleanup.types import BBoxTextStripCandidates
+from services.rendering.source_cleanup.types import BBoxTextStripResult
+from services.rendering.source_cleanup.contracts import SourceCleanupRequest
+from services.rendering.source_cleanup.contracts import SourceCleanupResult
+from services.rendering.source_cleanup.pdf.document import strip_bbox_text_rects_from_pdf_copy
+from services.rendering.source_cleanup.planning.planner import plan_source_cleanup
+
+
+def execute_source_cleanup(request: SourceCleanupRequest) -> SourceCleanupResult:
+    if not request.translated_pages or not layout.use_bbox_text_strip_cleanup(request.options.strategy):
+        return SourceCleanupResult(bbox_text_strip=BBoxTextStripResult(changed=False, candidates=request.candidates))
+
+    candidates = request.candidates or plan_source_cleanup(
+        source_pdf_path=request.source_pdf_path,
+        translated_pages=request.translated_pages,
+        skip_formula_pages=request.options.skip_formula_pages,
+    )
+    result = build_bbox_text_stripped_pdf_copy(
+        source_pdf_path=request.source_pdf_path,
+        output_pdf_path=request.output_pdf_path,
+        translated_pages=request.translated_pages,
+        candidates=candidates,
+        recurse_forms=request.options.recurse_forms,
+        skip_formula_pages=request.options.skip_formula_pages,
+    )
+    if result.candidates is None:
+        result = replace(result, candidates=candidates)
+    return SourceCleanupResult(bbox_text_strip=result)
 
 
 def build_bbox_text_stripped_pdf_copy(
@@ -17,13 +42,13 @@ def build_bbox_text_stripped_pdf_copy(
     translated_pages: dict[int, list[dict]],
     candidates: BBoxTextStripCandidates | None = None,
     recurse_forms: bool | None = None,
-    skip_formula_pages: bool = True,
+    skip_formula_pages: bool = False,
 ) -> BBoxTextStripResult:
     if not translated_pages:
         return BBoxTextStripResult(changed=False)
 
     candidate_started = time.perf_counter()
-    candidates = candidates or build_bbox_text_strip_candidates(
+    candidates = candidates or plan_source_cleanup(
         source_pdf_path=source_pdf_path,
         translated_pages=translated_pages,
         skip_formula_pages=skip_formula_pages,

@@ -8,6 +8,7 @@ from services.rendering.policy.cleanup_policy import item_has_formula_region
 from services.rendering.policy.geometry import item_rect
 from services.rendering.policy.geometry import merge_rects
 from services.rendering.policy.geometry import rect_list
+from services.rendering.source_cleanup.planning.segments import split_rect_around_guards
 from services.document_schema.semantics import block_kind
 
 
@@ -95,23 +96,13 @@ def expanded_formula_guard(formula: fitz.Rect, text_rects: list[fitz.Rect]) -> f
 
 
 def split_rect_away_from_formula_guards(rect: fitz.Rect, formula_guards: list[fitz.Rect]) -> list[fitz.Rect]:
-    fragments = [fitz.Rect(rect)]
-    for guard in formula_guards:
-        next_fragments: list[fitz.Rect] = []
-        for fragment in fragments:
-            if (fragment & guard).is_empty:
-                next_fragments.append(fragment)
-                continue
-            upper = fitz.Rect(fragment.x0, fragment.y0, fragment.x1, min(fragment.y1, guard.y0))
-            lower = fitz.Rect(fragment.x0, max(fragment.y0, guard.y1), fragment.x1, fragment.y1)
-            if upper.width > 0 and upper.height >= MIN_REDACTION_FRAGMENT_HEIGHT_PT:
-                next_fragments.append(upper)
-            if lower.width > 0 and lower.height >= MIN_REDACTION_FRAGMENT_HEIGHT_PT:
-                next_fragments.append(lower)
-        fragments = next_fragments
-        if not fragments:
-            break
-    return [fragment for fragment in fragments if not fragment.is_empty]
+    return split_rect_around_guards(
+        rect,
+        formula_guards,
+        min_width_pt=1.0,
+        min_height_pt=MIN_REDACTION_FRAGMENT_HEIGHT_PT,
+        min_area_pt2=MIN_REDACTION_FRAGMENT_HEIGHT_PT,
+    )
 
 
 def _apply_policy_fields_to_redaction_item(item: dict, item_policy) -> dict:

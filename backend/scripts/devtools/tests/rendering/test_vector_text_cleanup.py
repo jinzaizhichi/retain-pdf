@@ -13,12 +13,9 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 from services.rendering.source.cleanup.vector_text_cleanup import collect_vector_text_rects
 from services.rendering.source.cleanup.vector_text_cleanup import cleanup_vector_text_drawings
-from services.rendering.source.preparation.bbox_text_strip_candidates import build_bbox_text_strip_candidates
-from services.rendering.source.preparation.bbox_text_strip_geometry import formula_guard_rects
-from services.rendering.source.preparation.bbox_text_strip_geometry import ocr_bbox_to_pdf_rect
-from services.rendering.source.preparation.bbox_text_strip_test_support import build_page_formula_rects_for_items
-from services.rendering.source.preparation.bbox_text_strip_test_support import build_page_strip_rects_for_items
-from services.rendering.source.preparation.bbox_text_strip_test_support import build_page_strip_source_rects_for_items
+from services.rendering.source_cleanup import plan_source_cleanup
+from services.rendering.source_cleanup.planning import geometry
+from services.rendering.source_cleanup.planning import test_support
 
 
 def test_collect_vector_text_rects_detects_black_filled_glyph_drawings() -> None:
@@ -107,8 +104,8 @@ def test_bbox_text_strip_rects_shrink_away_from_adjacent_display_formula() -> No
         },
     ]
 
-    rects = build_page_strip_rects_for_items(page_height=page_height, translated_items=items)
-    formula_rects = build_page_formula_rects_for_items(page_height=page_height, translated_items=items)
+    rects = test_support.build_page_strip_rects_for_items(page_height=page_height, translated_items=items)
+    formula_rects = test_support.build_page_formula_rects_for_items(page_height=page_height, translated_items=items)
 
     assert rects
     assert all((rect & formula).is_empty for rect in rects for formula in formula_rects)
@@ -131,11 +128,15 @@ def test_bbox_text_strip_rects_split_around_overlapping_display_formula() -> Non
         },
     ]
 
-    rects = build_page_strip_rects_for_items(page_height=page_height, translated_items=items)
-    formula_rects = build_page_formula_rects_for_items(page_height=page_height, translated_items=items)
+    rects = test_support.build_page_strip_rects_for_items(page_height=page_height, translated_items=items)
+    formula_rects = test_support.build_page_formula_rects_for_items(page_height=page_height, translated_items=items)
 
-    assert len(rects) == 2
-    assert all((rect & formula).is_empty for rect in rects for formula in formula_rects)
+    formula = formula_rects[0]
+    assert all((rect & formula).is_empty for rect in rects)
+    assert any(rect.y1 <= formula.y0 for rect in rects)
+    assert any(rect.y0 >= formula.y1 for rect in rects)
+    assert any(rect.x1 <= formula.x0 and rect.y0 < formula.y1 and rect.y1 > formula.y0 for rect in rects)
+    assert any(rect.x0 >= formula.x1 and rect.y0 < formula.y1 and rect.y1 > formula.y0 for rect in rects)
 
 
 def test_bbox_text_strip_formula_guard_expands_to_body_column() -> None:
@@ -155,10 +156,10 @@ def test_bbox_text_strip_formula_guard_expands_to_body_column() -> None:
         },
     ]
 
-    strip_rects = build_page_strip_rects_for_items(page_height=page_height, translated_items=items)
-    source_rects = build_page_strip_source_rects_for_items(page_height=page_height, translated_items=items)
-    formula_rects = build_page_formula_rects_for_items(page_height=page_height, translated_items=items)
-    protected = formula_guard_rects(formula_rects, strip_rects=source_rects)
+    strip_rects = test_support.build_page_strip_rects_for_items(page_height=page_height, translated_items=items)
+    source_rects = test_support.build_page_strip_source_rects_for_items(page_height=page_height, translated_items=items)
+    formula_rects = test_support.build_page_formula_rects_for_items(page_height=page_height, translated_items=items)
+    protected = geometry.formula_guard_rects(formula_rects, strip_rects=source_rects)
 
     assert strip_rects
     assert source_rects
@@ -192,10 +193,10 @@ def test_bbox_text_strip_keeps_text_between_display_formulas_deletable() -> None
         },
     ]
 
-    rects = build_page_strip_rects_for_items(page_height=page_height, translated_items=items)
-    source_rects = build_page_strip_source_rects_for_items(page_height=page_height, translated_items=items)
-    formula_rects = build_page_formula_rects_for_items(page_height=page_height, translated_items=items)
-    protected = formula_guard_rects(formula_rects, strip_rects=source_rects)
+    rects = test_support.build_page_strip_rects_for_items(page_height=page_height, translated_items=items)
+    source_rects = test_support.build_page_strip_source_rects_for_items(page_height=page_height, translated_items=items)
+    formula_rects = test_support.build_page_formula_rects_for_items(page_height=page_height, translated_items=items)
+    protected = geometry.formula_guard_rects(formula_rects, strip_rects=source_rects)
 
     assert len(rects) == 1
     assert rects[0].y0 <= page_height - 216.899
@@ -229,8 +230,8 @@ def test_bbox_text_strip_keeps_formula_neighbor_text_deletable() -> None:
         },
     ]
 
-    rects = build_page_strip_rects_for_items(page_height=page_height, translated_items=items)
-    formula_rects = build_page_formula_rects_for_items(page_height=page_height, translated_items=items)
+    rects = test_support.build_page_strip_rects_for_items(page_height=page_height, translated_items=items)
+    formula_rects = test_support.build_page_formula_rects_for_items(page_height=page_height, translated_items=items)
     p005_b004 = fitz.Rect(33.482, page_height - 301.359, 398.284, page_height - 265.376)
     p005_b007 = fitz.Rect(33.482, page_height - 559.739, 398.784, page_height - 343.34)
 
@@ -249,8 +250,9 @@ def test_bbox_text_strip_candidates_skip_formula_pages(tmp_path: Path) -> None:
     doc.save(source_pdf)
     doc.close()
 
-    candidates = build_bbox_text_strip_candidates(
+    candidates = plan_source_cleanup(
         source_pdf_path=source_pdf,
+        skip_formula_pages=True,
         translated_pages={
             0: [
                 {
@@ -293,7 +295,7 @@ def test_bbox_text_strip_candidates_keep_formula_guard_but_strip_far_text_on_for
     doc.save(source_pdf)
     doc.close()
 
-    candidates = build_bbox_text_strip_candidates(
+    candidates = plan_source_cleanup(
         source_pdf_path=source_pdf,
         translated_pages={
             0: [
@@ -346,7 +348,7 @@ def test_bbox_text_strip_converts_visible_bbox_to_pdf_cropbox_coordinates(tmp_pa
     doc = fitz.open(source_pdf)
     try:
         page = doc[0]
-        rect = ocr_bbox_to_pdf_rect(page, [32.492, 114.488, 385.908, 233.476])
+        rect = geometry.ocr_bbox_to_pdf_rect(page, [32.492, 114.488, 385.908, 233.476])
     finally:
         doc.close()
 

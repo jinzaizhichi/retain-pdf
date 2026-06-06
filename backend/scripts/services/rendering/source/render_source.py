@@ -5,10 +5,12 @@ from pathlib import Path
 import time
 
 from services.rendering.source.compression.pdf_copy import build_image_compressed_pdf_copy
-from services.rendering.source.preparation.bbox_text_strip import build_bbox_text_stripped_pdf_copy
-from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripCandidates
+from services.rendering.source_cleanup.types import BBoxTextStripCandidates
 from services.rendering.source.preparation.hidden_text_strip import build_hidden_text_stripped_pdf_copy
 from services.rendering.source.preparation.xobject_sanitize import build_invalid_xobject_sanitized_pdf_copy
+from services.rendering.source_cleanup import SourceCleanupOptions
+from services.rendering.source_cleanup import SourceCleanupRequest
+from services.rendering.source_cleanup import execute_source_cleanup
 from services.rendering.output.typst.shared import default_typst_temp_root
 from foundation.config import layout
 
@@ -86,13 +88,19 @@ def build_render_source_pdf(
     if translated_pages and layout.use_bbox_text_strip_cleanup(source_cleanup_strategy):
         bbox_started = time.perf_counter()
         bbox_text_stripped_path = work_root / f"{output_pdf_path.stem}.source-bbox-text-stripped.pdf"
-        bbox_text_result = build_bbox_text_stripped_pdf_copy(
-            source_pdf_path=render_source_path,
-            output_pdf_path=bbox_text_stripped_path,
-            translated_pages=translated_pages,
-            candidates=bbox_text_strip_candidates,
-            skip_formula_pages=False,
+        source_cleanup_result = execute_source_cleanup(
+            SourceCleanupRequest(
+                source_pdf_path=render_source_path,
+                output_pdf_path=bbox_text_stripped_path,
+                translated_pages=translated_pages,
+                candidates=bbox_text_strip_candidates,
+                options=SourceCleanupOptions(
+                    strategy=source_cleanup_strategy,
+                    skip_formula_pages=False,
+                ),
+            )
         )
+        bbox_text_result = source_cleanup_result.bbox_text_strip
         print(f"render source pdf: bbox-text strip elapsed={time.perf_counter() - bbox_started:.2f}s", flush=True)
         bbox_text_stripped_page_indices = bbox_text_result.changed_page_indices
         bbox_text_strip_skipped_page_indices = (

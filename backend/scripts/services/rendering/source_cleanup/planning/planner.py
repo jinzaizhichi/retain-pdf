@@ -1,28 +1,34 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import fitz
 
-from services.rendering.source.preparation.bbox_text_strip_accumulator import BBoxTextStripCandidateAccumulator
-from services.rendering.source.preparation.bbox_text_strip_geometry import formula_guard_rects
-from services.rendering.source.preparation.bbox_text_strip_items import build_source_item_rects
-from services.rendering.source.preparation.bbox_text_strip_items import iter_formula_item_rects_for_page
-from services.rendering.source.preparation.bbox_text_strip_items import iter_strip_item_rects_for_page
-from services.rendering.source.preparation.bbox_text_strip_page_gate import bbox_text_strip_items_skip_reason
-from services.rendering.source.preparation.bbox_text_strip_page_gate import bbox_text_strip_page_skip_reason
-from services.rendering.source.preparation.bbox_text_strip_rects import merge_rects
-from services.rendering.source.preparation.bbox_text_strip_segments import strip_segments_for_text_rect
-from services.rendering.source.preparation.bbox_text_strip_types import BBOX_TEXT_STRIP_PAGE_SKIP_NONE
-from services.rendering.source.preparation.bbox_text_strip_types import BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND
-from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripCandidates
-from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripPagePlan
 from services.rendering.source.background.detect import page_has_large_background_image
+from services.rendering.source_cleanup.planning.accumulator import BBoxTextStripCandidateAccumulator
+from services.rendering.source_cleanup.planning.geometry import formula_guard_rects
+from services.rendering.source_cleanup.planning.item_classifier import page_all_strip_items_allow_vector_overlap
+from services.rendering.source_cleanup.planning.item_classifier import item_allows_vector_overlap
+from services.rendering.source_cleanup.planning.items import build_source_item_rects
+from services.rendering.source_cleanup.planning.items import iter_formula_item_rects_for_page
+from services.rendering.source_cleanup.planning.items import iter_strip_item_rect_pairs_for_page
+from services.rendering.source_cleanup.planning.items import iter_strip_item_rects_for_page
+from services.rendering.source_cleanup.planning.page_gate import bbox_text_strip_items_skip_reason
+from services.rendering.source_cleanup.planning.page_gate import bbox_text_strip_page_skip_reason
+from services.rendering.source_cleanup.planning.rect_filter import has_unsafe_vector_overlap
+from services.rendering.source_cleanup.planning.rects import merge_rects
+from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_PAGE_SKIP_NONE
+from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND
+from services.rendering.source_cleanup.types import BBoxTextStripCandidates
+from services.rendering.source_cleanup.types import BBoxTextStripPagePlan
+from services.rendering.source_cleanup.planning.segments import strip_segments_for_text_rect
 
 
-def build_bbox_text_strip_candidates(
+def plan_source_cleanup(
     *,
-    source_pdf_path,
+    source_pdf_path: Path,
     translated_pages: dict[int, list[dict]],
-    skip_formula_pages: bool = True,
+    skip_formula_pages: bool = False,
 ) -> BBoxTextStripCandidates:
     accumulator = BBoxTextStripCandidateAccumulator()
     doc = fitz.open(source_pdf_path)
@@ -31,7 +37,7 @@ def build_bbox_text_strip_candidates(
             if page_idx < 0 or page_idx >= len(doc):
                 continue
             page = doc[page_idx]
-            page_plan = plan_bbox_text_strip_page(
+            page_plan = plan_source_cleanup_page(
                 doc,
                 page,
                 translated_items=items,
@@ -43,7 +49,7 @@ def build_bbox_text_strip_candidates(
     return accumulator.build()
 
 
-def plan_bbox_text_strip_page(
+def plan_source_cleanup_page(
     doc: fitz.Document,
     page: fitz.Page,
     *,
@@ -59,14 +65,14 @@ def plan_bbox_text_strip_page(
     if page_has_large_background_image(page):
         return BBoxTextStripPagePlan(skip_reason=BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND)
 
-    item_rects = build_source_item_rects(translated_items)
+    item_rects = build_source_item_rects(page, translated_items)
     if not item_rects:
         return BBoxTextStripPagePlan()
     skip_reason = bbox_text_strip_page_skip_reason(
         doc,
         page,
         source_item_rects=item_rects,
-        allow_vector_overlap=_allow_vector_overlap_for_page(translated_items),
+        allow_vector_overlap=page_all_strip_items_allow_vector_overlap(translated_items),
     )
     if skip_reason != BBOX_TEXT_STRIP_PAGE_SKIP_NONE:
         return BBoxTextStripPagePlan(skip_reason=skip_reason)
@@ -91,8 +97,10 @@ def build_page_strip_rects_for_page(
 ) -> list[fitz.Rect]:
     rects: list[fitz.Rect] = []
     protected_formula_rects = build_page_formula_rects_for_page(page, translated_items=translated_items)
-    for _item, rect in iter_strip_item_rects_for_page(page, translated_items):
-        rects.extend(strip_segments_for_text_rect(rect, protected_formula_rects))
+    for pair in iter_strip_item_rect_pairs_for_page(page, translated_items):
+        if not item_allows_vector_overlap(pair.item) and has_unsafe_vector_overlap(page, pair.view_rect):
+            continue
+        rects.extend(strip_segments_for_text_rect(pair.pdf_rect, protected_formula_rects))
     return merge_rects(rects)
 
 
@@ -114,24 +122,3 @@ def build_formula_guard_rects(
 
 def build_page_strip_source_rects_for_page(page: fitz.Page, *, translated_items: list[dict]) -> list[fitz.Rect]:
     return merge_rects([rect for _item, rect in iter_strip_item_rects_for_page(page, translated_items)])
-
-
-def _allow_vector_overlap_for_page(translated_items: list[dict]) -> bool:
-    strip_items = [
-        item
-        for item in translated_items
-        if str(item.get("block_kind") or item.get("block_type") or "").strip().lower() == "text"
-    ]
-    if not strip_items:
-        return False
-    safe_roles = {"heading", "title", "toc", "table_of_contents", "page_number"}
-    for item in strip_items:
-        role_values = {
-            str(item.get("layout_role") or "").strip().lower(),
-            str(item.get("semantic_role") or "").strip().lower(),
-            str(item.get("structure_role") or "").strip().lower(),
-            str(item.get("normalized_sub_type") or "").strip().lower(),
-        }
-        if not (role_values & safe_roles):
-            return False
-    return True

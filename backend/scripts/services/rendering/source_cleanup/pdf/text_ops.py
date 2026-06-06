@@ -4,10 +4,10 @@ from dataclasses import dataclass
 
 import pikepdf
 
-from services.rendering.source.preparation.bbox_text_strip_hit_test import RectTuple
-from services.rendering.source.preparation.bbox_text_strip_pdf_math import PdfMatrix
-from services.rendering.source.preparation.bbox_text_strip_pdf_math import matrix_point
-from services.rendering.source.preparation.bbox_text_strip_pdf_math import to_float
+from services.rendering.source_cleanup.pdf.hit_test import RectTuple
+from services.rendering.source_cleanup.pdf.pdf_math import PdfMatrix
+from services.rendering.source_cleanup.pdf.pdf_math import matrix_point
+from services.rendering.source_cleanup.pdf.pdf_math import to_float
 
 
 TEXT_SHOW_OPERATORS = {"Tj", "TJ", "'", '"'}

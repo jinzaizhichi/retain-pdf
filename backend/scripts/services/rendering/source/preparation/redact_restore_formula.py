@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import time
 
-from services.rendering.source.preparation.bbox_text_strip import build_bbox_text_stripped_pdf_copy
+from services.rendering.source_cleanup import build_bbox_text_stripped_pdf_copy
 
 
 @dataclass(frozen=True)

@@ -11,8 +11,8 @@ import fitz
 import pikepdf
 from pikepdf import Name
 
-from services.rendering.source.preparation.bbox_text_strip_engine import strip_bbox_text_from_page
-from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripResult
+from services.rendering.source_cleanup.pdf.stream_engine import strip_bbox_text_from_page
+from services.rendering.source_cleanup.types import BBoxTextStripResult
 
 
 BBOX_TEXT_STRIP_PARALLEL_PAGE_THRESHOLD = 12
@@ -213,6 +213,7 @@ def _strip_page_in_open_pdf(
     content_stream, removed, forms_changed = strip_bbox_text_from_page(
         pdf.pages[page_idx],
         rects,
+        pdf=pdf,
         protected_rects=protected_rects,
         recurse_forms=recurse_forms,
     )
@@ -229,6 +230,7 @@ def _strip_page_chunk_worker(
             content_stream, removed, forms_changed = strip_bbox_text_from_page(
                 pdf.pages[page_idx],
                 [fitz.Rect(rect) for rect in rects],
+                pdf=pdf,
                 protected_rects=[fitz.Rect(rect) for rect in protected_rects],
                 recurse_forms=False,
             )

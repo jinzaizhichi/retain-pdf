@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import fitz
 
-from services.rendering.source.preparation.bbox_text_strip_constants import BBOX_TEXT_STRIP_CONTENT_STREAM_SIZE_THRESHOLD
-from services.rendering.source.vector_profile import collect_page_drawing_rects
+from services.rendering.source_cleanup.pdf.constants import BBOX_TEXT_STRIP_CONTENT_STREAM_SIZE_THRESHOLD
+from services.rendering.source_cleanup.planning.drawing_classifier import unsafe_text_strip_drawing_rects
 
 
 def page_has_text_overlap(
@@ -20,7 +20,7 @@ def page_has_vector_overlap_in_text_rects(
 ) -> bool:
     if not target_rects:
         return False
-    drawing_rects = collect_page_drawing_rects(page)
+    drawing_rects = unsafe_text_strip_drawing_rects(page)
     if not drawing_rects:
         return False
     return any(

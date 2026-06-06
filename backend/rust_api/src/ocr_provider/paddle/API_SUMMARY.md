@@ -140,12 +140,18 @@ Python 读取口：
 
 当前默认模型名：
 
-- `PaddleOCR-VL-1.5`
+- `PaddleOCR-VL-1.6`
+
+默认值来自共享配置：
+
+- [`backend/config/ocr_providers.json`](/home/wxyhgk/tmp/Code/backend/config/ocr_providers.json)
 
 兼容归一化：
 
 - `paddleocr-vl`
 - `paddle-ocr-vl`
+- `paddleocr-vl-1.6`
+- `paddle-ocr-vl-1.6`
 - `paddleocr-vl-1.5`
 - `paddle-ocr-vl-1.5`
 
@@ -153,7 +159,7 @@ Python 读取口：
 
 当前代码会按模型名构造不同 payload：
 
-- `PaddleOCR-VL(-1.5)` 走一套默认 rich-content 参数
+- `PaddleOCR-VL(-1.6/-1.5)` 走一套默认 rich-content 参数
 - `PP-StructureV3` 走另一套结构化参数
 
 对应实现：

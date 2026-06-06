@@ -30,6 +30,22 @@ pub fn provider_definition(kind: &OcrProviderKind) -> Option<OcrProviderDefiniti
             token_env_name: "RETAIN_PADDLE_API_TOKEN",
             capabilities: paddle::capabilities(),
         }),
+        OcrProviderKind::Local => Some(OcrProviderDefinition {
+            kind: OcrProviderKind::Local,
+            key: "local",
+            display_name: "Local OCR",
+            token_field_name: "",
+            token_env_name: "",
+            capabilities: OcrProviderCapabilities {
+                supports_remote_url_submit: false,
+                supports_local_file_upload: true,
+                supports_polling: false,
+                supports_download_bundle: false,
+                supports_extra_formats: false,
+                supports_formula_toggle: false,
+                supports_table_toggle: false,
+            },
+        }),
         OcrProviderKind::Unknown => None,
     }
 }
@@ -54,6 +70,7 @@ pub fn provider_token<'a>(kind: &OcrProviderKind, input: &'a OcrInput) -> &'a st
     match kind {
         OcrProviderKind::Mineru => input.mineru_token.trim(),
         OcrProviderKind::Paddle => input.paddle_token.trim(),
+        OcrProviderKind::Local => "",
         OcrProviderKind::Unknown => "",
     }
 }
@@ -62,6 +79,7 @@ pub fn provider_model_version<'a>(kind: &OcrProviderKind, input: &'a OcrInput) -
     match kind {
         OcrProviderKind::Mineru => input.model_version.trim(),
         OcrProviderKind::Paddle => input.paddle_model.trim(),
+        OcrProviderKind::Local => "local",
         OcrProviderKind::Unknown => "",
     }
 }
@@ -70,6 +88,7 @@ pub fn supported_provider_keys() -> Vec<&'static str> {
     [
         OcrProviderKind::Mineru,
         OcrProviderKind::Paddle,
+        OcrProviderKind::Local,
         OcrProviderKind::Unknown,
     ]
     .iter()
@@ -126,6 +145,12 @@ mod tests {
                 .map(|item| item.key),
             Some("paddle")
         );
+        assert_eq!(
+            provider_definition(&OcrProviderKind::Local)
+                .as_ref()
+                .map(|item| item.key),
+            Some("local")
+        );
         assert!(provider_definition(&OcrProviderKind::Unknown).is_none());
     }
 
@@ -139,7 +164,7 @@ mod tests {
 
     #[test]
     fn supported_provider_keys_lists_all_supported_backends() {
-        assert_eq!(supported_provider_keys(), vec!["mineru", "paddle"]);
+        assert_eq!(supported_provider_keys(), vec!["mineru", "paddle", "local"]);
     }
 
     #[test]

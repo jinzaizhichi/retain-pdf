@@ -60,7 +60,8 @@ from services.rendering.output.typst.source_page_overlay import redaction_items_
 from services.rendering.output.typst.sanitize import sanitize_items_for_typst_compile
 from services.rendering.output.typst.overlay_ops import _extract_failed_overlay_indices
 from services.rendering.output.typst.overlay_ops import _can_use_pikepdf_book_overlay
-from services.rendering.workflow.executor import _typst_cover_fallback_page_indices
+from services.rendering.workflow.cover_fallback import TypstCoverFallbackPlan
+from services.rendering.workflow.cover_fallback import cover_fallback_page_indices
 from services.rendering.workflow.context import RenderExecutionContext
 from services.rendering.workflow.modes import _compress_final_pdf_if_needed
 from services.rendering.document.pikepdf_overlay import overlay_pdf_pages_with_pikepdf
@@ -123,7 +124,7 @@ def test_pikepdf_text_strip_marks_unprecleaned_pages_for_typst_cover_fallback() 
         2: [{"item_id": "p003-b001"}],
     }
 
-    page_indices = _typst_cover_fallback_page_indices(
+    page_indices = cover_fallback_page_indices(
         translated_pages=translated_pages,
         cleanup_strategy="pikepdf_text_strip",
         precleaned_page_indices=frozenset({0}),
@@ -131,6 +132,67 @@ def test_pikepdf_text_strip_marks_unprecleaned_pages_for_typst_cover_fallback() 
     )
 
     assert page_indices == frozenset({1, 2})
+
+
+def test_typst_cover_fallback_plan_marks_only_target_items() -> None:
+    plan = TypstCoverFallbackPlan(page_indices=frozenset(), item_ids=frozenset({"p001-b002"}))
+    translated_pages = {
+        0: [
+            {"item_id": "p001-b001", "block_kind": "text", "protected_translated_text": "正常删除"},
+            {"item_id": "p001-b002", "block_kind": "text", "protected_translated_text": "需要兜底"},
+        ]
+    }
+
+    patched_pages = plan.apply_to_translated_pages(translated_pages)
+    untouched, fallback = patched_pages[0]
+
+    assert "_render_policy" not in untouched
+    assert fallback["_render_policy"]["overlay_fill"] == "white"
+    assert fallback["_render_policy"]["reason"] == "typst_item_cover_fallback"
+
+
+def test_typst_cover_fallback_plan_marks_only_target_page_spec_blocks() -> None:
+    plan = TypstCoverFallbackPlan(page_indices=frozenset(), item_ids=frozenset({"p001-b002"}))
+    spec = RenderPageSpec(
+        page_index=0,
+        page_width_pt=200.0,
+        page_height_pt=200.0,
+        background_pdf_path=None,
+        blocks=[
+            RenderLayoutBlock(
+                block_id="item-p001-b001",
+                page_index=0,
+                background_rect=[10, 10, 90, 40],
+                content_rect=[10, 10, 90, 40],
+                content_kind="markdown",
+                content_text="正常删除",
+                plain_text="正常删除",
+                math_map=[],
+                font_size_pt=10.0,
+                leading_em=1.0,
+            ),
+            RenderLayoutBlock(
+                block_id="item-p001-b002",
+                page_index=0,
+                background_rect=[10, 50, 90, 80],
+                content_rect=[10, 50, 90, 80],
+                content_kind="markdown",
+                content_text="需要兜底",
+                plain_text="需要兜底",
+                math_map=[],
+                font_size_pt=10.0,
+                leading_em=1.0,
+            ),
+        ],
+    )
+
+    patched_specs = plan.apply_to_page_specs([spec])
+    assert patched_specs is not None
+    untouched, fallback = patched_specs[0].blocks
+
+    assert untouched.use_cover_fill is False
+    assert fallback.use_cover_fill is True
+    assert fallback.skip_reason == "typst_item_cover_fallback"
 
 
 def test_pikepdf_text_strip_allows_book_overlay_pikepdf_merge() -> None:
@@ -239,5 +301,4 @@ def test_typst_book_overlay_keeps_default_fraction_layout() -> None:
 
     assert 'math.frac(style: "horizontal")' not in source
     assert r"\\frac{a}{b}" in source
-
 

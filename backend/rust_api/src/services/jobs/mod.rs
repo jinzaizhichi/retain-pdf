@@ -10,6 +10,7 @@ mod facade;
 pub(crate) mod presentation;
 mod query;
 mod reader_regions;
+mod stage_plan;
 mod support;
 
 pub use control::wait_for_terminal_job;

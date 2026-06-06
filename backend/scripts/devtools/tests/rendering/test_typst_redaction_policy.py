@@ -59,7 +59,7 @@ from services.rendering.output.typst.source_page_overlay import redaction_items_
 from services.rendering.output.typst.sanitize import sanitize_items_for_typst_compile
 from services.rendering.output.typst.overlay_ops import _extract_failed_overlay_indices
 from services.rendering.output.typst.overlay_ops import _can_use_pikepdf_book_overlay
-from services.rendering.workflow.executor import _typst_cover_fallback_page_indices
+from services.rendering.workflow.cover_fallback import cover_fallback_page_indices
 from services.rendering.workflow.context import RenderExecutionContext
 from services.rendering.workflow.modes import _compress_final_pdf_if_needed
 from services.rendering.document.pikepdf_overlay import overlay_pdf_pages_with_pikepdf

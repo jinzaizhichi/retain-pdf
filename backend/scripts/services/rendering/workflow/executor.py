@@ -7,9 +7,8 @@ from foundation.config import fonts
 from foundation.config import layout
 from foundation.config import runtime
 from runtime.pipeline.render_plan import RenderPlan
-from services.rendering.layout.model.models import RenderLayoutBlock
-from services.rendering.layout.model.models import RenderPageSpec
 from services.rendering.workflow.context import RenderExecutionContext
+from services.rendering.workflow.cover_fallback import TypstCoverFallbackPlan
 from services.rendering.workflow.modes import run_background_typst_render
 from services.rendering.workflow.modes import run_dual_render
 from services.rendering.workflow.modes import run_overlay_render
@@ -20,7 +19,6 @@ from services.rendering.source.prewarm import try_load_render_payload_prewarm
 from services.rendering.source.prewarm_fingerprint import build_render_prewarm_fingerprint
 from services.rendering.source.prewarm_manifest import write_json_atomic
 from services.rendering.source.prewarm_manifest_io import build_prewarm_manifest
-from services.rendering.policy import apply_typst_cover_fallback_fields
 
 
 def execute_render_plan(
@@ -107,7 +105,8 @@ def execute_render_plan(
             elapsed=time.perf_counter() - sync_prepare_started,
         )
 
-    fallback_page_indices = _typst_cover_fallback_page_indices(
+    cover_fallback_plan = TypstCoverFallbackPlan.build(
+        source_pdf_path=render_plan.render_inputs.source_pdf_path,
         translated_pages=render_plan.selected_pages,
         cleanup_strategy=cleanup_strategy,
         precleaned_page_indices=render_source_pdf.source_text_precleaned_page_indices,
@@ -140,10 +139,7 @@ def execute_render_plan(
         source_text_precleaned_page_indices=render_source_pdf.source_text_precleaned_page_indices,
         source_cleanup_strategy=cleanup_strategy,
         background_render_page_specs=(
-            _apply_cover_fallback_to_page_specs(
-                payload_prewarm.background_render_page_specs,
-                fallback_page_indices,
-            )
+            cover_fallback_plan.apply_to_page_specs(payload_prewarm.background_render_page_specs)
             if payload_prewarm is not None
             else None
         ),
@@ -158,12 +154,7 @@ def execute_render_plan(
         pages_rendered, render_diagnostics = _dispatch_render_mode(
             mode=render_plan.effective_render_mode,
             source_pdf_path=render_source_pdf.path,
-            translated_pages=_prepare_translated_pages_for_source_cleanup(
-                translated_pages=render_plan.selected_pages,
-                cleanup_strategy=cleanup_strategy,
-                precleaned_page_indices=render_source_pdf.source_text_precleaned_page_indices,
-                skipped_page_indices=render_source_pdf.bbox_text_strip_skipped_page_indices,
-            ),
+            translated_pages=cover_fallback_plan.apply_to_translated_pages(render_plan.selected_pages),
             context=context,
             extract_selected_pages=extract_selected_pages,
         )
@@ -221,69 +212,6 @@ def _persist_sync_render_source_prewarm(
     except Exception as exc:
         print(f"render prewarm: sync source cache write failed {type(exc).__name__}: {exc}", flush=True)
         return False
-
-
-def _typst_cover_fallback_page_indices(
-    *,
-    translated_pages: dict[int, list[dict]],
-    cleanup_strategy: str,
-    precleaned_page_indices: frozenset[int],
-    skipped_page_indices: frozenset[int],
-) -> frozenset[int]:
-    if cleanup_strategy == "pikepdf_text_strip":
-        return frozenset(page_idx for page_idx, items in translated_pages.items() if items) - precleaned_page_indices
-    return skipped_page_indices
-
-
-def _prepare_translated_pages_for_source_cleanup(
-    *,
-    translated_pages: dict[int, list[dict]],
-    cleanup_strategy: str,
-    precleaned_page_indices: frozenset[int],
-    skipped_page_indices: frozenset[int],
-) -> dict[int, list[dict]]:
-    prepared = apply_typst_cover_fallback_fields(
-        translated_pages,
-        _typst_cover_fallback_page_indices(
-            translated_pages=translated_pages,
-            cleanup_strategy=cleanup_strategy,
-            precleaned_page_indices=precleaned_page_indices,
-            skipped_page_indices=skipped_page_indices,
-        ),
-    )
-    return prepared
-
-
-def _apply_cover_fallback_to_page_specs(
-    page_specs: list[RenderPageSpec] | None,
-    page_indices: frozenset[int],
-) -> list[RenderPageSpec] | None:
-    if not page_specs or not page_indices:
-        return page_specs
-    patched_specs: list[RenderPageSpec] = []
-    for spec in page_specs:
-        if spec.page_index not in page_indices:
-            patched_specs.append(spec)
-            continue
-        patched_specs.append(
-            RenderPageSpec(
-                page_index=spec.page_index,
-                page_width_pt=spec.page_width_pt,
-                page_height_pt=spec.page_height_pt,
-                background_pdf_path=spec.background_pdf_path,
-                blocks=[
-                    RenderLayoutBlock(
-                        **{
-                            **block.__dict__,
-                            "use_cover_fill": True,
-                            "skip_reason": block.skip_reason or "typst_cover_fallback",
-                        }
-                    )
-                    for block in spec.blocks
-                ],
-            )
-        )
-    return patched_specs
 
 
 def _dispatch_render_mode(

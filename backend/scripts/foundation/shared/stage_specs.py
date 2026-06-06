@@ -8,6 +8,7 @@ from typing import Any
 from foundation.config import fonts
 from foundation.shared.job_dirs import JobDirs
 from foundation.shared.job_dirs import resolve_job_dirs
+from foundation.shared.ocr_provider_config import paddle_default_model
 
 
 NORMALIZE_STAGE_SCHEMA_VERSION = "normalize.stage.v1"
@@ -484,7 +485,7 @@ class ProviderStageSpec:
             credential_ref=str(ocr_payload.get("credential_ref", "") or ""),
             model_version=str(ocr_payload.get("model_version", "vlm") or "vlm"),
             paddle_api_url=str(ocr_payload.get("paddle_api_url", "") or ""),
-            paddle_model=str(ocr_payload.get("paddle_model", "PaddleOCR-VL-1.5") or "PaddleOCR-VL-1.5"),
+            paddle_model=str(ocr_payload.get("paddle_model", paddle_default_model()) or paddle_default_model()),
             is_ocr=bool(ocr_payload.get("is_ocr", False)),
             disable_formula=bool(ocr_payload.get("disable_formula", False)),
             disable_table=bool(ocr_payload.get("disable_table", False)),

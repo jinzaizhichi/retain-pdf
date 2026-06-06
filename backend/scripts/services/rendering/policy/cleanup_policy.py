@@ -112,24 +112,28 @@ def apply_render_pages_policy_fields(translated_pages: dict[int, list[dict]]) ->
 def apply_typst_cover_fallback_fields(
     translated_pages: dict[int, list[dict]],
     page_indices: frozenset[int],
+    item_ids: frozenset[str] = frozenset(),
 ) -> dict[int, list[dict]]:
-    if not page_indices:
+    if not page_indices and not item_ids:
         return translated_pages
     patched_pages: dict[int, list[dict]] = {}
     for page_idx, items in translated_pages.items():
-        if page_idx not in page_indices:
+        page_needs_cover = page_idx in page_indices
+        if not page_needs_cover and not item_ids:
             patched_pages[page_idx] = items
             continue
         patched_items: list[dict] = []
         for item in items:
-            if block_kind(item) == "text":
+            item_id = str(item.get("item_id") or "")
+            item_needs_cover = item_id in item_ids
+            if block_kind(item) == "text" and (page_needs_cover or item_needs_cover):
                 patched_items.append(
                     apply_render_item_policy_fields(
                         item,
                         RenderItemPolicy(
-                            item_id=str(item.get("item_id") or ""),
+                            item_id=item_id,
                             overlay_fill="white",
-                            reason="typst_cover_fallback",
+                            reason="typst_cover_fallback" if page_needs_cover else "typst_item_cover_fallback",
                         ),
                     )
                 )

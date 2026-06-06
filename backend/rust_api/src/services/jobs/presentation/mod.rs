@@ -1,5 +1,6 @@
 mod contracts;
 mod detail;
+mod detail_projection;
 mod helpers;
 mod listing;
 pub(crate) mod live_stage;

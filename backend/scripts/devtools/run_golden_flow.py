@@ -161,7 +161,7 @@ def _provider_spec(args: argparse.Namespace, job_root: Path, source_pdf: Path) -
             "credential_ref": args.provider_credential_ref,
             "model_version": "vlm",
             "paddle_api_url": "",
-            "paddle_model": "PaddleOCR-VL-1.5",
+            "paddle_model": "PaddleOCR-VL-1.6",
             "is_ocr": False,
             "disable_formula": False,
             "disable_table": False,

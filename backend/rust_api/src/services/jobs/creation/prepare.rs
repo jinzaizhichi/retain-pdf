@@ -132,9 +132,9 @@ fn load_artifact_job(
     ctx: &SnapshotBuildDeps<'_>,
     artifact_job_id: &str,
 ) -> Result<crate::models::JobSnapshot, AppError> {
-    ctx.db.get_job(artifact_job_id).map_err(|_| {
-        AppError::not_found(format!("artifact job not found: {artifact_job_id}"))
-    })
+    ctx.db
+        .get_job(artifact_job_id)
+        .map_err(|_| AppError::not_found(format!("artifact job not found: {artifact_job_id}")))
 }
 
 fn ensure_ocr_artifacts_ready_for_translation(

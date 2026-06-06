@@ -32,7 +32,7 @@ pub(crate) fn default_model_version() -> String {
     "vlm".to_string()
 }
 pub(crate) fn default_paddle_model() -> String {
-    "PaddleOCR-VL-1.5".to_string()
+    crate::ocr_provider::paddle_default_model()
 }
 pub(crate) fn default_language() -> String {
     "ch".to_string()

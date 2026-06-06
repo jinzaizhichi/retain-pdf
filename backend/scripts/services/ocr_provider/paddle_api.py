@@ -14,6 +14,7 @@ from services.network.retry import RetainNetworkError
 from services.network.retry import RetainRateLimitError
 from services.network.retry import direct_session
 from services.network.retry import request_with_retry
+from services.ocr_provider.provider_config import normalize_paddle_model_name
 
 
 PADDLE_BASE_URL = "https://paddleocr.aistudio-app.com"
@@ -42,15 +43,7 @@ def get_paddle_token(*, explicit_value: str = "") -> str:
 
 
 def normalize_model_name(model: str) -> str:
-    trimmed = str(model or "").strip()
-    if not trimmed:
-        return "PaddleOCR-VL-1.5"
-    lowered = trimmed.lower()
-    if lowered in {"paddleocr-vl", "paddle-ocr-vl"}:
-        return "PaddleOCR-VL"
-    if lowered in {"paddleocr-vl-1.5", "paddle-ocr-vl-1.5"}:
-        return "PaddleOCR-VL-1.5"
-    return trimmed
+    return normalize_paddle_model_name(model)
 
 
 def build_headers(token: str) -> dict[str, str]:

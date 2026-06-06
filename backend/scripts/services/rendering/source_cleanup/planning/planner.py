@@ -104,6 +104,36 @@ def build_page_strip_rects_for_page(
     return merge_rects(rects)
 
 
+def item_ids_with_uncovered_unsafe_vector_overlap(
+    *,
+    source_pdf_path: Path,
+    translated_pages: dict[int, list[dict]],
+) -> frozenset[str]:
+    item_ids: set[str] = set()
+    doc = fitz.open(source_pdf_path)
+    try:
+        for page_idx, items in translated_pages.items():
+            if page_idx < 0 or page_idx >= len(doc):
+                continue
+            item_ids.update(page_uncovered_unsafe_vector_item_ids(doc[page_idx], items))
+    finally:
+        doc.close()
+    return frozenset(item_ids)
+
+
+def page_uncovered_unsafe_vector_item_ids(page: fitz.Page, translated_items: list[dict]) -> frozenset[str]:
+    item_ids: set[str] = set()
+    for pair in iter_strip_item_rect_pairs_for_page(page, translated_items):
+        item_id = str(pair.item.get("item_id") or "").strip()
+        if not item_id:
+            continue
+        if item_allows_vector_overlap(pair.item):
+            continue
+        if has_unsafe_vector_overlap(page, pair.view_rect):
+            item_ids.add(item_id)
+    return frozenset(item_ids)
+
+
 def build_page_formula_rects_for_page(
     page: fitz.Page,
     *,

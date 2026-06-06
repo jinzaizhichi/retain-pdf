@@ -1,6 +1,7 @@
 mod catalog;
 pub mod mineru;
 pub mod paddle;
+mod provider_config;
 pub mod types;
 
 use anyhow::{bail, Result};
@@ -11,6 +12,7 @@ pub use catalog::{
     provider_display_name, provider_model_version, provider_token, provider_token_env_name,
     provider_token_field_name, supported_provider_keys,
 };
+pub use provider_config::{normalize_paddle_model_name, paddle_default_model};
 pub use types::{
     OcrArtifactSet, OcrErrorCategory, OcrProviderCapabilities, OcrProviderDiagnostics,
     OcrProviderErrorInfo, OcrProviderKind, OcrTaskHandle, OcrTaskState, OcrTaskStatus,
@@ -20,6 +22,7 @@ pub fn parse_provider_kind(value: &str) -> OcrProviderKind {
     match value.trim().to_ascii_lowercase().as_str() {
         "mineru" => OcrProviderKind::Mineru,
         "paddle" => OcrProviderKind::Paddle,
+        "local" => OcrProviderKind::Local,
         _ => OcrProviderKind::Unknown,
     }
 }

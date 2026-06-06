@@ -24,10 +24,11 @@ from services.document_schema.provider_adapters.paddle.content_extract import bu
 from services.document_schema.provider_adapters.paddle.content_extract import tighten_text_bbox as tighten_paddle_text_bbox
 from services.document_schema.reporting import build_normalization_summary
 from services.document_schema.providers import PROVIDER_PADDLE
-from services.mineru.job_flow import run_mineru_to_job_dir
 from services.network.retry import RetainNetworkError
 from services.network.retry import direct_session
 from services.network.retry import request_with_retry
+from services.ocr_provider.drivers import normalize_provider_name
+from services.ocr_provider.drivers import run_registered_ocr_provider
 from services.ocr_provider.paddle_api import PADDLE_BASE_URL
 from services.ocr_provider.paddle_api import build_optional_payload as build_paddle_optional_payload
 from services.ocr_provider.paddle_api import download_jsonl_result
@@ -37,6 +38,7 @@ from services.ocr_provider.paddle_markdown import materialize_paddle_markdown_ar
 from services.ocr_provider.paddle_normalize import save_normalized_document_for_paddle as _save_normalized_document_for_paddle
 from services.ocr_provider.paddle_normalize import rescale_document_geometry_to_pdf
 from services.ocr_provider.paddle_runner import run_paddle_to_job_dir as _run_paddle_to_job_dir
+from services.ocr_provider.types import OcrProviderResult
 from services.ocr_provider.paddle_api import poll_until_done as poll_paddle_until_done
 from services.ocr_provider.paddle_api import submit_local_file as submit_local_paddle_file
 from services.ocr_provider.paddle_api import submit_remote_url as submit_remote_paddle_url
@@ -215,6 +217,16 @@ def run_paddle_to_job_dir(args: SimpleNamespace) -> tuple[Path, Path, Path, Path
     )
 
 
+def run_paddle_provider(args: SimpleNamespace) -> OcrProviderResult:
+    _job_root, source_pdf_path, provider_result_json_path, normalized_json_path = run_paddle_to_job_dir(args)
+    return OcrProviderResult(
+        job_dirs=job_dirs_from_explicit_args(args),
+        source_pdf_path=source_pdf_path,
+        provider_result_json_path=provider_result_json_path,
+        normalized_json_path=normalized_json_path,
+    )
+
+
 def main() -> None:
     parsed = parse_args()
     spec = ProviderStageSpec.load(Path(parsed.spec))
@@ -223,7 +235,7 @@ def main() -> None:
     _materialize_local_source(args)
     job_dirs = job_dirs_from_explicit_args(args)
     enable_job_log_capture(job_dirs.logs_dir, prefix="provider-pipeline")
-    provider = str(args.provider or "mineru").strip().lower()
+    provider = normalize_provider_name(args.provider)
     event_writer = PipelineEventWriter(
         job_id=spec.job.job_id,
         job_root=job_dirs.root,
@@ -248,25 +260,15 @@ def main() -> None:
             provider=provider,
         )
         print(f"{STDOUT_LABEL_EVENTS_JSONL}: {event_writer.path}", flush=True)
-        if provider == "mineru":
-            emit_stage_transition(
-                stage="ocr_processing",
-                substage="ocr_processing",
-                message="开始执行 MinerU OCR provider 流程",
-                provider=provider,
-            )
-            job_dirs, source_pdf_path, layout_json_path, normalized_json_path = run_mineru_to_job_dir(args)
-        elif provider == "paddle":
-            emit_stage_transition(
-                stage="ocr_processing",
-                substage="ocr_processing",
-                message="开始执行 Paddle OCR provider 流程",
-                provider=provider,
-            )
-            _, source_pdf_path, layout_json_path, normalized_json_path = run_paddle_to_job_dir(args)
-            job_dirs = job_dirs_from_explicit_args(args)
-        else:
-            raise RuntimeError(f"unsupported provider-backed workflow provider: {provider}")
+        provider_result = run_registered_ocr_provider(
+            provider,
+            args,
+            paddle_driver=run_paddle_provider,
+        )
+        job_dirs = provider_result.job_dirs
+        source_pdf_path = provider_result.source_pdf_path
+        layout_json_path = provider_result.provider_result_json_path
+        normalized_json_path = provider_result.normalized_json_path
 
         normalization_report_path = normalized_json_path.with_name(DOCUMENT_SCHEMA_REPORT_FILE_NAME)
         translation_source_json_path = normalized_json_path

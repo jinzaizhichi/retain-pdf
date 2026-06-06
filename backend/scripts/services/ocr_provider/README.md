@@ -218,15 +218,89 @@ provider 层产物一旦落盘，下一步只做一件事：
 为了避免继续反复重构，当前 `ocr_provider/` 目录按下面规则维护：
 
 - `provider_pipeline.py` 负责 stage/provider 分发和稳定兼容面
+- `drivers.py` 负责 provider registry；新增 provider 先挂这里，不要把分发逻辑写回主流程
+- `types.py` 定义 provider driver 的稳定输入/输出契约
 - 新增的纯实现优先下沉到独立模块，不直接堆回 `provider_pipeline.py`
 - 如果测试需要 monkeypatch，patch 点应保留在 `provider_pipeline.py`
 - `services/ocr_provider/__init__.py` 必须显式导出 `provider_pipeline`
 - `paddle_api.py` 不处理 normalized schema
 - `paddle_markdown.py` 只处理 Markdown/图片产物，不碰翻译和渲染
 - `paddle_normalize.py` 只处理 normalized document 和几何修正，不碰 provider transport
+- `local_command_driver.py` 是本地 OCR 模型的最小接入口；它不关心模型实现，只校验落盘契约
+- Paddle 默认模型和 alias 配在 `backend/config/ocr_providers.json`，不要在 Python/Rust 里硬编码版本号
 
 这些约束已经进入：
 
 - `backend/scripts/devtools/check_pipeline_architecture.py`
 
 也就是说，后面如果有人把 `ocr_provider` 重新连回翻译/渲染层，或者把稳定入口改成隐式导出/深层直连，本地架构检查会直接失败。
+
+## 本地 OCR 接入方式
+
+如果别人想接自己的本地 OCR 模型，优先走内置 `local` provider，不要改翻译或渲染代码。
+
+运行时设置：
+
+```bash
+export RETAIN_LOCAL_OCR_COMMAND="python /path/to/my_ocr.py"
+```
+
+然后提交任务时让 OCR provider 为 `local`。本地命令会收到这些环境变量：
+
+```text
+RETAIN_OCR_SOURCE_PDF
+RETAIN_OCR_JOB_ROOT
+RETAIN_OCR_SOURCE_DIR
+RETAIN_OCR_DIR
+RETAIN_OCR_PROVIDER_RESULT_JSON
+RETAIN_OCR_NORMALIZED_DOCUMENT_JSON
+RETAIN_OCR_NORMALIZATION_REPORT_JSON
+```
+
+最小要求：
+
+- 读取 `RETAIN_OCR_SOURCE_PDF`
+- 写出 `RETAIN_OCR_NORMALIZED_DOCUMENT_JSON`
+- 内容必须是 `document.v1.json`
+
+可选：
+
+- 写 `RETAIN_OCR_PROVIDER_RESULT_JSON` 保存本地 OCR 原始结果
+- 写 `RETAIN_OCR_NORMALIZATION_REPORT_JSON` 保存自己的诊断报告
+
+如果本地命令没有写 report/result，driver 会补一个最小 report/result，并校验 `document.v1.json`。这样后续翻译、渲染、reader API 都只消费统一 schema。
+
+如果本地 OCR 只能输出自定义 raw JSON，而不能直接输出 `document.v1.json`，接入顺序是：
+
+1. 先把 raw JSON 稳定落到 `RETAIN_OCR_PROVIDER_RESULT_JSON`
+2. 在 `services/document_schema/provider_adapters/` 下新增 adapter
+3. adapter 产出 `document.v1.json`
+4. 最后再把 provider 挂到 `services/ocr_provider/drivers.py`
+
+## Paddle 模型配置
+
+Paddle 模型版本不要写死在调用层。默认模型和 alias 统一来自：
+
+```text
+backend/config/ocr_providers.json
+```
+
+当前默认：
+
+```text
+PaddleOCR-VL-1.6
+```
+
+可用环境变量覆盖：
+
+```bash
+export RETAIN_OCR_PROVIDER_CONFIG=/path/to/ocr_providers.json
+export RETAIN_PADDLE_DEFAULT_MODEL=PaddleOCR-VL-1.6
+```
+
+Rust API 同时支持：
+
+```bash
+export RUST_API_OCR_PROVIDER_CONFIG=/path/to/ocr_providers.json
+export RUST_API_PADDLE_DEFAULT_MODEL=PaddleOCR-VL-1.6
+```

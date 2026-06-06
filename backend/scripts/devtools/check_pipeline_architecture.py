@@ -45,6 +45,7 @@ OCR_PROVIDER_FORBIDDEN_IMPORT_PATTERNS = (
 )
 OCR_PROVIDER_STABLE_ENTRYPOINT = SCRIPTS_ROOT / "services" / "ocr_provider" / "provider_pipeline.py"
 OCR_PROVIDER_PACKAGE_INIT = SCRIPTS_ROOT / "services" / "ocr_provider" / "__init__.py"
+OCR_PROVIDER_DRIVER_REGISTRY = SCRIPTS_ROOT / "services" / "ocr_provider" / "drivers.py"
 MINERU_PROVIDER_FLOW_IMPORT = "from services.mineru.job_flow import run_mineru_to_job_dir"
 OCR_PROVIDER_COMPAT_SYMBOLS = (
     "adapt_path_to_document_v1_with_report",
@@ -542,9 +543,18 @@ def check_ocr_provider_boundaries(errors: list[str]) -> None:
         errors.append(
             "services/ocr_provider/provider_pipeline.py: stable provider entry must own the handoff to run_book_pipeline"
         )
-    if MINERU_PROVIDER_FLOW_IMPORT not in entry_text:
+    if "run_registered_ocr_provider" not in entry_text:
         errors.append(
-            "services/ocr_provider/provider_pipeline.py: stable provider entry must own MinerU provider handoff"
+            "services/ocr_provider/provider_pipeline.py: stable provider entry must route OCR through provider registry"
+        )
+    driver_text = read_text(OCR_PROVIDER_DRIVER_REGISTRY)
+    if MINERU_PROVIDER_FLOW_IMPORT not in driver_text:
+        errors.append(
+            "services/ocr_provider/drivers.py: provider registry must own MinerU provider handoff"
+        )
+    if "run_local_command_ocr_to_job_dir" not in driver_text:
+        errors.append(
+            "services/ocr_provider/drivers.py: provider registry must expose local OCR command driver"
         )
     for symbol in OCR_PROVIDER_COMPAT_SYMBOLS:
         if f"{symbol}" not in entry_text:

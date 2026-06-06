@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum OcrProviderKind {
     Mineru,
     Paddle,
+    Local,
     Unknown,
 }
 

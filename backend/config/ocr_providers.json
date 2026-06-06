@@ -1,0 +1,13 @@
+{
+  "paddle": {
+    "default_model": "PaddleOCR-VL-1.6",
+    "model_aliases": {
+      "paddleocr-vl": "PaddleOCR-VL-1.6",
+      "paddle-ocr-vl": "PaddleOCR-VL-1.6",
+      "paddleocr-vl-1.6": "PaddleOCR-VL-1.6",
+      "paddle-ocr-vl-1.6": "PaddleOCR-VL-1.6",
+      "paddleocr-vl-1.5": "PaddleOCR-VL-1.5",
+      "paddle-ocr-vl-1.5": "PaddleOCR-VL-1.5"
+    }
+  }
+}

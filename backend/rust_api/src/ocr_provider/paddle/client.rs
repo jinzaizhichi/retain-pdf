@@ -333,15 +333,7 @@ fn is_retryable_transport_error(err: &reqwest::Error) -> bool {
 }
 
 pub fn normalize_model_name(model: &str) -> String {
-    let trimmed = model.trim();
-    if trimmed.is_empty() {
-        return "PaddleOCR-VL-1.5".to_string();
-    }
-    match trimmed.to_ascii_lowercase().as_str() {
-        "paddleocr-vl" | "paddle-ocr-vl" => "PaddleOCR-VL".to_string(),
-        "paddleocr-vl-1.5" | "paddle-ocr-vl-1.5" => "PaddleOCR-VL-1.5".to_string(),
-        _ => trimmed.to_string(),
-    }
+    crate::ocr_provider::normalize_paddle_model_name(model)
 }
 
 pub fn capabilities() -> OcrProviderCapabilities {
@@ -470,12 +462,16 @@ mod tests {
 
     #[test]
     fn normalize_model_name_maps_known_aliases() {
-        assert_eq!(normalize_model_name(""), "PaddleOCR-VL-1.5");
+        assert_eq!(normalize_model_name(""), "PaddleOCR-VL-1.6");
+        assert_eq!(normalize_model_name("paddle-ocr-vl"), "PaddleOCR-VL-1.6");
         assert_eq!(
             normalize_model_name("paddle-ocr-vl-1.5"),
             "PaddleOCR-VL-1.5"
         );
         assert_eq!(normalize_model_name("paddleocr-vl-1.5"), "PaddleOCR-VL-1.5");
-        assert_eq!(normalize_model_name("paddle-ocr-vl"), "PaddleOCR-VL");
+        assert_eq!(
+            normalize_model_name("paddle-ocr-vl-1.6"),
+            "PaddleOCR-VL-1.6"
+        );
     }
 }

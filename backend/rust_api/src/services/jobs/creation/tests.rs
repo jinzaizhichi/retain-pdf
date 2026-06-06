@@ -247,9 +247,8 @@ fn seed_ocr_checkpoint_source_job_with_missing_files(state: &AppState, job_id: &
     let mut job = JobSnapshot::new(job_id.to_string(), input, vec!["noop".to_string()]);
     if let Some(artifacts) = job.artifacts.as_mut() {
         artifacts.source_pdf = Some(format!("jobs/{job_id}/source/input.pdf"));
-        artifacts.normalized_document_json = Some(format!(
-            "jobs/{job_id}/ocr/normalized/document.v1.json"
-        ));
+        artifacts.normalized_document_json =
+            Some(format!("jobs/{job_id}/ocr/normalized/document.v1.json"));
     }
     state.db.save_job(&job).expect("save source job");
 }
@@ -295,9 +294,9 @@ fn create_translation_job_rejects_artifact_job_with_missing_ocr_files() {
     let err = create_translation_job(&submit_context(&state), &input)
         .expect_err("missing OCR files should fail before launch");
     match err {
-        AppError::BadRequest(message) => assert!(message.contains(
-            "normalized_document_json not found for missing-ocr-source-job"
-        )),
+        AppError::BadRequest(message) => assert!(
+            message.contains("normalized_document_json not found for missing-ocr-source-job")
+        ),
         other => panic!("unexpected error: {other:?}"),
     }
 }

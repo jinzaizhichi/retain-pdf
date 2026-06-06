@@ -66,7 +66,8 @@ pub(super) async fn materialize_paddle_markdown_artifacts(
                     .await
                     .with_context(|| format!("failed to write {}", target_path.display()))?;
                 if !is_page_prefixed_alias(&target_rel.to_string_lossy(), rel_path) {
-                    remapped_text = remapped_text.replace(rel_path, &markdown_rel.to_string_lossy());
+                    remapped_text =
+                        remapped_text.replace(rel_path, &markdown_rel.to_string_lossy());
                 }
                 wrote_anything = true;
             }
@@ -120,10 +121,12 @@ fn paddle_markdown_target_rel_path_for_image_key(
     {
         return PathBuf::from(normalized);
     }
-    let re = Regex::new(r#"(?i)<img\b[^>]*\bsrc=["']([^"']+)["']"#)
-        .expect("valid img src regex");
+    let re = Regex::new(r#"(?i)<img\b[^>]*\bsrc=["']([^"']+)["']"#).expect("valid img src regex");
     for captures in re.captures_iter(markdown_text) {
-        let src = captures[1].trim().trim_start_matches('/').replace('\\', "/");
+        let src = captures[1]
+            .trim()
+            .trim_start_matches('/')
+            .replace('\\', "/");
         if src.ends_with(&normalized)
             && src
                 .split_once('/')
@@ -155,8 +158,8 @@ fn paddle_markdown_rel_src_path(src: &str, page_index: usize) -> String {
 }
 
 fn rewrite_paddle_markdown_image_srcs(text: &str, page_index: usize) -> String {
-    let re = Regex::new(r#"(?i)(<img\b[^>]*\bsrc=["'])([^"']+)(["'])"#)
-        .expect("valid img src regex");
+    let re =
+        Regex::new(r#"(?i)(<img\b[^>]*\bsrc=["'])([^"']+)(["'])"#).expect("valid img src regex");
     re.replace_all(text, |captures: &Captures<'_>| {
         format!(
             "{}{}{}",
@@ -194,9 +197,8 @@ fn markdown_image_from_img_tag(img_tag: &str) -> String {
 }
 
 fn markdown_image_from_attrs(attrs_text: &str) -> String {
-    let attr_re =
-        Regex::new(r#"([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*["']([^"']*)["']"#)
-            .expect("valid html attr regex");
+    let attr_re = Regex::new(r#"([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*["']([^"']*)["']"#)
+        .expect("valid html attr regex");
     let mut src = String::new();
     let mut alt = String::from("Image");
     for captures in attr_re.captures_iter(attrs_text) {
@@ -218,8 +220,14 @@ fn markdown_image_from_attrs(attrs_text: &str) -> String {
 }
 
 fn is_page_prefixed_alias(target_rel_path: &str, source_rel_path: &str) -> bool {
-    let target = target_rel_path.trim().trim_start_matches('/').replace('\\', "/");
-    let source = source_rel_path.trim().trim_start_matches('/').replace('\\', "/");
+    let target = target_rel_path
+        .trim()
+        .trim_start_matches('/')
+        .replace('\\', "/");
+    let source = source_rel_path
+        .trim()
+        .trim_start_matches('/')
+        .replace('\\', "/");
     target != source
         && target.ends_with(&source)
         && target
@@ -304,7 +312,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn materialize_paddle_markdown_artifacts_rewrites_page_prefixed_src_with_unprefixed_key() {
+    async fn materialize_paddle_markdown_artifacts_rewrites_page_prefixed_src_with_unprefixed_key()
+    {
         let root = std::env::temp_dir().join(format!("rust-api-paddle-md-{}", fastrand::u64(..)));
         let payload = json!({
             "layoutParsingResults": [

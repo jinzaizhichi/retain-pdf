@@ -163,11 +163,8 @@ pub async fn markdown_document_view(
     let markdown_path_url = format!("/api/v1/jobs/{}/markdown/document", job.job_id);
     let images_base_path = format!("/api/v1/jobs/{}/markdown/images/", job.job_id);
     let images = markdown_images_view(deps, &job, base_url)?;
-    let content_with_absolute_image_urls = rewrite_markdown_image_links_to_absolute_urls(
-        &content,
-        &job.job_id,
-        base_url,
-    );
+    let content_with_absolute_image_urls =
+        rewrite_markdown_image_links_to_absolute_urls(&content, &job.job_id, base_url);
     Ok(MarkdownDocumentView {
         job_id: job.job_id.clone(),
         ready: true,

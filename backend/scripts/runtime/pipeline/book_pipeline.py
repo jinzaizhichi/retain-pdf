@@ -6,7 +6,6 @@ from foundation.config import fonts
 from foundation.config import runtime
 from foundation.config.output_layout import ARTIFACTS_DIR_NAME
 from runtime.pipeline.render_mode import is_editable_pdf
-from runtime.pipeline.render_mode import resolve_page_range
 from runtime.pipeline.render_stage import build_book_from_translations
 from runtime.pipeline.render_stage import build_book_pipeline
 from runtime.pipeline.render_stage import run_render_stage
@@ -16,6 +15,7 @@ from services.rendering.source.prewarm import RenderPrewarmSpec
 from services.rendering.source.prewarm import start_render_source_prewarm
 from services.translation.public import is_blocking_untranslated
 from services.translation.public import item_final_status
+from services.translation.public import resolve_page_range
 from services.translation.public import write_translation_debug_index
 from services.translation.public import write_translation_diagnostics
 from services.translation.public import GlossaryEntry

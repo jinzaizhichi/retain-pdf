@@ -143,6 +143,7 @@ pub fn validate_mineru_upload_limits(
                 true,
             )?;
         }
+        OcrProviderKind::Local => {}
         OcrProviderKind::Unknown => {}
     }
     Ok(())
@@ -219,6 +220,9 @@ fn validate_provider_token(
     input: &CreateJobInput,
     provider_kind: &OcrProviderKind,
 ) -> Result<(), AppError> {
+    if matches!(provider_kind, OcrProviderKind::Local) {
+        return Ok(());
+    }
     let token = provider_token(provider_kind, &input.ocr);
     let field_name = provider_token_field_name(provider_kind).unwrap_or("provider_token");
     let display_name = provider_display_name(provider_kind).unwrap_or("Provider");
@@ -245,6 +249,12 @@ mod tests {
     fn paddle_input() -> CreateJobInput {
         let mut input = CreateJobInput::default();
         input.ocr.provider = "paddle".to_string();
+        input
+    }
+
+    fn local_input() -> CreateJobInput {
+        let mut input = CreateJobInput::default();
+        input.ocr.provider = "local".to_string();
         input
     }
 
@@ -279,6 +289,21 @@ mod tests {
         )
         .expect_err("1000 pages should exceed Paddle limit");
         assert!(err.to_string().contains("不超过 999 页"));
+    }
+
+    #[test]
+    fn local_provider_does_not_require_remote_provider_token() {
+        assert!(validate_ocr_provider_request(&local_input()).is_ok());
+    }
+
+    #[test]
+    fn local_provider_does_not_apply_remote_upload_limits() {
+        assert!(validate_mineru_upload_limits(
+            &local_input(),
+            &upload_with_pages(5000),
+            &default_limits()
+        )
+        .is_ok());
     }
 
     #[test]

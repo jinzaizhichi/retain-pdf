@@ -1,9 +1,9 @@
 use crate::error::AppError;
 use crate::models::now_iso;
 use crate::models::{
-    CreateJobInput, JobArtifacts, JobSnapshot, JobSourceInput, JobStatusKind, JobSubmissionView,
-    WorkflowKind,
+    CreateJobInput, JobSnapshot, JobSourceInput, JobStatusKind, JobSubmissionView, WorkflowKind,
 };
+use crate::services::jobs::stage_plan::resume_plan;
 
 use super::super::super::creation::create_translation_job;
 use super::super::super::query::load_job_or_404;
@@ -17,7 +17,7 @@ impl<'a> JobsFacade<'a> {
         source_job_id: &str,
     ) -> Result<JobSubmissionView, AppError> {
         let source_job = load_job_or_404(self.command.db, source_job_id)?;
-        if can_rerender_in_place(source_job.artifacts.as_ref()) {
+        if resume_plan(&source_job).resume_workflow == Some(WorkflowKind::Render) {
             let job = prepare_in_place_render_job(source_job)?;
             let job = start_job_execution(&self.command.submit.launcher, job)?;
             return Ok(self.build_submission_view(
@@ -82,11 +82,13 @@ fn reset_render_artifacts(job: &mut JobSnapshot) {
 }
 
 fn build_rerun_request(source_job: &JobSnapshot) -> Result<CreateJobInput, AppError> {
-    let artifacts = source_job
-        .artifacts
-        .as_ref()
-        .ok_or_else(|| AppError::bad_request("source job has no reusable artifacts"))?;
-    let workflow = choose_rerun_workflow(artifacts)?;
+    let plan = resume_plan(source_job);
+    let workflow = plan.resume_workflow.ok_or_else(|| {
+        AppError::bad_request(
+            plan.reason
+                .unwrap_or_else(|| "source job has no reusable checkpoint for rerun".to_string()),
+        )
+    })?;
     let mut request = CreateJobInput {
         workflow,
         source: JobSourceInput {
@@ -104,27 +106,4 @@ fn build_rerun_request(source_job: &JobSnapshot) -> Result<CreateJobInput, AppEr
     request.source.artifact_job_id = source_job.job_id.clone();
     request.runtime.job_id.clear();
     Ok(request)
-}
-
-fn choose_rerun_workflow(artifacts: &JobArtifacts) -> Result<WorkflowKind, AppError> {
-    if has_text(&artifacts.translations_dir) && has_text(&artifacts.source_pdf) {
-        return Ok(WorkflowKind::Render);
-    }
-    if has_text(&artifacts.normalized_document_json) && has_text(&artifacts.source_pdf) {
-        return Ok(WorkflowKind::Book);
-    }
-    Err(AppError::bad_request(
-        "source job has no reusable checkpoint; need translations_dir+source_pdf or normalized_document_json+source_pdf",
-    ))
-}
-
-fn can_rerender_in_place(artifacts: Option<&JobArtifacts>) -> bool {
-    artifacts.is_some_and(|item| has_text(&item.translations_dir) && has_text(&item.source_pdf))
-}
-
-fn has_text(value: &Option<String>) -> bool {
-    value
-        .as_deref()
-        .map(str::trim)
-        .is_some_and(|item| !item.is_empty())
 }

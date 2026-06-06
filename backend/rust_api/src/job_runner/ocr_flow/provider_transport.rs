@@ -90,6 +90,9 @@ async fn execute_local_provider_transport(
             )
             .await
         }
+        OcrProviderKind::Local => Err(anyhow!(
+            "local OCR provider is only supported by provider stage script"
+        )),
         OcrProviderKind::Unknown => Err(anyhow!("unsupported OCR provider")),
     }
 }
@@ -133,6 +136,9 @@ async fn execute_remote_provider_transport(
             )
             .await
         }
+        OcrProviderKind::Local => Err(anyhow!(
+            "local OCR provider is only supported by provider stage script"
+        )),
         OcrProviderKind::Unknown => Err(anyhow!("unsupported OCR provider")),
     }
 }

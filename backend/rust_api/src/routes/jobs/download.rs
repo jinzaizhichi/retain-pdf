@@ -10,8 +10,8 @@ use axum::response::Response;
 
 use super::common::build_jobs_route_deps;
 use super::download_adapter::{
-    bundle_response, cover_response, download_document_response, markdown_image_response,
-    markdown_document_response, markdown_response, page_preview_response,
+    bundle_response, cover_response, download_document_response, markdown_document_response,
+    markdown_image_response, markdown_response, page_preview_response,
     registered_artifact_response, thumbnail_response,
 };
 

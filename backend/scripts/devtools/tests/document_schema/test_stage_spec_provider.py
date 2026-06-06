@@ -188,4 +188,13 @@ def test_provider_stage_spec_loads_paddle_provider_fields(tmp_path: Path, monkey
     assert resolve_credential_ref(spec.ocr.credential_ref) == "paddle-env-test"
     assert resolve_credential_ref(spec.translation.credential_ref) == "sk-stage-test"
 
+    default_payload = json.loads(spec_path.read_text(encoding="utf-8"))
+    default_payload["ocr"].pop("paddle_model", None)
+    default_spec_path = spec_path.with_name("provider-default-paddle.spec.json")
+    default_spec_path.write_text(
+        json.dumps(default_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    default_spec = ProviderStageSpec.load(default_spec_path)
+    assert default_spec.ocr.paddle_model == "PaddleOCR-VL-1.6"
 

@@ -56,7 +56,9 @@ _EXPORTS = {
     "GlossaryEntry": ("services.translation.core.terms", "GlossaryEntry"),
     "parse_glossary_json": ("services.translation.core.terms", "parse_glossary_json"),
     "extract_text_items": ("services.translation.core.ocr.json_extractor", "extract_text_items"),
+    "get_page_count": ("services.translation.core.ocr.json_extractor", "get_page_count"),
     "load_ocr_json": ("services.translation.core.ocr.json_extractor", "load_ocr_json"),
+    "build_translation_record": ("services.translation.core.payload.template_records", "build_translation_record"),
     "DEFAULT_BASE_URL": ("services.translation.llm.shared.provider_runtime", "DEFAULT_BASE_URL"),
     "DEFAULT_MODEL": ("services.translation.llm.shared.provider_runtime", "DEFAULT_MODEL"),
     "get_api_key": ("services.translation.llm.shared.provider_runtime", "get_api_key"),
@@ -65,6 +67,11 @@ _EXPORTS = {
     "extract_json_text": ("services.translation.llm.shared.response_parsing", "extract_json_text"),
     "TranslationExecutionRequest": ("services.translation.workflow", "TranslationExecutionRequest"),
     "execute_translation_request": ("services.translation.workflow", "execute_translation_request"),
+    "resolve_page_range": ("services.translation.workflow.page_range", "resolve_page_range"),
+    "recover_blocking_untranslated_items": (
+        "services.translation.services.finalization",
+        "recover_blocking_untranslated_items",
+    ),
     "translate_items_to_path": ("services.translation.workflow", "translate_items_to_path"),
 }
 

@@ -18,7 +18,7 @@ from services.document_schema.semantics import block_kind
 
 SHORT_BODY_INHERIT_MIN_ANCHORS = 2
 SHORT_BODY_INHERIT_MAX_WIDTH_RATIO = 1.18
-SHORT_BODY_INHERIT_FONT_FLOOR_DELTA_PT = 0.75
+SHORT_BODY_INHERIT_MAX_FONT_GROW_PT = 1.8
 LOW_HEIGHT_BODY_INHERIT_MAX_HEIGHT_RATIO = 0.72
 LOW_HEIGHT_BODY_INHERIT_MAX_LINES = 8
 LOW_HEIGHT_BODY_INHERIT_DENSITY_LIMIT = 1.08
@@ -46,11 +46,15 @@ def inherit_short_body_fonts(
             continue
         target_font = round(median(local_anchors or [page_anchor_font]), 2)
         target_font = min(target_font, page_anchor_font + 0.18)
-        payload["_short_body_inherited_font_floor_pt"] = round(
-            max(7.6, min(payload["font_size_pt"], target_font, page_anchor_font - SHORT_BODY_INHERIT_FONT_FLOOR_DELTA_PT)),
-            2,
-        )
+        inherited_font = _short_body_target_font(payload, target_font)
+        if inherited_font <= 0:
+            continue
+        payload["font_size_pt"] = inherited_font
+        payload["_short_body_inherited_font_floor_pt"] = inherited_font
         payload["page_body_font_size_pt"] = round(page_anchor_font, 2)
+        payload["_short_body_font_inherited"] = True
+        payload["_allow_short_text_bbox_overflow"] = True
+        payload["prefer_typst_fit"] = False
 
 
 def inherit_low_height_body_fonts(
@@ -111,6 +115,15 @@ def _is_short_body_inherit_candidate(payload: dict, *, page_text_width_med: floa
     if page_text_width_med <= 0 or width >= page_text_width_med * SHORT_BODY_INHERIT_MAX_WIDTH_RATIO:
         return False
     return bool(str(item.get("source_text") or item.get("protected_source_text") or "").strip())
+
+
+def _short_body_target_font(payload: dict, target_font: float) -> float:
+    current_font = float(payload.get("font_size_pt") or 0.0)
+    if current_font <= 0 or target_font <= 0:
+        return 0.0
+    if target_font <= current_font:
+        return round(target_font, 2)
+    return round(min(target_font, current_font + SHORT_BODY_INHERIT_MAX_FONT_GROW_PT), 2)
 
 
 def _is_low_height_body_inherit_candidate(payload: dict) -> bool:

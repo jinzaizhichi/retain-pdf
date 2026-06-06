@@ -48,7 +48,15 @@ def typst_markdown_block(
     height_pt: float,
     block_fill: str,
     body_expr: str,
+    content_top_inset_pt: float = 0.0,
+    content_bottom_inset_pt: float = 0.0,
 ) -> str:
+    if content_top_inset_pt > 0 or content_bottom_inset_pt > 0:
+        body_expr = (
+            f"pad(top: {max(0.0, content_top_inset_pt)}pt, "
+            f"bottom: {max(0.0, content_bottom_inset_pt)}pt)"
+            f"[#{{ {body_expr} }}]"
+        )
     return f"#let {body_name} = block(width: {width_pt}pt, height: {height_pt}pt{block_fill})[#{{ {body_expr} }}]\n"
 
 

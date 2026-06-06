@@ -5,10 +5,10 @@ from pathlib import Path
 from services.rendering.source.prewarm import RenderPrewarmSpec
 from services.rendering.source.prewarm import prewarm_manifest_path_from_artifacts_dir
 from services.rendering.source.prewarm import start_render_source_prewarm
-from services.translation.core.ocr.json_extractor import extract_text_items
-from services.translation.core.ocr.json_extractor import get_page_count
-from services.translation.core.ocr.json_extractor import load_ocr_json
-from services.translation.core.payload.template_records import build_translation_record
+from services.translation.public import build_translation_record
+from services.translation.public import extract_text_items
+from services.translation.public import get_page_count
+from services.translation.public import load_ocr_json
 
 
 def build_source_render_preprocess_pages(

@@ -21,6 +21,7 @@ from services.rendering.source.prewarm import start_render_source_prewarm
 from services.rendering.source.prewarm import try_load_render_payload_prewarm
 from services.rendering.source.prewarm import try_load_prewarmed_render_source_pdf
 from services.rendering.source.prewarm import _pages_for_prewarm_mode_probe
+from services.rendering.source.prewarm_page_specs import render_page_specs_from_manifest
 from services.rendering.workflow.executor import execute_render_plan
 from runtime.pipeline.render_preprocess import run_ocr_render_preprocess
 
@@ -657,6 +658,103 @@ def test_render_prewarm_fingerprint_tracks_payload_render_algorithm() -> None:
         )
 
     assert fingerprint["payload_render_algorithm"] == PAYLOAD_RENDER_ALGORITHM_VERSION
+
+
+def test_render_prewarm_fingerprint_tracks_translated_text_changes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        _source_pdf(source_pdf)
+
+        first_payload = _translated_page_payload()
+        second_payload = _translated_page_payload()
+        second_payload[0][0]["protected_translated_text"] = "另一版译文"
+
+        first = build_render_prewarm_fingerprint(
+            source_pdf_path=source_pdf,
+            translated_pages=first_payload,
+            effective_render_mode="typst_visual",
+            start_page=0,
+            end_page=0,
+            pdf_compress_dpi=0,
+        )
+        second = build_render_prewarm_fingerprint(
+            source_pdf_path=source_pdf,
+            translated_pages=second_payload,
+            effective_render_mode="typst_visual",
+            start_page=0,
+            end_page=0,
+            pdf_compress_dpi=0,
+        )
+
+    assert first["render_payload_hash"] != second["render_payload_hash"]
+    assert first != second
+
+
+def test_render_prewarm_fingerprint_tracks_formula_map_changes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        _source_pdf(source_pdf)
+
+        first_payload = _translated_page_payload()
+        second_payload = _translated_page_payload()
+        first_payload[0][0]["formula_map"] = [{"placeholder": "<f0-abc/>", "formula_text": "c_{\\kappa}"}]
+        second_payload[0][0]["formula_map"] = [{"placeholder": "<f0-abc/>", "formula_text": "c_{\\lambda}"}]
+
+        first = build_render_prewarm_fingerprint(
+            source_pdf_path=source_pdf,
+            translated_pages=first_payload,
+            effective_render_mode="typst_visual",
+            start_page=0,
+            end_page=0,
+            pdf_compress_dpi=0,
+        )
+        second = build_render_prewarm_fingerprint(
+            source_pdf_path=source_pdf,
+            translated_pages=second_payload,
+            effective_render_mode="typst_visual",
+            start_page=0,
+            end_page=0,
+            pdf_compress_dpi=0,
+        )
+
+    assert first["render_payload_hash"] != second["render_payload_hash"]
+    assert first != second
+
+
+def test_background_page_specs_manifest_fails_closed_on_bad_block() -> None:
+    manifest = {
+        "algorithm": "background_render_page_specs_v4_visual_profile",
+        "page_count": 1,
+        "block_count": 1,
+        "block_ids_by_page": {"0": ["item-p001-b001"]},
+        "page_specs": [
+            {
+                "page_index": 0,
+                "page_width_pt": 200.0,
+                "page_height_pt": 200.0,
+                "block_count": 1,
+                "block_ids": ["item-p001-b001"],
+                "blocks": [
+                    {
+                        "block_id": "item-p001-b001",
+                        "page_index": 0,
+                        "background_rect": [10.0, 20.0, 150.0, 60.0],
+                        "content_rect": ["bad"],
+                        "content_kind": "markdown",
+                        "content_text": "译文",
+                        "plain_text": "译文",
+                        "math_map": [],
+                        "font_size_pt": 10.0,
+                        "leading_em": 0.56,
+                    }
+                ],
+            }
+        ],
+    }
+
+    assert render_page_specs_from_manifest(manifest) is None
 
 
 def test_payload_prewarm_exposes_background_render_page_specs() -> None:

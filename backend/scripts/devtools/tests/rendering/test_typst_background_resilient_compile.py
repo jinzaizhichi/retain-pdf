@@ -274,12 +274,14 @@ def test_background_render_color_adapt_samples_original_pdf_not_cleaned_backgrou
                     "lines": [{"text": "source text", "bbox": [26.0, 40.0, 130.0, 66.0]}],
                     "source_text": "source text",
                     "protected_source_text": "source text",
-                    "protected_translated_text": "译文",
-                    "translated_text": "译文",
-                    "formula_map": [],
-                }
-            ]
-        }
+                        "protected_translated_text": "译文",
+                        "translated_text": "译文",
+                        "formula_map": [],
+                        "_render_policy": {"overlay_fill": "sampled"},
+                        "_render_use_cover_fill": True,
+                    }
+                ]
+            }
         adapted_pages = _apply_background_page_color_adapt(
             sample_pdf_path=original_pdf,
             translated_pages=translated_pages,
@@ -298,4 +300,3 @@ def test_background_render_color_adapt_samples_original_pdf_not_cleaned_backgrou
 
     assert "fill: rgb(216, 216, 216)" in source
     assert "fill: rgb(255, 255, 255)" not in source
-

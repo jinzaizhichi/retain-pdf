@@ -4,8 +4,6 @@ from pathlib import Path
 import math
 
 import fitz
-
-from services.translation.workflow.page_range import resolve_page_range
 from services.rendering.source.document_ops import page_has_editable_text
 from services.rendering.source.document_ops import page_is_pseudo_editable_scan
 

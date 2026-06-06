@@ -67,6 +67,8 @@ from services.rendering.document.pikepdf_overlay import overlay_pdf_pages_with_p
 from services.rendering.document.pikepdf_overlay import overlay_page_pdfs_with_pikepdf
 from services.rendering.document.pikepdf_pages import extract_pages_with_pikepdf
 from services.rendering.layout.inline_content.core.markdown import build_direct_typst_passthrough_text
+from services.rendering.layout.model.models import RenderBlock
+from services.rendering.layout.payload.formula_safety import formula_safety_insets_pt
 
 
 def _page_spec(background_pdf_path: Path | None = None) -> RenderPageSpec:
@@ -140,6 +142,46 @@ def test_direct_typst_adjacent_inline_math_boundaries_do_not_cross_text() -> Non
     assert "指的是收缩型高斯原子轨道" in markdown
     assert r"\$phi" not in markdown
     assert not any("指的是收缩型高斯原子轨道" in match.group(0) for match in MATH_BLOCK_RE.finditer(markdown))
+
+
+def test_formula_safety_insets_reserve_more_bottom_space_for_subscripts() -> None:
+    insets = formula_safety_insets_pt(
+        "文字 $x_i$",
+        [],
+        font_size_pt=10.0,
+        box_height_pt=20.0,
+    )
+
+    assert insets.bottom_pt > insets.top_pt
+    assert insets.bottom_pt >= 1.0
+
+
+def test_typst_block_adds_formula_safety_padding_without_shrinking_outer_fill() -> None:
+    block = RenderBlock(
+        block_id="b1",
+        bbox=[10.0, 20.0, 180.0, 42.0],
+        cover_bbox=[10.0, 20.0, 180.0, 42.0],
+        inner_bbox=[10.0, 20.0, 180.0, 42.0],
+        markdown_text="这是一段文字 $x_i$",
+        plain_text="这是一段文字 xi",
+        render_kind="markdown",
+        font_size_pt=10.0,
+        leading_em=0.55,
+        fit_to_box=True,
+        fit_min_font_size_pt=8.0,
+        fit_min_leading_em=0.45,
+        fit_max_height_pt=22.0,
+        math_map=[],
+        use_cover_fill=True,
+    )
+
+    typst = build_typst_block("formula_safety", block, include_fill=True)
+
+    assert "height: 22.0pt" in typst
+    assert "fill:" in typst
+    assert "pad(top:" in typst
+    assert "bottom:" in typst
+    assert "fit_height: 22.0pt" not in typst
 
 
 def test_toc_entries_render_with_typst_style_rows() -> None:

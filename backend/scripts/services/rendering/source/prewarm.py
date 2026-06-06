@@ -5,7 +5,7 @@ from pathlib import Path
 import time
 
 from runtime.pipeline.render_mode import resolve_effective_render_mode
-from services.translation.workflow.page_range import resolve_page_range
+from services.translation.public import resolve_page_range
 from services.pipeline_shared.events import emit_stage_progress
 from services.pipeline_shared.events import get_active_pipeline_event_writer
 from services.pipeline_shared.events import pipeline_event_writer_scope
@@ -154,6 +154,7 @@ def _load_existing_render_source(
         end_page=end_page,
         pdf_compress_dpi=spec.pdf_compress_dpi,
         source_cleanup_strategy=spec.source_cleanup_strategy,
+        match_payload=False,
     )
     if manifest is None:
         return None

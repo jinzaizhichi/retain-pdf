@@ -39,6 +39,12 @@ def build_background_render_page_specs_manifest(
         )
         return {
             "algorithm": BACKGROUND_RENDER_PAGE_SPECS_ALGORITHM_VERSION,
+            "page_count": len(page_specs),
+            "block_count": sum(len(spec.blocks) for spec in page_specs),
+            "block_ids_by_page": {
+                str(spec.page_index): [block.block_id for block in spec.blocks]
+                for spec in page_specs
+            },
             "page_specs": [render_page_spec_to_manifest(spec) for spec in page_specs],
         }
     except Exception as exc:
@@ -51,6 +57,8 @@ def render_page_spec_to_manifest(spec: RenderPageSpec) -> dict[str, Any]:
         "page_index": spec.page_index,
         "page_width_pt": spec.page_width_pt,
         "page_height_pt": spec.page_height_pt,
+        "block_count": len(spec.blocks),
+        "block_ids": [block.block_id for block in spec.blocks],
         "blocks": [render_layout_block_to_manifest(block) for block in spec.blocks],
     }
 
@@ -105,23 +113,51 @@ def render_page_specs_from_manifest(value: object) -> list[RenderPageSpec] | Non
     payload = dict(value or {})
     if payload.get("algorithm") != BACKGROUND_RENDER_PAGE_SPECS_ALGORITHM_VERSION:
         return None
+    raw_specs = payload.get("page_specs") if isinstance(payload.get("page_specs"), list) else []
+    if not raw_specs:
+        return None
     specs: list[RenderPageSpec] = []
-    for raw_spec in payload.get("page_specs") if isinstance(payload.get("page_specs"), list) else []:
+    for raw_spec in raw_specs:
         spec = render_page_spec_from_manifest(raw_spec)
-        if spec is not None:
-            specs.append(spec)
+        if spec is None:
+            return None
+        specs.append(spec)
+    expected_page_count = int(payload.get("page_count") or len(raw_specs))
+    expected_block_count = int(payload.get("block_count") or sum(len(spec.blocks) for spec in specs))
+    if len(specs) != expected_page_count:
+        return None
+    if sum(len(spec.blocks) for spec in specs) != expected_block_count:
+        return None
+    expected_ids = {
+        int(page_idx): [str(block_id) for block_id in block_ids]
+        for page_idx, block_ids in dict(payload.get("block_ids_by_page") or {}).items()
+        if isinstance(block_ids, list)
+    }
+    for spec in specs:
+        if expected_ids and [block.block_id for block in spec.blocks] != expected_ids.get(spec.page_index, []):
+            return None
     return specs or None
 
 
 def render_page_spec_from_manifest(value: object) -> RenderPageSpec | None:
     if not isinstance(value, dict):
         return None
+    raw_blocks = value.get("blocks") if isinstance(value.get("blocks"), list) else None
+    if raw_blocks is None:
+        return None
     blocks: list[RenderLayoutBlock] = []
-    for raw_block in value.get("blocks") if isinstance(value.get("blocks"), list) else []:
+    for raw_block in raw_blocks:
         block = render_layout_block_from_manifest(raw_block)
-        if block is not None:
-            blocks.append(block)
+        if block is None:
+            return None
+        blocks.append(block)
     try:
+        expected_block_count = int(value.get("block_count") or len(raw_blocks))
+        expected_block_ids = [str(block_id) for block_id in list(value.get("block_ids") or [])]
+        if len(blocks) != expected_block_count:
+            return None
+        if expected_block_ids and [block.block_id for block in blocks] != expected_block_ids:
+            return None
         return RenderPageSpec(
             page_index=int(value.get("page_index")),
             page_width_pt=float(value.get("page_width_pt")),
@@ -137,17 +173,27 @@ def render_layout_block_from_manifest(value: object) -> RenderLayoutBlock | None
     if not isinstance(value, dict):
         return None
     try:
+        background_rect = float_list(value.get("background_rect"))
+        content_rect = float_list(value.get("content_rect"))
+        if len(background_rect) != 4 or len(content_rect) != 4:
+            return None
+        block_id = str(value.get("block_id", "") or "")
+        content_kind = str(value.get("content_kind", "") or "")
+        font_size_pt = float(value.get("font_size_pt"))
+        leading_em = float(value.get("leading_em"))
+        if not block_id or not content_kind or font_size_pt <= 0.0 or leading_em <= 0.0:
+            return None
         return RenderLayoutBlock(
-            block_id=str(value.get("block_id", "") or ""),
+            block_id=block_id,
             page_index=int(value.get("page_index")),
-            background_rect=float_list(value.get("background_rect")),
-            content_rect=float_list(value.get("content_rect")),
-            content_kind=str(value.get("content_kind", "") or ""),
+            background_rect=background_rect,
+            content_rect=content_rect,
+            content_kind=content_kind,
             content_text=str(value.get("content_text", "") or ""),
             plain_text=str(value.get("plain_text", "") or ""),
             math_map=list(value.get("math_map") or []),
-            font_size_pt=float(value.get("font_size_pt")),
-            leading_em=float(value.get("leading_em")),
+            font_size_pt=font_size_pt,
+            leading_em=leading_em,
             font_weight=str(value.get("font_weight", "regular") or "regular"),
             fit_to_box=bool(value.get("fit_to_box")),
             fit_single_line=bool(value.get("fit_single_line")),

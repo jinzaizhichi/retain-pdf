@@ -63,6 +63,7 @@ def try_load_prewarmed_render_source_pdf(
         end_page=end_page,
         pdf_compress_dpi=pdf_compress_dpi,
         source_cleanup_strategy=source_cleanup_strategy,
+        match_payload=False,
     )
     if manifest is None:
         return None
@@ -160,6 +161,7 @@ def load_matching_manifest(
     end_page: int,
     pdf_compress_dpi: int,
     source_cleanup_strategy: str = "pikepdf_text_strip",
+    match_payload: bool = True,
 ) -> dict[str, Any] | None:
     if manifest_path is None or not Path(manifest_path).exists():
         return None
@@ -177,13 +179,22 @@ def load_matching_manifest(
             pdf_compress_dpi=pdf_compress_dpi,
             source_cleanup_strategy=source_cleanup_strategy,
         )
-        if manifest.get("fingerprint") != expected:
+        actual = dict(manifest.get("fingerprint") or {})
+        if not match_payload:
+            actual = _source_fingerprint(actual)
+            expected = _source_fingerprint(expected)
+        if actual != expected:
             print("render prewarm: manifest fingerprint mismatch; fallback to synchronous render source prep", flush=True)
             return None
         return manifest
     except Exception as exc:
         print(f"render prewarm: load failed {type(exc).__name__}: {exc}; fallback", flush=True)
         return None
+
+
+def _source_fingerprint(value: dict[str, Any]) -> dict[str, Any]:
+    ignored = {"payload_structure_hash", "render_payload_hash", "payload_render_algorithm"}
+    return {key: item for key, item in value.items() if key not in ignored}
 
 
 def bbox_candidates_to_manifest(candidates: BBoxTextStripCandidates) -> dict[str, Any]:

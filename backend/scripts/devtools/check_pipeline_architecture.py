@@ -88,6 +88,7 @@ TRANSLATION_LAYER_IMPORT_RULES: dict[str, tuple[str, ...]] = {
         "services.translation.services.continuation",
         "services.translation.artifacts",
         "services.translation.services.fast_path",
+        "services.translation.services.finalization",
         "services.translation.llm",
         "services.translation.services.memory",
         "services.translation.core.ocr",
@@ -255,6 +256,7 @@ RENDERING_ALLOWED_ROOT_DIRS = {
     "output",
     "policy",
     "source",
+    "source_cleanup",
     "workflow",
 }
 RENDERING_ALLOWED_ROOT_FILES = {
@@ -290,6 +292,11 @@ RENDERING_LAYER_IMPORT_RULES: dict[str, tuple[str, ...]] = {
         # Existing source preparation still reuses the PDF compressor facade and Typst temp-root helper.
         "services.rendering.legacy.pdf_compress",
         "services.rendering.output.typst.shared",
+        # Source prewarm owns cached render-source preparation and may build
+        # precomputed Typst page/color profiles for the render stage.
+        "services.rendering.output.typst.book_support",
+        "services.rendering.output.typst.color_adapt",
+        "services.rendering.source_cleanup",
     ),
     "layout": (
         "services.rendering.layout",
@@ -305,6 +312,13 @@ RENDERING_LAYER_IMPORT_RULES: dict[str, tuple[str, ...]] = {
     ),
     "policy": (
         "services.rendering.policy",
+        "services.rendering.source_cleanup.planning.segments",
+    ),
+    "source_cleanup": (
+        "services.rendering.source_cleanup",
+        "services.rendering.policy",
+        "services.rendering.source.background.detect",
+        "services.rendering.source.rects",
     ),
     "legacy": (
         "services.rendering.workflow",

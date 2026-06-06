@@ -22,7 +22,7 @@ def build_payload_structure_hash(translated_pages: dict[int, list[dict]]) -> str
         compact_items = [
             _payload_structure_item(page_idx, item)
             for item in translated_pages[page_idx]
-            if _is_bbox_text_strip_candidate(item)
+            if _is_render_payload_candidate(item)
         ]
         if not compact_items:
             continue
@@ -58,6 +58,7 @@ def build_render_prewarm_fingerprint(
         "pdf_compress_dpi": int(pdf_compress_dpi),
         "source_cleanup_strategy": cleanup_strategy,
         "payload_structure_hash": build_payload_structure_hash(translated_pages),
+        "render_payload_hash": build_payload_structure_hash(translated_pages),
         "bbox_text_strip_algorithm": BBOX_TEXT_STRIP_ALGORITHM_VERSION,
         "hidden_text_strip_algorithm": HIDDEN_TEXT_STRIP_ALGORITHM_VERSION,
         "image_compression_algorithm": IMAGE_COMPRESSION_ALGORITHM_VERSION,
@@ -79,6 +80,26 @@ def _payload_structure_item(page_idx: int, item: dict) -> dict[str, Any]:
         "structure_role": str(item.get("structure_role", "") or ""),
         "raw_block_type": str(item.get("raw_block_type", "") or ""),
         "normalized_sub_type": str(item.get("normalized_sub_type", "") or ""),
+        "translation_unit_id": str(item.get("translation_unit_id", "") or ""),
+        "translation_unit_member_ids": [str(value) for value in list(item.get("translation_unit_member_ids") or [])],
+        "continuation_group": str(item.get("continuation_group") or item.get("continuation_group_id") or ""),
+        "should_translate": bool(item.get("should_translate", item.get("policy_translate", True))),
+        "skip_reason": str(item.get("skip_reason", "") or item.get("classification_label", "") or ""),
+        "source_text": _render_source_text(item),
+        "render_text": _render_output_text(item),
+        "render_protected_text": str(item.get("render_protected_text", "") or ""),
+        "protected_map": _jsonable(item.get("protected_map") or item.get("translation_unit_protected_map") or []),
+        "formula_map": _jsonable(item.get("formula_map") or item.get("translation_unit_formula_map") or []),
+        "lines": _line_signature(item.get("lines")),
+        "source_line_texts": [str(value) for value in list(item.get("source_line_texts") or [])],
+        "toc_entries": _jsonable(item.get("toc_entries") or []),
+        "render_policy": _jsonable(item.get("_render_policy") or {}),
+        "render_flags": {
+            "preserve_line_breaks": bool(item.get("_render_preserve_line_breaks")),
+            "force_plain_line": bool(item.get("_force_plain_line")),
+            "force_visual_cover_only": bool(item.get("_force_visual_cover_only")),
+            "render_use_cover_fill": bool(item.get("_render_use_cover_fill")),
+        },
         "strip_candidate": _has_render_source_or_output_text(item),
     }
 
@@ -92,6 +113,12 @@ def _bbox_text_strip_page_indexes(translated_pages: dict[int, list[dict]]) -> li
 
 
 def _is_bbox_text_strip_candidate(item: dict) -> bool:
+    if not _is_render_payload_candidate(item):
+        return False
+    return _has_render_source_or_output_text(item)
+
+
+def _is_render_payload_candidate(item: dict) -> bool:
     if schema_block_kind(item) != "text":
         return False
     bbox = item.get("bbox", [])
@@ -99,7 +126,7 @@ def _is_bbox_text_strip_candidate(item: dict) -> bool:
         return False
     if all(float_or_zero(value) == 0.0 for value in bbox):
         return False
-    return _has_render_source_or_output_text(item)
+    return True
 
 
 def _has_render_source_or_output_text(item: dict) -> bool:
@@ -113,6 +140,39 @@ def _render_source_text(item: dict) -> str:
         or item.get("source_text")
         or ""
     ).strip()
+
+
+def _render_output_text(item: dict) -> str:
+    return str(
+        item.get("render_protected_text")
+        or item.get("protected_translated_text")
+        or item.get("translated_text")
+        or item.get("translation_unit_protected_text")
+        or item.get("translation_unit_translated_text")
+        or ""
+    ).strip()
+
+
+def _line_signature(value: object) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for line in value if isinstance(value, list) else []:
+        if not isinstance(line, dict):
+            continue
+        result.append(
+            {
+                "bbox": [float_or_zero(raw) for raw in list(line.get("bbox", []) or [])[:4]],
+                "text": str(line.get("text") or line.get("content") or ""),
+            }
+        )
+    return result
+
+
+def _jsonable(value: object) -> object:
+    try:
+        json.dumps(value, sort_keys=True, ensure_ascii=False)
+        return value
+    except TypeError:
+        return str(value)
 
 
 __all__ = [

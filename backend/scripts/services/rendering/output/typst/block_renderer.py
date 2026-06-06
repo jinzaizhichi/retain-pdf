@@ -4,6 +4,7 @@ import re
 
 from services.rendering.layout.model.models import RenderBlock
 from services.rendering.layout.inline_content.core.markdown import build_direct_typst_passthrough_text
+from services.rendering.layout.payload.formula_safety import formula_safety_insets_pt
 from services.rendering.output.typst.block_fit import fit_dimensions
 from services.rendering.output.typst import block_config as typst_config
 from services.rendering.output.typst.block_fields import typst_block_fields
@@ -224,6 +225,13 @@ def build_typst_block(block_id: str, block: RenderBlock, *, include_fill: bool =
     markdown_name = f"{fields.var_prefix}_md"
     body_name = f"{fields.var_prefix}_body"
     markdown = sanitize_typst_markdown_for_compile(block.markdown_text)
+    formula_insets = formula_safety_insets_pt(
+        markdown,
+        block.math_map,
+        font_size_pt=fields.font_size,
+        box_height_pt=fields.height,
+    )
+    content_fit_height = max(typst_config.MIN_BLOCK_SIZE_PT, fields.height - formula_insets.total_pt)
     first_line_indent = typst_config.first_line_indent_pt(block.first_line_indent_pt)
     justify_text = typst_config.typst_bool(block.justify_text)
     if block.toc_entries:
@@ -249,6 +257,8 @@ def build_typst_block(block_id: str, block: RenderBlock, *, include_fill: bool =
                 height_pt=fields.height,
                 block_fill=block_fill,
                 body_expr=body_expr,
+                content_top_inset_pt=formula_insets.top_pt,
+                content_bottom_inset_pt=formula_insets.bottom_pt,
             ),
             typst_place_context(x_pt=fields.x0, y_pt=fields.y0, body_name=body_name),
         ]
@@ -257,13 +267,13 @@ def build_typst_block(block_id: str, block: RenderBlock, *, include_fill: bool =
         if block.fit_single_line:
             single_line_fit = typst_config.single_line_fit_config(
                 width_pt=fields.width,
-                height_pt=fields.height,
+                height_pt=content_fit_height,
                 font_size_pt=fields.font_size,
                 fit_min_font_size_pt=block.fit_min_font_size_pt,
                 fit_max_font_size_pt=block.fit_max_font_size_pt,
-                fit_max_height_pt=block.fit_max_height_pt,
+                fit_max_height_pt=min(content_fit_height, block.fit_max_height_pt or content_fit_height),
                 fit_target_width_pt=block.fit_target_width_pt,
-                fit_target_height_pt=block.fit_target_height_pt,
+                fit_target_height_pt=min(content_fit_height, block.fit_target_height_pt or content_fit_height),
                 fit_shift_up_pt=block.fit_shift_up_pt,
             )
             fit_call = typst_single_line_fit_call(
@@ -277,21 +287,23 @@ def build_typst_block(block_id: str, block: RenderBlock, *, include_fill: bool =
                 typst_markdown_block(
                     body_name,
                     width_pt=single_line_fit.width_pt,
-                    height_pt=single_line_fit.height_pt,
+                    height_pt=fields.height,
                     block_fill=block_fill,
                     body_expr=f"set text(fill: {text_fill}); {fit_call}",
+                    content_top_inset_pt=formula_insets.top_pt,
+                    content_bottom_inset_pt=formula_insets.bottom_pt,
                 ),
                 typst_place_context(x_pt=fields.x0, y_pt=fields.y0 - single_line_fit.shift_up_pt, body_name=body_name),
             ]
             return "\n".join(parts) + "\n"
         fit = fit_dimensions(
             width=fields.width,
-            height=fields.height,
+            height=content_fit_height,
             font_size=fields.font_size,
             leading=fields.leading,
             fit_min_font_size_pt=block.fit_min_font_size_pt,
             fit_min_leading_em=block.fit_min_leading_em,
-            fit_max_height_pt=block.fit_max_height_pt,
+            fit_max_height_pt=min(content_fit_height, block.fit_max_height_pt or content_fit_height),
         )
         fit_call = typst_markdown_fit_call(
             markdown_name,
@@ -309,9 +321,11 @@ def build_typst_block(block_id: str, block: RenderBlock, *, include_fill: bool =
             typst_markdown_block(
                 body_name,
                 width_pt=fit["width"],
-                height_pt=fit["fit_height"],
+                height_pt=fields.height,
                 block_fill=block_fill,
                 body_expr=f"set text(fill: {text_fill}); {fit_call}",
+                content_top_inset_pt=formula_insets.top_pt,
+                content_bottom_inset_pt=formula_insets.bottom_pt,
             ),
             typst_place_context(x_pt=fields.x0, y_pt=fields.y0, body_name=body_name),
         ]
@@ -333,6 +347,8 @@ def build_typst_block(block_id: str, block: RenderBlock, *, include_fill: bool =
             height_pt=fields.height,
             block_fill=block_fill,
             body_expr=body_expr,
+            content_top_inset_pt=formula_insets.top_pt,
+            content_bottom_inset_pt=formula_insets.bottom_pt,
         ),
         typst_place_context(x_pt=fields.x0, y_pt=fields.y0, body_name=body_name),
     ]

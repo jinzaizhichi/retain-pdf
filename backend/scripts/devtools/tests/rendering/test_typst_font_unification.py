@@ -124,7 +124,7 @@ def test_body_font_unify_then_leading_refit_preserves_page_font_consistency() ->
     assert loose["leading_em"] <= 1.02
 
 
-def test_page_long_body_anchors_do_not_raise_single_line_body_font() -> None:
+def test_page_long_body_anchors_raise_single_line_body_font_and_allow_bbox_overflow() -> None:
     def make_payload(y0: float, y1: float, font_size: float, text: str, source_lines: int) -> dict:
         return {
             "inner_bbox": [10.0, y0, 280.0, y1],
@@ -153,8 +153,87 @@ def test_page_long_body_anchors_do_not_raise_single_line_body_font() -> None:
 
     apply_body_payload_pipeline([long_a, long_b, short], page_text_width_med=240.0)
 
-    assert short["font_size_pt"] == 9.4
-    assert short.get("page_body_font_size_pt", 0.0) <= 9.7
+    assert short["font_size_pt"] == long_a["font_size_pt"] == long_b["font_size_pt"]
+    assert short["_short_body_font_inherited"] is True
+    assert short["_allow_short_text_bbox_overflow"] is True
+    assert short["prefer_typst_fit"] is False
+
+
+def test_short_body_bbox_overflow_marker_disables_typst_fit() -> None:
+    payload = {
+        "index": 1,
+        "item": {
+            "item_id": "p001-b002",
+            "bbox": [10.0, 248.0, 280.0, 262.0],
+            "lines": [{"bbox": [10.0, 248.0, 280.0, 260.0]}],
+            "source_text": "short body text",
+        },
+        "bbox": [10.0, 248.0, 280.0, 262.0],
+        "cover_bbox": [10.0, 248.0, 280.0, 262.0],
+        "inner_bbox": [10.0, 248.0, 280.0, 262.0],
+        "translated_text": "短正文也应该继承页面字体。",
+        "formula_map": [],
+        "render_kind": "markdown",
+        "font_size_pt": 10.8,
+        "leading_em": 0.56,
+        "first_line_indent_pt": 0.0,
+        "font_weight": "regular",
+        "page_body_font_size_pt": 10.8,
+        "is_body": True,
+        "dense_small_box": False,
+        "heavy_dense_small_box": False,
+        "prefer_typst_fit": False,
+        "title_fit": None,
+        "preserve_line_breaks": False,
+        "adjacent_collision_risk": False,
+        "adjacent_available_height_pt": None,
+        "_allow_short_text_bbox_overflow": True,
+    }
+
+    block = payload_to_render_block(payload)
+
+    assert block.font_size_pt == 10.8
+    assert block.fit_to_box is False
+
+
+def test_short_body_inline_formula_overflow_keeps_font_and_formula_padding() -> None:
+    payload = {
+        "index": 1,
+        "item": {
+            "item_id": "p001-b002",
+            "bbox": [10.0, 248.0, 280.0, 262.0],
+            "lines": [{"bbox": [10.0, 248.0, 280.0, 260.0]}],
+            "source_text": "short body text with inline formula",
+        },
+        "bbox": [10.0, 248.0, 280.0, 262.0],
+        "cover_bbox": [10.0, 248.0, 280.0, 262.0],
+        "inner_bbox": [10.0, 248.0, 280.0, 262.0],
+        "translated_text": "其中 $c_{\\kappa}$ 是线性系数。",
+        "formula_map": [{"placeholder": "<f0-abc/>", "formula_text": "c_{\\kappa}"}],
+        "render_kind": "markdown",
+        "font_size_pt": 10.8,
+        "leading_em": 0.56,
+        "first_line_indent_pt": 0.0,
+        "font_weight": "regular",
+        "page_body_font_size_pt": 10.8,
+        "is_body": True,
+        "dense_small_box": False,
+        "heavy_dense_small_box": False,
+        "prefer_typst_fit": False,
+        "title_fit": None,
+        "preserve_line_breaks": False,
+        "adjacent_collision_risk": False,
+        "adjacent_available_height_pt": None,
+        "_allow_short_text_bbox_overflow": True,
+    }
+
+    block = payload_to_render_block(payload)
+    typst = build_typst_block("item-p001-b002", block)
+
+    assert block.font_size_pt == 10.8
+    assert block.fit_to_box is False
+    assert "pdftr_fit_markdown" not in typst
+    assert "pad(top:" in typst
 
 
 def test_body_font_unify_shrinks_large_body_fonts_to_low_page_anchor() -> None:

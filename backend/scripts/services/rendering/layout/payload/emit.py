@@ -3,6 +3,7 @@ from __future__ import annotations
 from services.rendering.layout.model.models import RenderBlock
 from services.rendering.layout.inline_content.core.markdown import build_plain_text_from_text
 from services.rendering.layout.inline_content.mode_router import build_item_render_markdown
+from services.rendering.layout.payload.formula_safety import formula_safe_inner_bbox
 from services.rendering.layout.payload.metrics import resolve_typst_binary_fit
 from services.rendering.layout.payload.line_structure import preserved_line_boxes_for_item
 from services.rendering.layout.payload.toc_structure import render_toc_entries_for_item
@@ -10,6 +11,12 @@ from services.rendering.policy import item_uses_white_overlay_fill
 
 
 def payload_to_render_block(payload: dict) -> RenderBlock:
+    safe_inner_bbox, _formula_insets = formula_safe_inner_bbox(
+        payload["inner_bbox"],
+        payload["translated_text"],
+        payload["formula_map"],
+        font_size_pt=float(payload["font_size_pt"] or 0.0),
+    )
     title_fit = payload.get("title_fit")
     if title_fit is not None:
         fit_to_box = title_fit.fit_to_box
@@ -24,7 +31,7 @@ def payload_to_render_block(payload: dict) -> RenderBlock:
         fit_to_box, fit_min_font_size_pt, fit_min_leading_em, fit_max_height_pt = resolve_typst_binary_fit(
             {
                 **payload["item"],
-                "_render_inner_bbox": payload["inner_bbox"],
+                "_render_inner_bbox": safe_inner_bbox,
                 "_is_body_text_candidate": payload["is_body"],
                 "_dense_small_box": payload["dense_small_box"],
                 "_heavy_dense_small_box": payload["heavy_dense_small_box"],
@@ -41,6 +48,11 @@ def payload_to_render_block(payload: dict) -> RenderBlock:
             adjacent_available_height_pt=payload["adjacent_available_height_pt"],
         )
         if payload.get("_body_font_unified") and not payload.get("prefer_typst_fit") and not fit_to_box:
+            fit_to_box = False
+            fit_min_font_size_pt = 0.0
+            fit_min_leading_em = 0.0
+            fit_max_height_pt = 0.0
+        if payload.get("_allow_short_text_bbox_overflow"):
             fit_to_box = False
             fit_min_font_size_pt = 0.0
             fit_min_leading_em = 0.0

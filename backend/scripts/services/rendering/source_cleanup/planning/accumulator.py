@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from services.rendering.source_cleanup.planning.geometry import rect_tuple
+from services.rendering.source_cleanup.planning.page_features import PageCleanupFeatures
 from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_PAGE_SKIP_COMPLEX
 from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_PAGE_SKIP_NO_TEXT_OVERLAP
 from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND
@@ -17,6 +18,10 @@ class BBoxTextStripCandidateAccumulator:
     skipped_complex_page_indices: set[int] = field(default_factory=set)
     skipped_no_text_overlap_page_indices: set[int] = field(default_factory=set)
     skipped_visual_background_page_indices: set[int] = field(default_factory=set)
+    page_features: dict[int, dict[str, object]] = field(default_factory=dict)
+
+    def add_page_features(self, page_idx: int, features: PageCleanupFeatures) -> None:
+        self.page_features[page_idx] = features.to_manifest()
 
     def add_page_plan(self, page_idx: int, page_plan: BBoxTextStripPagePlan) -> None:
         if page_plan.skip_reason == BBOX_TEXT_STRIP_PAGE_SKIP_COMPLEX:
@@ -44,4 +49,5 @@ class BBoxTextStripCandidateAccumulator:
             skipped_complex_page_indices=frozenset(self.skipped_complex_page_indices),
             skipped_no_text_overlap_page_indices=frozenset(self.skipped_no_text_overlap_page_indices),
             skipped_visual_background_page_indices=frozenset(self.skipped_visual_background_page_indices),
+            page_features=self.page_features,
         )

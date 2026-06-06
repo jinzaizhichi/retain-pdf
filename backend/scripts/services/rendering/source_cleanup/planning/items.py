@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import fitz
 
 from services.rendering.source_cleanup.planning.geometry import ocr_bbox_to_pdf_rect
-from services.rendering.source_cleanup.planning.geometry import ocr_bbox_to_view_rect
+from services.rendering.source_cleanup.planning.coordinate_resolver import PageBBoxResolver
 from services.rendering.source_cleanup.planning.intent_classifier import classify_source_cleanup_intent
 from services.rendering.source_cleanup.planning.rects import merge_rects
 
@@ -21,12 +21,16 @@ class SourceCleanupItemRects:
 def iter_strip_item_rect_pairs_for_page(
     page: fitz.Page,
     translated_items: list[dict],
+    *,
+    resolver: PageBBoxResolver | None = None,
+    prefiltered: bool = False,
 ) -> Iterator[SourceCleanupItemRects]:
+    active_resolver = resolver or PageBBoxResolver.build(page)
     for item in translated_items:
-        if not item_should_emit_strip_rect(item):
+        if not prefiltered and not item_should_emit_strip_rect(item):
             continue
-        pdf_rect = ocr_bbox_to_pdf_rect(page, item.get("bbox", []))
-        view_rect = ocr_bbox_to_view_rect(page, item.get("bbox", []))
+        pdf_rect = active_resolver.ocr_bbox_to_pdf_rect(item.get("bbox", []))
+        view_rect = active_resolver.resolve_bbox_rect(item.get("bbox", []))
         if pdf_rect is not None and view_rect is not None:
             yield SourceCleanupItemRects(item=item, pdf_rect=pdf_rect, view_rect=view_rect)
 

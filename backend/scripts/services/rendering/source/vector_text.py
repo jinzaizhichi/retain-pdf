@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import fitz
 
+from services.rendering.source_cleanup.planning.spatial_index import RectOverlapIndex
+
 
 MAX_GLYPH_HEIGHT_PT = 20.0
 MIN_GLYPH_ITEM_COUNT = 8
@@ -53,6 +55,9 @@ def _looks_like_large_black_text_cluster(drawing: dict) -> bool:
 
 def collect_vector_text_rects(page: fitz.Page, target_rects: list[fitz.Rect]) -> list[fitz.Rect]:
     rects: list[fitz.Rect] = []
+    target_index = RectOverlapIndex.build(target_rects)
+    if not target_index.rects:
+        return rects
     try:
         drawings = page.get_drawings() if "get_drawings" in getattr(page, "__dict__", {}) else (
             page.get_cdrawings() if hasattr(page, "get_cdrawings") else page.get_drawings()
@@ -66,10 +71,15 @@ def collect_vector_text_rects(page: fitz.Page, target_rects: list[fitz.Rect]) ->
         if not small_glyph and not large_cluster:
             continue
         draw_rect = fitz.Rect(drawing["rect"])
-        for target_rect in target_rects:
-            inter = draw_rect & target_rect
-            if inter.is_empty:
-                continue
-            rects.append(draw_rect if small_glyph else inter)
-            break
+        if not target_index.overlaps_any(draw_rect):
+            continue
+        rects.append(draw_rect if small_glyph else _first_target_intersection(draw_rect, target_rects))
     return rects
+
+
+def _first_target_intersection(draw_rect: fitz.Rect, target_rects: list[fitz.Rect]) -> fitz.Rect:
+    for target_rect in target_rects:
+        inter = draw_rect & target_rect
+        if not inter.is_empty:
+            return inter
+    return draw_rect

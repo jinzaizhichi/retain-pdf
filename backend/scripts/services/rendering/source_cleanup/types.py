@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 
 import fitz
@@ -21,12 +22,14 @@ class BBoxTextStripResult:
     pages_skipped_complex: int = 0
     pages_skipped_no_text_overlap: int = 0
     pages_skipped_visual_background: int = 0
+    pages_skipped_form_xobject: int = 0
     pages_strip_no_effect: int = 0
     forms_changed: int = 0
     changed_page_indices: frozenset[int] = frozenset()
     skipped_complex_page_indices: frozenset[int] = frozenset()
     skipped_no_text_overlap_page_indices: frozenset[int] = frozenset()
     skipped_visual_background_page_indices: frozenset[int] = frozenset()
+    skipped_form_xobject_page_indices: frozenset[int] = frozenset()
     strip_no_effect_page_indices: frozenset[int] = frozenset()
     candidates: BBoxTextStripCandidates | None = None
 
@@ -38,9 +41,14 @@ class BBoxTextStripCandidates:
     pages_skipped_complex: int = 0
     pages_skipped_no_text_overlap: int = 0
     pages_skipped_visual_background: int = 0
+    pages_skipped_form_xobject: int = 0
+    pages_strip_no_effect: int = 0
     skipped_complex_page_indices: frozenset[int] = frozenset()
     skipped_no_text_overlap_page_indices: frozenset[int] = frozenset()
     skipped_visual_background_page_indices: frozenset[int] = frozenset()
+    skipped_form_xobject_page_indices: frozenset[int] = frozenset()
+    strip_no_effect_page_indices: frozenset[int] = frozenset()
+    page_features: dict[int, dict[str, object]] = field(default_factory=dict)
 
     def fitz_page_rects(self) -> dict[int, list[fitz.Rect]]:
         return {

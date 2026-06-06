@@ -211,9 +211,17 @@ def bbox_candidates_to_manifest(candidates: BBoxTextStripCandidates) -> dict[str
         "pages_skipped_complex": candidates.pages_skipped_complex,
         "pages_skipped_no_text_overlap": candidates.pages_skipped_no_text_overlap,
         "pages_skipped_visual_background": candidates.pages_skipped_visual_background,
+        "pages_skipped_form_xobject": candidates.pages_skipped_form_xobject,
+        "pages_strip_no_effect": candidates.pages_strip_no_effect,
         "skipped_complex_page_indices": sorted(candidates.skipped_complex_page_indices),
         "skipped_no_text_overlap_page_indices": sorted(candidates.skipped_no_text_overlap_page_indices),
         "skipped_visual_background_page_indices": sorted(candidates.skipped_visual_background_page_indices),
+        "skipped_form_xobject_page_indices": sorted(candidates.skipped_form_xobject_page_indices),
+        "strip_no_effect_page_indices": sorted(candidates.strip_no_effect_page_indices),
+        "page_features": {
+            str(page_idx): dict(features)
+            for page_idx, features in sorted((candidates.page_features or {}).items())
+        },
     }
 
 
@@ -252,6 +260,8 @@ def bbox_candidates_from_manifest(value: object) -> BBoxTextStripCandidates | No
         and not payload.get("skipped_complex_page_indices")
         and not payload.get("skipped_no_text_overlap_page_indices")
         and not payload.get("skipped_visual_background_page_indices")
+        and not payload.get("skipped_form_xobject_page_indices")
+        and not payload.get("strip_no_effect_page_indices")
     ):
         return None
     return BBoxTextStripCandidates(
@@ -260,10 +270,28 @@ def bbox_candidates_from_manifest(value: object) -> BBoxTextStripCandidates | No
         pages_skipped_complex=int(payload.get("pages_skipped_complex") or 0),
         pages_skipped_no_text_overlap=int(payload.get("pages_skipped_no_text_overlap") or 0),
         pages_skipped_visual_background=int(payload.get("pages_skipped_visual_background") or 0),
+        pages_skipped_form_xobject=int(payload.get("pages_skipped_form_xobject") or 0),
+        pages_strip_no_effect=int(payload.get("pages_strip_no_effect") or 0),
         skipped_complex_page_indices=frozenset(int_list(payload.get("skipped_complex_page_indices"))),
         skipped_no_text_overlap_page_indices=frozenset(int_list(payload.get("skipped_no_text_overlap_page_indices"))),
         skipped_visual_background_page_indices=frozenset(int_list(payload.get("skipped_visual_background_page_indices"))),
+        skipped_form_xobject_page_indices=frozenset(int_list(payload.get("skipped_form_xobject_page_indices"))),
+        strip_no_effect_page_indices=frozenset(int_list(payload.get("strip_no_effect_page_indices"))),
+        page_features=page_features_from_manifest(payload.get("page_features")),
     )
+
+
+def page_features_from_manifest(value: object) -> dict[int, dict[str, object]]:
+    features_by_page: dict[int, dict[str, object]] = {}
+    for page_key, raw_features in dict(value or {}).items():
+        try:
+            page_idx = int(page_key)
+        except Exception:
+            continue
+        payload = dict(raw_features or {})
+        if payload:
+            features_by_page[page_idx] = payload
+    return features_by_page
 
 
 __all__ = [

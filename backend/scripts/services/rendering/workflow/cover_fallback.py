@@ -24,17 +24,23 @@ class TypstCoverFallbackPlan:
         precleaned_page_indices: frozenset[int],
         skipped_page_indices: frozenset[int],
     ) -> "TypstCoverFallbackPlan":
+        page_indices = cover_fallback_page_indices(
+            translated_pages=translated_pages,
+            cleanup_strategy=cleanup_strategy,
+            precleaned_page_indices=precleaned_page_indices,
+            skipped_page_indices=skipped_page_indices,
+        )
+        translated_page_indices = frozenset(page_idx for page_idx, items in translated_pages.items() if items)
         return cls(
-            page_indices=cover_fallback_page_indices(
-                translated_pages=translated_pages,
-                cleanup_strategy=cleanup_strategy,
-                precleaned_page_indices=precleaned_page_indices,
-                skipped_page_indices=skipped_page_indices,
-            ),
-            item_ids=cover_fallback_item_ids(
-                source_pdf_path=source_pdf_path,
-                translated_pages=translated_pages,
-                cleanup_strategy=cleanup_strategy,
+            page_indices=page_indices,
+            item_ids=(
+                frozenset()
+                if translated_page_indices <= page_indices
+                else cover_fallback_item_ids(
+                    source_pdf_path=source_pdf_path,
+                    translated_pages=translated_pages,
+                    cleanup_strategy=cleanup_strategy,
+                )
             ),
         )
 
@@ -115,4 +121,3 @@ def cover_fallback_item_ids(
 def _block_source_item_id(block: RenderLayoutBlock) -> str:
     block_id = str(block.block_id or "")
     return block_id.removeprefix("item-")
-

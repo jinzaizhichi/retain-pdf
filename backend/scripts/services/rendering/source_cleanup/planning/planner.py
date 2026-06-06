@@ -4,20 +4,27 @@ from pathlib import Path
 
 import fitz
 
-from services.rendering.source.background.detect import page_has_large_background_image
 from services.rendering.source_cleanup.planning.accumulator import BBoxTextStripCandidateAccumulator
 from services.rendering.source_cleanup.planning.geometry import formula_guard_rects
-from services.rendering.source_cleanup.planning.item_classifier import page_all_strip_items_allow_vector_overlap
+from services.rendering.source_cleanup.planning.geometry import ocr_bbox_to_pdf_rect
 from services.rendering.source_cleanup.planning.item_classifier import item_allows_vector_overlap
 from services.rendering.source_cleanup.planning.items import build_source_item_rects
 from services.rendering.source_cleanup.planning.items import iter_formula_item_rects_for_page
 from services.rendering.source_cleanup.planning.items import iter_strip_item_rect_pairs_for_page
 from services.rendering.source_cleanup.planning.items import iter_strip_item_rects_for_page
+from services.rendering.source_cleanup.planning.items import item_should_emit_strip_rect
 from services.rendering.source_cleanup.planning.page_gate import bbox_text_strip_items_skip_reason
-from services.rendering.source_cleanup.planning.page_gate import bbox_text_strip_page_skip_reason
-from services.rendering.source_cleanup.planning.rect_filter import has_unsafe_vector_overlap
+from services.rendering.source_cleanup.planning.rect_filter import rect_overlaps_any_unsafe_vector
 from services.rendering.source_cleanup.planning.rects import merge_rects
+from services.rendering.source_cleanup.planning.coordinate_resolver import PageBBoxResolver
+from services.rendering.source_cleanup.planning.page_probe import page_has_form_xobjects
+from services.rendering.source_cleanup.planning.page_probe import page_content_stream_too_large
+from services.rendering.source_cleanup.planning.page_features import PageCleanupFeatures
+from services.rendering.source_cleanup.planning.page_features import build_page_cleanup_features
+from services.rendering.source_cleanup.pdf.constants import BBOX_TEXT_STRIP_CONTENT_STREAM_SIZE_THRESHOLD
 from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_PAGE_SKIP_NONE
+from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_PAGE_SKIP_COMPLEX
+from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_PAGE_SKIP_NO_TEXT_OVERLAP
 from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND
 from services.rendering.source_cleanup.types import BBoxTextStripCandidates
 from services.rendering.source_cleanup.types import BBoxTextStripPagePlan
@@ -29,6 +36,7 @@ def plan_source_cleanup(
     source_pdf_path: Path,
     translated_pages: dict[int, list[dict]],
     skip_formula_pages: bool = False,
+    skip_form_xobject_pages: bool = True,
 ) -> BBoxTextStripCandidates:
     accumulator = BBoxTextStripCandidateAccumulator()
     doc = fitz.open(source_pdf_path)
@@ -37,11 +45,15 @@ def plan_source_cleanup(
             if page_idx < 0 or page_idx >= len(doc):
                 continue
             page = doc[page_idx]
+            features = build_page_cleanup_features(doc, page)
+            accumulator.add_page_features(page_idx, features)
             page_plan = plan_source_cleanup_page(
                 doc,
                 page,
                 translated_items=items,
                 skip_formula_pages=skip_formula_pages,
+                skip_form_xobject_pages=skip_form_xobject_pages,
+                features=features,
             )
             accumulator.add_page_plan(page_idx, page_plan)
     finally:
@@ -55,6 +67,8 @@ def plan_source_cleanup_page(
     *,
     translated_items: list[dict],
     skip_formula_pages: bool = False,
+    skip_form_xobject_pages: bool = True,
+    features: PageCleanupFeatures | None = None,
 ) -> BBoxTextStripPagePlan:
     items_skip_reason = bbox_text_strip_items_skip_reason(
         translated_items,
@@ -62,26 +76,31 @@ def plan_source_cleanup_page(
     )
     if items_skip_reason != BBOX_TEXT_STRIP_PAGE_SKIP_NONE:
         return BBoxTextStripPagePlan(skip_reason=items_skip_reason)
-    if page_has_large_background_image(page):
+    strip_items = [item for item in translated_items if item_should_emit_strip_rect(item)]
+    if not strip_items:
+        return BBoxTextStripPagePlan()
+    page_features = features or build_page_cleanup_features(doc, page)
+    if page_features.content_stream_size >= BBOX_TEXT_STRIP_CONTENT_STREAM_SIZE_THRESHOLD:
+        return BBoxTextStripPagePlan(skip_reason=BBOX_TEXT_STRIP_PAGE_SKIP_COMPLEX)
+    if skip_form_xobject_pages and page_features.has_form_xobjects:
+        return _plan_form_xobject_page(page, translated_items=translated_items, strip_items=strip_items)
+
+    resolver = PageBBoxResolver.build(page, bboxes=[item.get("bbox", []) for item in strip_items])
+    strip_pairs = list(iter_strip_item_rect_pairs_for_page(page, strip_items, resolver=resolver, prefiltered=True))
+    item_view_rects = merge_rects([pair.view_rect for pair in strip_pairs if not pair.view_rect.is_empty])
+    if not item_view_rects:
+        return BBoxTextStripPagePlan()
+    if not resolver.text_index.overlaps_any(item_view_rects):
+        return BBoxTextStripPagePlan(skip_reason=BBOX_TEXT_STRIP_PAGE_SKIP_NO_TEXT_OVERLAP)
+    if resolver.has_large_background_image():
         return BBoxTextStripPagePlan(skip_reason=BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND)
 
-    item_rects = build_source_item_rects(page, translated_items)
-    if not item_rects:
-        return BBoxTextStripPagePlan()
-    skip_reason = bbox_text_strip_page_skip_reason(
-        doc,
-        page,
-        source_item_rects=item_rects,
-        allow_vector_overlap=page_all_strip_items_allow_vector_overlap(translated_items),
-    )
-    if skip_reason != BBOX_TEXT_STRIP_PAGE_SKIP_NONE:
-        return BBoxTextStripPagePlan(skip_reason=skip_reason)
-
-    formula_rects = build_page_formula_rects_for_page(page, translated_items=translated_items)
-    source_strip_rects = build_page_strip_source_rects_for_page(page, translated_items=translated_items)
-    strip_rects = build_page_strip_rects_for_page(
-        page,
-        translated_items=translated_items,
+    formula_rects = [rect for _item, rect in iter_formula_item_rects_for_page(page, translated_items)]
+    source_strip_rects = merge_rects([pair.pdf_rect for pair in strip_pairs])
+    strip_rects = _build_page_strip_rects_from_pairs(
+        strip_pairs,
+        formula_rects=formula_rects,
+        unsafe_rects=resolver.unsafe_vector_index,
     )
     protected_rects = build_formula_guard_rects(formula_rects, strip_rects=source_strip_rects)
     return BBoxTextStripPagePlan(
@@ -95,13 +114,52 @@ def build_page_strip_rects_for_page(
     *,
     translated_items: list[dict],
 ) -> list[fitz.Rect]:
-    rects: list[fitz.Rect] = []
     protected_formula_rects = build_page_formula_rects_for_page(page, translated_items=translated_items)
-    for pair in iter_strip_item_rect_pairs_for_page(page, translated_items):
-        if not item_allows_vector_overlap(pair.item) and has_unsafe_vector_overlap(page, pair.view_rect):
+    resolver = PageBBoxResolver.build(page)
+    strip_pairs = list(iter_strip_item_rect_pairs_for_page(page, translated_items, resolver=resolver))
+    return _build_page_strip_rects_from_pairs(
+        strip_pairs,
+        formula_rects=protected_formula_rects,
+        unsafe_rects=resolver.unsafe_vector_index,
+    )
+
+
+def _build_page_strip_rects_from_pairs(
+    strip_pairs: list,
+    *,
+    formula_rects: list[fitz.Rect],
+    unsafe_rects,
+) -> list[fitz.Rect]:
+    rects: list[fitz.Rect] = []
+    for pair in strip_pairs:
+        if not item_allows_vector_overlap(pair.item) and rect_overlaps_any_unsafe_vector(pair.view_rect, unsafe_rects):
             continue
-        rects.extend(strip_segments_for_text_rect(pair.pdf_rect, protected_formula_rects))
+        rects.extend(strip_segments_for_text_rect(pair.pdf_rect, formula_rects))
     return merge_rects(rects)
+
+
+def _plan_form_xobject_page(
+    page: fitz.Page,
+    *,
+    translated_items: list[dict],
+    strip_items: list[dict],
+) -> BBoxTextStripPagePlan:
+    formula_rects = [rect for _item, rect in iter_formula_item_rects_for_page(page, translated_items)]
+    source_strip_rects = [
+        rect
+        for item in strip_items
+        if (rect := ocr_bbox_to_pdf_rect(page, item.get("bbox", []))) is not None
+    ]
+    strip_rects = merge_rects(
+        segment
+        for rect in source_strip_rects
+        for segment in strip_segments_for_text_rect(rect, formula_rects)
+    )
+    protected_rects = build_formula_guard_rects(formula_rects, strip_rects=merge_rects(source_strip_rects))
+    return BBoxTextStripPagePlan(
+        strip_rects=tuple(strip_rects),
+        protected_rects=tuple(protected_rects),
+    )
 
 
 def item_ids_with_uncovered_unsafe_vector_overlap(
@@ -123,13 +181,20 @@ def item_ids_with_uncovered_unsafe_vector_overlap(
 
 def page_uncovered_unsafe_vector_item_ids(page: fitz.Page, translated_items: list[dict]) -> frozenset[str]:
     item_ids: set[str] = set()
-    for pair in iter_strip_item_rect_pairs_for_page(page, translated_items):
+    strip_items = [item for item in translated_items if item_should_emit_strip_rect(item)]
+    if not strip_items:
+        return frozenset()
+    resolver = PageBBoxResolver.build(page, bboxes=[item.get("bbox", []) for item in strip_items])
+    unsafe_rects = resolver.unsafe_vector_index
+    if not unsafe_rects.rects:
+        return frozenset()
+    for pair in iter_strip_item_rect_pairs_for_page(page, strip_items, resolver=resolver, prefiltered=True):
         item_id = str(pair.item.get("item_id") or "").strip()
         if not item_id:
             continue
         if item_allows_vector_overlap(pair.item):
             continue
-        if has_unsafe_vector_overlap(page, pair.view_rect):
+        if rect_overlaps_any_unsafe_vector(pair.view_rect, unsafe_rects):
             item_ids.add(item_id)
     return frozenset(item_ids)
 

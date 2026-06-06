@@ -12,6 +12,8 @@ class SourceCleanupOptions:
     strategy: str = "pikepdf_text_strip"
     skip_formula_pages: bool = False
     recurse_forms: bool | None = None
+    skip_form_xobject_pages: bool = True
+    max_elapsed_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -49,5 +51,6 @@ class SourceCleanupResult:
             self.bbox_text_strip.skipped_complex_page_indices
             | self.bbox_text_strip.skipped_no_text_overlap_page_indices
             | self.bbox_text_strip.skipped_visual_background_page_indices
+            | self.bbox_text_strip.skipped_form_xobject_page_indices
             | self.bbox_text_strip.strip_no_effect_page_indices
         )

@@ -40,7 +40,8 @@ def strip_bbox_text_from_stream(
     initial_ctm: PdfMatrix = IDENTITY_MATRIX,
     visited_forms: set[tuple[int, int]] | None = None,
 ) -> tuple[bytes | None, int, int]:
-    instructions = list(pikepdf.parse_content_stream(stream_obj))
+    parsed_instructions = pikepdf.parse_content_stream(stream_obj)
+    instructions = parsed_instructions if isinstance(parsed_instructions, list) else list(parsed_instructions)
     if not instructions or not rects:
         return None, 0, 0
 

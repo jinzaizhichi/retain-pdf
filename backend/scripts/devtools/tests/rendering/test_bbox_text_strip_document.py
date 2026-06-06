@@ -23,6 +23,10 @@ from services.rendering.source_cleanup.pdf import pdf_math
 from services.rendering.source_cleanup.pdf import text_ops
 from services.rendering.source_cleanup import build_bbox_text_stripped_pdf_copy
 from services.rendering.source_cleanup import strip_bbox_text_rects_from_pdf_copy
+from services.rendering.source.render_source import build_render_source_pdf
+from services.rendering.source.prewarm_manifest_io import bbox_candidates_from_manifest
+from services.rendering.source.prewarm_manifest_io import bbox_candidates_to_manifest
+from services.rendering.source_cleanup.types import BBoxTextStripCandidates
 from services.rendering.source_cleanup.planning.intent_classifier import classify_source_cleanup_intent
 from services.rendering.source_cleanup.planning import segments
 
@@ -683,6 +687,132 @@ def test_bbox_text_strip_clones_shared_form_xobject_before_rewrite() -> None:
         assert text.count("FORMTEXT") == 1
 
 
+def test_bbox_text_strip_executor_skips_form_xobject_pages_for_cover_fallback() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "stripped.pdf"
+        pdf = pikepdf.Pdf.new()
+        page = pdf.add_blank_page(page_size=(240, 180))
+        form = pdf.make_stream(b"BT /F1 12 Tf 0 0 Td (FORMTEXT) Tj ET")
+        form[Name("/Type")] = Name("/XObject")
+        form[Name("/Subtype")] = Name("/Form")
+        form[Name("/BBox")] = pikepdf.Array([0, 0, 120, 30])
+        form[Name("/Resources")] = pikepdf.Dictionary(
+            Font=pikepdf.Dictionary(
+                F1=pikepdf.Dictionary(
+                    Type=Name("/Font"),
+                    Subtype=Name("/Type1"),
+                    BaseFont=Name("/Helvetica"),
+                )
+            )
+        )
+        page.obj[Name("/Resources")] = pikepdf.Dictionary(XObject=pikepdf.Dictionary(Fm1=form))
+        page.obj[Name("/Contents")] = pdf.make_stream(b"q 1 0 0 1 30 50 cm /Fm1 Do Q\n")
+        pdf.save(source_pdf)
+
+        result = build_bbox_text_stripped_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            translated_pages={
+                0: [
+                    {
+                        "block_kind": "text",
+                        "bbox": [20.0, 40.0, 180.0, 75.0],
+                        "protected_translated_text": "译文",
+                    }
+                ]
+            },
+        )
+
+        assert result.changed is False
+        assert result.skipped_form_xobject_page_indices == frozenset({0})
+        assert output_pdf.exists() is False
+
+
+def test_bbox_text_strip_skips_form_recursion_but_keeps_page_text_fast_path() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "stripped.pdf"
+        pdf = pikepdf.Pdf.new()
+        page = pdf.add_blank_page(page_size=(240, 180))
+        form = pdf.make_stream(b"BT /F1 12 Tf 0 0 Td (FORMTEXT) Tj ET")
+        form[Name("/Type")] = Name("/XObject")
+        form[Name("/Subtype")] = Name("/Form")
+        form[Name("/BBox")] = pikepdf.Array([0, 0, 120, 30])
+        font = pikepdf.Dictionary(
+            Type=Name("/Font"),
+            Subtype=Name("/Type1"),
+            BaseFont=Name("/Helvetica"),
+        )
+        page.obj[Name("/Resources")] = pikepdf.Dictionary(
+            Font=pikepdf.Dictionary(F1=font),
+            XObject=pikepdf.Dictionary(Fm1=form),
+        )
+        page.obj[Name("/Contents")] = pdf.make_stream(
+            b"BT /F1 12 Tf 30 50 Td (PAGETEXT) Tj ET\n"
+            b"q 1 0 0 1 30 100 cm /Fm1 Do Q\n"
+        )
+        pdf.save(source_pdf)
+
+        result = strip_bbox_text_rects_from_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            page_rects={0: [fitz.Rect(20.0, 35.0, 180.0, 70.0)]},
+            recurse_forms=True,
+            skip_form_xobject_pages=True,
+        )
+
+        assert result.changed is True
+        assert result.skipped_form_xobject_page_indices == frozenset({0})
+        stripped = fitz.open(output_pdf)
+        try:
+            text = stripped[0].get_text()
+        finally:
+            stripped.close()
+        assert "PAGETEXT" not in text
+        assert "FORMTEXT" in text
+
+
+def test_render_source_skips_physical_strip_for_large_overlay_cover_path() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "translated.pdf"
+        doc = fitz.open()
+        for _index in range(121):
+            page = doc.new_page(width=120, height=120)
+            page.insert_text((10, 30), "source", fontsize=10)
+        doc.save(source_pdf)
+        doc.close()
+
+        translated_pages = {
+            index: [
+                {
+                    "block_kind": "text",
+                    "bbox": [5.0, 15.0, 90.0, 45.0],
+                    "protected_translated_text": "译文",
+                }
+            ]
+            for index in range(121)
+        }
+
+        result = build_render_source_pdf(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            pdf_compress_dpi=0,
+            translated_pages=translated_pages,
+            strip_hidden_text=False,
+            artifact_mode=True,
+            source_cleanup_strategy="pikepdf_text_strip",
+        )
+
+        assert result.path == source_pdf
+        assert result.bbox_text_stripped_page_indices == frozenset()
+        assert len(result.bbox_text_strip_skipped_page_indices) == 121
+
+
 def test_bbox_text_strip_single_worker_preserves_form_recursion(monkeypatch: pytest.MonkeyPatch) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -725,6 +855,47 @@ def test_bbox_text_strip_single_worker_preserves_form_recursion(monkeypatch: pyt
 def test_bbox_text_strip_parallel_worker_count_scales_for_medium_documents() -> None:
     assert source_cleanup_document._parallel_worker_count(30) >= 2
     assert source_cleanup_document._parallel_worker_count(500) <= source_cleanup_document.BBOX_TEXT_STRIP_PARALLEL_MAX_WORKERS
+
+
+def test_bbox_text_strip_chunks_balance_decoded_stream_weights() -> None:
+    pdf = pikepdf.Pdf.new()
+    sizes = [1200, 1100, 1000, 220, 210, 200, 190, 180, 170]
+    for size in sizes:
+        page = pdf.add_blank_page(page_size=(120, 120))
+        page.obj[Name("/Contents")] = pdf.make_stream(b"q\n" + (b" " * size) + b"\nQ")
+
+    page_rects = {
+        index: [fitz.Rect(10.0, 10.0, 60.0, 40.0)]
+        for index in range(len(sizes))
+    }
+
+    chunks = source_cleanup_document._page_chunks(pdf, page_rects, {}, 3)
+    loads = [sum(weight for _page_idx, weight, _rects, _protected in chunk) for chunk in chunks]
+
+    assert len(chunks) == 3
+    assert max(loads) - min(loads) < max(sizes)
+
+
+def test_bbox_text_strip_candidates_manifest_preserves_runtime_skip_metadata() -> None:
+    candidates = BBoxTextStripCandidates(
+        page_rects={1: ((10.0, 20.0, 30.0, 40.0),)},
+        page_protected_rects={1: ((12.0, 22.0, 18.0, 28.0),)},
+        pages_skipped_complex=1,
+        pages_skipped_form_xobject=2,
+        pages_strip_no_effect=3,
+        skipped_complex_page_indices=frozenset({4}),
+        skipped_form_xobject_page_indices=frozenset({5, 6}),
+        strip_no_effect_page_indices=frozenset({7, 8, 9}),
+        page_features={1: {"content_stream_size": 1234, "has_form_xobjects": True}},
+    )
+
+    restored = bbox_candidates_from_manifest(bbox_candidates_to_manifest(candidates))
+
+    assert restored is not None
+    assert restored.page_rects == candidates.page_rects
+    assert restored.skipped_form_xobject_page_indices == frozenset({5, 6})
+    assert restored.strip_no_effect_page_indices == frozenset({7, 8, 9})
+    assert restored.page_features[1]["content_stream_size"] == 1234
 
 
 def test_text_state_advance_uses_font_size_spacing_and_tj_adjustments() -> None:

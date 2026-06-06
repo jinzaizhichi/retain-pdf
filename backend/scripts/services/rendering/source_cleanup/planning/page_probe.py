@@ -14,6 +14,17 @@ def page_has_text_overlap(
     return text_overlap_count > 0
 
 
+def text_rects_overlap_targets(
+    text_rects: tuple[fitz.Rect, ...],
+    target_rects: list[fitz.Rect],
+) -> bool:
+    return any(
+        not (text_rect & target_rect).is_empty
+        for text_rect in text_rects
+        for target_rect in target_rects
+    )
+
+
 def page_has_vector_overlap_in_text_rects(
     page: fitz.Page,
     target_rects: list[fitz.Rect],
@@ -32,6 +43,13 @@ def page_has_vector_overlap_in_text_rects(
 
 def page_content_stream_too_large(doc: fitz.Document, page: fitz.Page) -> bool:
     return page_content_stream_size(doc, page) >= BBOX_TEXT_STRIP_CONTENT_STREAM_SIZE_THRESHOLD
+
+
+def page_has_form_xobjects(page: fitz.Page) -> bool:
+    try:
+        return bool(page.get_xobjects())
+    except Exception:
+        return True
 
 
 def page_bboxlog_stats(

@@ -7,11 +7,11 @@ import fitz
 
 from services.rendering.output.typst.compiler import TypstCompileError
 from services.rendering.output.typst.overlay_source_cache import PAGE_SIZE_TOLERANCE_PT
+from services.rendering.performance import FAST_PATCH_PAGE_THRESHOLD
 
 
 OVERLAY_STEM_RE = re.compile(r"\bbook-overlay-(\d{3,})\b")
 OVERLAY_BLOCK_ID_RE = re.compile(r"\bp(\d+)_")
-FAST_PATCH_PAGE_THRESHOLD = 120
 
 
 def can_use_pikepdf_book_overlay(

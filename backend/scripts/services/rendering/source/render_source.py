@@ -12,6 +12,8 @@ from services.rendering.source_cleanup import SourceCleanupOptions
 from services.rendering.source_cleanup import SourceCleanupRequest
 from services.rendering.source_cleanup import execute_source_cleanup
 from services.rendering.output.typst.shared import default_typst_temp_root
+from services.rendering.performance import should_use_fast_overlay_cover_path
+from services.rendering.performance import source_cleanup_max_seconds
 from foundation.config import layout
 
 
@@ -86,41 +88,58 @@ def build_render_source_pdf(
         print("render source pdf: hidden-text strip skipped", flush=True)
 
     if translated_pages and layout.use_bbox_text_strip_cleanup(source_cleanup_strategy):
-        bbox_started = time.perf_counter()
-        bbox_text_stripped_path = work_root / f"{output_pdf_path.stem}.source-bbox-text-stripped.pdf"
-        source_cleanup_result = execute_source_cleanup(
-            SourceCleanupRequest(
-                source_pdf_path=render_source_path,
-                output_pdf_path=bbox_text_stripped_path,
-                translated_pages=translated_pages,
-                candidates=bbox_text_strip_candidates,
-                options=SourceCleanupOptions(
-                    strategy=source_cleanup_strategy,
-                    skip_formula_pages=False,
-                ),
-            )
-        )
-        bbox_text_result = source_cleanup_result.bbox_text_strip
-        print(f"render source pdf: bbox-text strip elapsed={time.perf_counter() - bbox_started:.2f}s", flush=True)
-        bbox_text_stripped_page_indices = bbox_text_result.changed_page_indices
-        bbox_text_strip_skipped_page_indices = (
-            bbox_text_result.skipped_complex_page_indices
-            | bbox_text_result.skipped_no_text_overlap_page_indices
-            | bbox_text_result.skipped_visual_background_page_indices
-            | bbox_text_result.strip_no_effect_page_indices
-        )
-        source_text_precleaned_page_indices = bbox_text_result.changed_page_indices
-        bbox_text_strip_candidates = bbox_text_result.candidates
-        if bbox_text_result.changed and bbox_text_result.output_pdf_path is not None:
-            render_source_path = bbox_text_result.output_pdf_path
-            if not artifact_mode:
-                temp_paths.append(render_source_path)
+        translated_page_indices = frozenset(page_idx for page_idx, items in translated_pages.items() if items)
+        if should_use_fast_overlay_cover_path(
+            translated_page_count=len(translated_page_indices),
+            strip_hidden_text=strip_hidden_text,
+        ):
+            bbox_text_strip_skipped_page_indices = translated_page_indices
             print(
-                f"render source pdf: using bbox-text stripped copy {render_source_path}",
+                "render source pdf: bbox-text strip skipped "
+                f"fast-overlay-cover-path pages={len(bbox_text_strip_skipped_page_indices)}",
                 flush=True,
             )
         else:
-            bbox_text_stripped_path.unlink(missing_ok=True)
+            bbox_started = time.perf_counter()
+            bbox_text_stripped_path = work_root / f"{output_pdf_path.stem}.source-bbox-text-stripped.pdf"
+            source_cleanup_result = execute_source_cleanup(
+                SourceCleanupRequest(
+                    source_pdf_path=render_source_path,
+                    output_pdf_path=bbox_text_stripped_path,
+                    translated_pages=translated_pages,
+                    candidates=bbox_text_strip_candidates,
+                    options=SourceCleanupOptions(
+                        strategy=source_cleanup_strategy,
+                        skip_formula_pages=False,
+                        max_elapsed_seconds=source_cleanup_max_seconds(),
+                    ),
+                )
+            )
+            bbox_text_result = source_cleanup_result.bbox_text_strip
+            print(f"render source pdf: bbox-text strip elapsed={time.perf_counter() - bbox_started:.2f}s", flush=True)
+            bbox_text_stripped_page_indices = bbox_text_result.changed_page_indices
+            bbox_text_strip_skipped_page_indices = (
+                bbox_text_result.skipped_complex_page_indices
+                | bbox_text_result.skipped_no_text_overlap_page_indices
+                | bbox_text_result.skipped_visual_background_page_indices
+                | bbox_text_result.skipped_form_xobject_page_indices
+                | bbox_text_result.strip_no_effect_page_indices
+            )
+            source_text_precleaned_page_indices = (
+                bbox_text_result.changed_page_indices
+                - bbox_text_result.skipped_form_xobject_page_indices
+            )
+            bbox_text_strip_candidates = bbox_text_result.candidates
+            if bbox_text_result.changed and bbox_text_result.output_pdf_path is not None:
+                render_source_path = bbox_text_result.output_pdf_path
+                if not artifact_mode:
+                    temp_paths.append(render_source_path)
+                print(
+                    f"render source pdf: using bbox-text stripped copy {render_source_path}",
+                    flush=True,
+                )
+            else:
+                bbox_text_stripped_path.unlink(missing_ok=True)
 
     if pdf_compress_dpi <= 0:
         return RenderSourcePdf(

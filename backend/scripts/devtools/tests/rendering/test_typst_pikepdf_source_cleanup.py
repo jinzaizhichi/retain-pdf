@@ -149,6 +149,24 @@ def test_typst_cover_fallback_plan_marks_only_target_items() -> None:
     assert "_render_policy" not in untouched
     assert fallback["_render_policy"]["overlay_fill"] == "white"
     assert fallback["_render_policy"]["reason"] == "typst_item_cover_fallback"
+    assert plan.diagnostics() == {
+        "typst_cover_fallback_pages": {"count": 0, "head": [], "tail": []},
+        "typst_cover_fallback_items": {"count": 1, "head": ["p001-b002"], "tail": []},
+    }
+
+
+def test_typst_cover_fallback_plan_diagnostics_summarizes_large_sets() -> None:
+    plan = TypstCoverFallbackPlan(
+        page_indices=frozenset(range(25)),
+        item_ids=frozenset(f"p001-b{idx:03d}" for idx in range(25)),
+    )
+
+    diagnostics = plan.diagnostics()
+
+    assert diagnostics["typst_cover_fallback_pages"]["count"] == 25
+    assert diagnostics["typst_cover_fallback_pages"]["head"] == list(range(20))
+    assert diagnostics["typst_cover_fallback_pages"]["tail"] == list(range(5, 25))
+    assert diagnostics["typst_cover_fallback_items"]["count"] == 25
 
 
 def test_typst_cover_fallback_plan_marks_only_target_page_spec_blocks() -> None:
@@ -301,4 +319,3 @@ def test_typst_book_overlay_keeps_default_fraction_layout() -> None:
 
     assert 'math.frac(style: "horizontal")' not in source
     assert r"\\frac{a}{b}" in source
-

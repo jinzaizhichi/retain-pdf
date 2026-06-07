@@ -199,6 +199,7 @@ def run_book_pipeline(
         "translate_elapsed": translate_elapsed,
         "save_elapsed": save_elapsed,
         "render_preprocess_elapsed": render_preprocess_elapsed,
+        "render_diagnostics": render_summary.get("render_diagnostics", {}),
         "total_elapsed": total_elapsed,
         "effective_render_mode": render_summary["effective_render_mode"],
         "translation_diagnostics_path": str(diagnostics_path) if diagnostics_summary else "",

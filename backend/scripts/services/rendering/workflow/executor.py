@@ -181,6 +181,7 @@ def execute_render_plan(
                 if render_source_pdf.bbox_text_strip_candidates is not None
                 else 0
             ),
+            **cover_fallback_plan.diagnostics(),
         }
         for temp_source_path in render_source_pdf.temp_paths:
             temp_source_path.unlink(missing_ok=True)

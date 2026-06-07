@@ -56,6 +56,14 @@ class TypstCoverFallbackPlan:
     def active(self) -> bool:
         return bool(self.page_indices or self.item_ids)
 
+    def diagnostics(self) -> dict[str, object]:
+        page_indices = sorted(self.page_indices)
+        item_ids = sorted(self.item_ids)
+        return {
+            "typst_cover_fallback_pages": _summary(page_indices),
+            "typst_cover_fallback_items": _summary(item_ids),
+        }
+
     def _patch_page_spec(self, spec: RenderPageSpec) -> RenderPageSpec:
         blocks = [self._patch_block(spec.page_index, block) for block in spec.blocks]
         if blocks == spec.blocks:
@@ -121,3 +129,11 @@ def cover_fallback_item_ids(
 def _block_source_item_id(block: RenderLayoutBlock) -> str:
     block_id = str(block.block_id or "")
     return block_id.removeprefix("item-")
+
+
+def _summary(values: list) -> dict[str, object]:
+    return {
+        "count": len(values),
+        "head": values[:20],
+        "tail": values[-20:] if len(values) > 20 else [],
+    }

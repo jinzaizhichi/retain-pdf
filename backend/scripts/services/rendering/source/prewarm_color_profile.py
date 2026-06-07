@@ -19,15 +19,17 @@ def build_render_color_profile_manifest(
     translated_pages: dict[int, list[dict]],
     first_line_indent_lookup: dict[str, float],
     effective_inner_bbox_lookup: dict[str, list[float]],
+    prepared_translated_pages: dict[int, list[dict]] | None = None,
+    color_adapted_pages: dict[int, list[dict]] | None = None,
 ) -> dict[str, Any]:
     try:
-        prepared = prepare_translated_pages_for_render(
+        prepared = prepared_translated_pages or prepare_translated_pages_for_render(
             source_pdf_path,
             translated_pages,
             first_line_indent_lookup=first_line_indent_lookup,
             effective_inner_bbox_lookup=effective_inner_bbox_lookup,
         )
-        adapted = apply_page_color_adapt_for_prewarm(source_pdf_path, prepared)
+        adapted = color_adapted_pages or apply_page_color_adapt_for_prewarm(source_pdf_path, prepared)
         colors: dict[str, dict[str, list[float]]] = {}
         for items in adapted.values():
             for item in items:

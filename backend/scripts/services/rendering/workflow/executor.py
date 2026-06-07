@@ -18,6 +18,7 @@ from services.rendering.source.prewarm import try_load_prewarmed_render_source_p
 from services.rendering.source.prewarm import try_load_render_payload_prewarm
 from services.rendering.source.prewarm_fingerprint import build_render_prewarm_fingerprint
 from services.rendering.source.prewarm_manifest import write_json_atomic
+from services.rendering.source.prewarm_manifest_io import bbox_candidates_to_manifest
 from services.rendering.source.prewarm_manifest_io import build_prewarm_manifest
 
 
@@ -170,6 +171,16 @@ def execute_render_plan(
             "source_text_precleaned_pages": len(render_source_pdf.source_text_precleaned_page_indices),
             "bbox_text_stripped_pages": len(render_source_pdf.bbox_text_stripped_page_indices),
             "bbox_text_strip_skipped_pages": len(render_source_pdf.bbox_text_strip_skipped_page_indices),
+            "bbox_text_strip_candidate_source": (
+                render_source_pdf.bbox_text_strip_candidates.candidate_source
+                if render_source_pdf.bbox_text_strip_candidates is not None
+                else ""
+            ),
+            "bbox_text_strip_candidate_pages": (
+                len(render_source_pdf.bbox_text_strip_candidates.page_rects)
+                if render_source_pdf.bbox_text_strip_candidates is not None
+                else 0
+            ),
         }
         for temp_source_path in render_source_pdf.temp_paths:
             temp_source_path.unlink(missing_ok=True)
@@ -205,6 +216,7 @@ def _persist_sync_render_source_prewarm(
                 source_cleanup_strategy=source_cleanup_strategy,
             ),
             elapsed=elapsed,
+            payload_prewarm=_sync_source_payload_prewarm(prepared),
         )
         write_json_atomic(manifest_path, manifest)
         print(f"render prewarm: cached synchronous source manifest={manifest_path}", flush=True)
@@ -212,6 +224,15 @@ def _persist_sync_render_source_prewarm(
     except Exception as exc:
         print(f"render prewarm: sync source cache write failed {type(exc).__name__}: {exc}", flush=True)
         return False
+
+
+def _sync_source_payload_prewarm(prepared) -> dict[str, object]:
+    candidates = getattr(prepared, "bbox_text_strip_candidates", None)
+    if candidates is None:
+        return {}
+    return {
+        "bbox_text_strip_candidates": bbox_candidates_to_manifest(candidates),
+    }
 
 
 def _dispatch_render_mode(

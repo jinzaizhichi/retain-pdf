@@ -893,6 +893,8 @@ def test_bbox_text_strip_candidates_manifest_preserves_runtime_skip_metadata() -
 
     assert restored is not None
     assert restored.page_rects == candidates.page_rects
+    assert candidates.candidate_source == "fresh_plan"
+    assert restored.candidate_source == "manifest"
     assert restored.skipped_form_xobject_page_indices == frozenset({5, 6})
     assert restored.strip_no_effect_page_indices == frozenset({7, 8, 9})
     assert restored.page_features[1]["content_stream_size"] == 1234

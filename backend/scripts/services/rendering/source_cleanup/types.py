@@ -11,6 +11,8 @@ BBOX_TEXT_STRIP_PAGE_SKIP_NONE = "none"
 BBOX_TEXT_STRIP_PAGE_SKIP_COMPLEX = "complex"
 BBOX_TEXT_STRIP_PAGE_SKIP_NO_TEXT_OVERLAP = "no_text_overlap"
 BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND = "visual_background"
+BBOX_TEXT_STRIP_CANDIDATE_SOURCE_FRESH_PLAN = "fresh_plan"
+BBOX_TEXT_STRIP_CANDIDATE_SOURCE_MANIFEST = "manifest"
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,7 @@ class BBoxTextStripResult:
 class BBoxTextStripCandidates:
     page_rects: dict[int, tuple[tuple[float, float, float, float], ...]]
     page_protected_rects: dict[int, tuple[tuple[float, float, float, float], ...]] | None = None
+    candidate_source: str = BBOX_TEXT_STRIP_CANDIDATE_SOURCE_FRESH_PLAN
     pages_skipped_complex: int = 0
     pages_skipped_no_text_overlap: int = 0
     pages_skipped_visual_background: int = 0

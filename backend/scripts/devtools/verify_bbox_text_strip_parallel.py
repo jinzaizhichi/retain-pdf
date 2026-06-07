@@ -20,8 +20,8 @@ REPO_ROOT = SCRIPTS_ROOT.parents[1]
 sys.path.insert(0, str(SCRIPTS_ROOT))
 
 
-from services.rendering.source.preparation.bbox_text_strip import strip_bbox_text_rects_from_pdf_copy
-from services.rendering.source.preparation.bbox_text_strip_types import BBoxTextStripResult
+from services.rendering.source_cleanup.pdf.document import strip_bbox_text_rects_from_pdf_copy
+from services.rendering.source_cleanup.types import BBoxTextStripResult
 
 
 DEFAULT_SOURCE_PDF = REPO_ROOT / "data" / "temPDF" / "test3.pdf"

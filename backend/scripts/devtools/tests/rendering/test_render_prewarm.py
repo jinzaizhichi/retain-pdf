@@ -21,6 +21,7 @@ from services.rendering.source.prewarm import start_render_source_prewarm
 from services.rendering.source.prewarm import try_load_render_payload_prewarm
 from services.rendering.source.prewarm import try_load_prewarmed_render_source_pdf
 from services.rendering.source.prewarm import _pages_for_prewarm_mode_probe
+from services.rendering.source.prewarm_payload import first_line_indent_from_item_lines
 from services.rendering.source.prewarm_page_specs import render_page_specs_from_manifest
 from services.rendering.workflow.executor import execute_render_plan
 from runtime.pipeline.render_preprocess import run_ocr_render_preprocess
@@ -32,6 +33,29 @@ def _source_pdf(path: Path) -> None:
     page.insert_text((20, 40), "inside source", fontsize=12)
     doc.save(path)
     doc.close()
+
+
+def test_first_line_indent_from_item_lines_uses_structured_line_bboxes() -> None:
+    item = {
+        "lines": [
+            {"bbox": [42.0, 10.0, 180.0, 20.0]},
+            {"bbox": [24.0, 22.0, 180.0, 32.0]},
+            {"bbox": [24.5, 34.0, 180.0, 44.0]},
+        ]
+    }
+
+    assert first_line_indent_from_item_lines(item, font_size_pt=12.0) == 17.75
+
+
+def test_first_line_indent_from_item_lines_ignores_small_offsets() -> None:
+    item = {
+        "lines": [
+            {"bbox": [29.0, 10.0, 180.0, 20.0]},
+            {"bbox": [24.0, 22.0, 180.0, 32.0]},
+        ]
+    }
+
+    assert first_line_indent_from_item_lines(item, font_size_pt=12.0) == 0.0
 
 
 def _pseudo_editable_scan_pdf(path: Path) -> None:
@@ -308,6 +332,19 @@ def test_render_plan_persists_sync_source_prewarm_for_next_render() -> None:
         assert pages == 1
         assert manifest_path.exists()
         assert any(path.name.endswith(".source-bbox-text-stripped.pdf") for path in artifacts_dir.rglob("*.pdf"))
+        payload_prewarm = try_load_render_payload_prewarm(
+            manifest_path=manifest_path,
+            source_pdf_path=source_pdf,
+            translated_pages=_translated_page_payload(),
+            effective_render_mode="overlay",
+            start_page=0,
+            end_page=0,
+            pdf_compress_dpi=0,
+            source_cleanup_strategy="bbox_text_strip",
+        )
+        assert payload_prewarm is not None
+        assert payload_prewarm.bbox_text_strip_candidates is not None
+        assert payload_prewarm.bbox_text_strip_candidates.candidate_source == "manifest"
 
         with mock.patch(
             "services.rendering.workflow.executor.build_render_source_pdf",
@@ -327,6 +364,9 @@ def test_render_plan_persists_sync_source_prewarm_for_next_render() -> None:
             )
 
         assert pages == 1
+        diagnostics = dict(getattr(execute_render_plan, "last_render_diagnostics", {}) or {})
+        assert diagnostics["bbox_text_strip_candidate_source"] == "manifest"
+        assert diagnostics["bbox_text_strip_candidate_pages"] > 0
 
 
 def test_ocr_render_preprocess_manifest_matches_translated_payload() -> None:

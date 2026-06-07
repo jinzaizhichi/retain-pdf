@@ -23,6 +23,15 @@ def execute_source_cleanup(request: SourceCleanupRequest) -> SourceCleanupResult
         skip_formula_pages=request.options.skip_formula_pages,
         skip_form_xobject_pages=request.options.skip_form_xobject_pages,
     )
+    print(
+        "source cleanup: bbox candidates "
+        f"source={candidates.candidate_source} pages={len(candidates.page_rects)} "
+        f"skipped_complex={candidates.pages_skipped_complex} "
+        f"skipped_visual_background={candidates.pages_skipped_visual_background} "
+        f"skipped_form_xobject={candidates.pages_skipped_form_xobject} "
+        f"strip_no_effect={candidates.pages_strip_no_effect}",
+        flush=True,
+    )
     result = build_bbox_text_stripped_pdf_copy(
         source_pdf_path=request.source_pdf_path,
         output_pdf_path=request.output_pdf_path,
@@ -102,6 +111,7 @@ def build_bbox_text_stripped_pdf_copy(
         pre_skipped_form_xobject_page_indices=skipped_form_xobject_page_indices,
         pre_strip_no_effect_page_indices=strip_no_effect_page_indices,
         candidate_elapsed=candidate_elapsed,
+        candidate_source=candidates.candidate_source,
         max_elapsed_seconds=max_elapsed_seconds,
     )
     return replace(result, candidates=_candidates_with_runtime_metadata(candidates, result))

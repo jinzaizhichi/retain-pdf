@@ -45,6 +45,7 @@ def strip_bbox_text_rects_from_pdf_copy(
     pre_skipped_form_xobject_page_indices: frozenset[int] = frozenset(),
     pre_strip_no_effect_page_indices: frozenset[int] = frozenset(),
     candidate_elapsed: float = 0.0,
+    candidate_source: str = "unknown",
     max_elapsed_seconds: float | None = None,
 ) -> BBoxTextStripResult:
     page_protected_rects = page_protected_rects or {}
@@ -146,7 +147,7 @@ def strip_bbox_text_rects_from_pdf_copy(
         f"skipped_visual_background_pages={skipped_visual_background} "
         f"skipped_form_xobject_pages={len(skipped_form_xobject_page_indices)} "
         f"strip_no_effect_pages={len(strip_no_effect_page_indices)} "
-        f"candidates={candidate_elapsed:.2f}s open={open_elapsed:.2f}s "
+        f"candidate_source={candidate_source} candidates={candidate_elapsed:.2f}s open={open_elapsed:.2f}s "
         f"rewrite={parse_elapsed:.2f}s apply={apply_timings.elapsed:.2f}s "
         f"make_stream={apply_timings.make_stream_elapsed:.2f}s assign={apply_timings.assign_elapsed:.2f}s "
         f"save={save_elapsed:.2f}s close={close_elapsed:.2f}s "

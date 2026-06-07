@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_CANDIDATE_SOURCE_MANIFEST
 from services.rendering.source_cleanup.types import BBoxTextStripCandidates
 from services.rendering.source.prewarm_color_profile import render_colors_from_manifest
 from services.rendering.source.prewarm_contracts import BBOX_TEXT_STRIP_ALGORITHM_VERSION
@@ -73,6 +74,9 @@ def try_load_prewarmed_render_source_pdf(
         if render_source_path is None or not render_source_path.exists():
             print("render prewarm: source file missing; fallback to synchronous render source prep", flush=True)
             return None
+        bbox_candidates = bbox_candidates_from_manifest(
+            dict(manifest.get("payload_prewarm") or {}).get("bbox_text_strip_candidates")
+        )
         print(f"render prewarm: hit source={render_source_path}", flush=True)
         return RenderSourcePdf(
             path=render_source_path,
@@ -81,6 +85,7 @@ def try_load_prewarmed_render_source_pdf(
             bbox_text_stripped_page_indices=frozenset(int_list(render_source.get("bbox_text_stripped_page_indices"))),
             bbox_text_strip_skipped_page_indices=frozenset(int_list(render_source.get("bbox_text_strip_skipped_page_indices"))),
             source_text_precleaned_page_indices=frozenset(int_list(render_source.get("source_text_precleaned_page_indices"))),
+            bbox_text_strip_candidates=bbox_candidates,
         )
     except Exception as exc:
         print(f"render prewarm: load failed {type(exc).__name__}: {exc}; fallback", flush=True)
@@ -138,6 +143,7 @@ def try_load_render_payload_prewarm(
         f"render payload prewarm: hit indents={len(first_line_indent_lookup)} "
         f"geometry={len(effective_inner_bbox_lookup)} "
         f"bbox_pages={len(bbox_candidates.page_rects) if bbox_candidates is not None else 0} "
+        f"bbox_source={bbox_candidates.candidate_source if bbox_candidates is not None else '-'} "
         f"background_specs={len(background_render_page_specs or [])} "
         f"colors={len(render_colors_by_item_id)}",
         flush=True,
@@ -200,6 +206,7 @@ def _source_fingerprint(value: dict[str, Any]) -> dict[str, Any]:
 def bbox_candidates_to_manifest(candidates: BBoxTextStripCandidates) -> dict[str, Any]:
     return {
         "algorithm": BBOX_TEXT_STRIP_ALGORITHM_VERSION,
+        "candidate_source": candidates.candidate_source,
         "page_rects": {
             str(page_idx): [list(rect) for rect in rects]
             for page_idx, rects in sorted(candidates.page_rects.items())
@@ -267,6 +274,7 @@ def bbox_candidates_from_manifest(value: object) -> BBoxTextStripCandidates | No
     return BBoxTextStripCandidates(
         page_rects=page_rects,
         page_protected_rects=page_protected_rects,
+        candidate_source=BBOX_TEXT_STRIP_CANDIDATE_SOURCE_MANIFEST,
         pages_skipped_complex=int(payload.get("pages_skipped_complex") or 0),
         pages_skipped_no_text_overlap=int(payload.get("pages_skipped_no_text_overlap") or 0),
         pages_skipped_visual_background=int(payload.get("pages_skipped_visual_background") or 0),

@@ -543,6 +543,76 @@ async fn diagnostics_route_exposes_stable_failure_summary() {
 }
 
 #[tokio::test]
+async fn diagnostics_route_exposes_render_diagnostics_from_pipeline_summary() {
+    let state = test_state("diagnostics-render-summary");
+    let job_root = state
+        .config
+        .data_root
+        .join("jobs")
+        .join("job-render-diagnostics-route");
+    let artifacts_dir = job_root.join("artifacts");
+    fs::create_dir_all(&artifacts_dir).expect("artifacts dir");
+    fs::write(
+        artifacts_dir.join("pipeline_summary.json"),
+        serde_json::to_vec_pretty(&json!({
+            "render_diagnostics": {
+                "typst_cover_fallback_pages": {
+                    "count": 2,
+                    "head": [2, 5],
+                    "tail": []
+                },
+                "typst_cover_fallback_items": {
+                    "count": 3,
+                    "head": ["p002-b002", "p005-b004", "p005-b007"],
+                    "tail": []
+                }
+            }
+        }))
+        .expect("summary json"),
+    )
+    .expect("write pipeline summary");
+    let mut job = JobSnapshot::new(
+        "job-render-diagnostics-route".to_string(),
+        CreateJobInput::default(),
+        vec!["python".to_string()],
+    );
+    job.artifacts = Some(JobArtifacts {
+        job_root: Some(job_root.to_string_lossy().to_string()),
+        summary: Some(
+            artifacts_dir
+                .join("pipeline_summary.json")
+                .to_string_lossy()
+                .to_string(),
+        ),
+        ..JobArtifacts::default()
+    });
+    state.db.save_job(&job).expect("save job");
+
+    let response = build_app(state)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/jobs/job-render-diagnostics-route/diagnostics")
+                .header("X-API-Key", "test-key")
+                .body(Body::empty())
+                .expect("diagnostics request"),
+        )
+        .await
+        .expect("diagnostics response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let payload = read_json(response).await;
+    assert_eq!(
+        payload["data"]["render_diagnostics"]["typst_cover_fallback_pages"]["count"],
+        2
+    );
+    assert_eq!(
+        payload["data"]["render_diagnostics"]["typst_cover_fallback_items"]["head"],
+        json!(["p002-b002", "p005-b004", "p005-b007"])
+    );
+}
+
+#[tokio::test]
 async fn resume_route_reuses_rerun_submission_contract() {
     let state = test_state("resume-render");
     let mut source_job = source_job_with_artifacts(

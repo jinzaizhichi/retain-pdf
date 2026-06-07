@@ -98,6 +98,12 @@ pub fn resolve_translation_diagnostics(job: &JobSnapshot, data_root: &Path) -> O
     path.exists().then_some(path)
 }
 
+pub fn resolve_pipeline_summary(job: &JobSnapshot, data_root: &Path) -> Option<PathBuf> {
+    let path = job.artifacts.as_ref()?.summary.as_ref()?;
+    let path = resolve_data_path(data_root, path).ok()?;
+    path.exists().then_some(path)
+}
+
 pub fn resolve_translation_debug_index(job: &JobSnapshot, data_root: &Path) -> Option<PathBuf> {
     let job_root = resolve_job_root(job, data_root)?;
     let path = job_root

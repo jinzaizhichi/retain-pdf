@@ -33,9 +33,10 @@ pub use registry::collect_job_artifact_entries;
 pub use resolvers::{
     resolve_events_jsonl, resolve_job_root, resolve_markdown_bundle_zip,
     resolve_markdown_images_dir, resolve_markdown_path, resolve_normalization_report,
-    resolve_normalized_document, resolve_output_pdf, resolve_registered_artifact_path,
-    resolve_source_pdf, resolve_translation_debug_index, resolve_translation_diagnostics,
-    resolve_translation_manifest, resolve_typst_pdf, resolve_typst_source,
+    resolve_normalized_document, resolve_output_pdf, resolve_pipeline_summary,
+    resolve_registered_artifact_path, resolve_source_pdf, resolve_translation_debug_index,
+    resolve_translation_diagnostics, resolve_translation_manifest, resolve_typst_pdf,
+    resolve_typst_source,
 };
 
 #[cfg(test)]

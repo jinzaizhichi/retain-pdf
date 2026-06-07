@@ -226,6 +226,8 @@ pub struct JobDiagnosticsView {
     pub suggestion: Option<String>,
     pub retryable: bool,
     pub resume_available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub render_diagnostics: Option<Value>,
 }
 
 #[derive(Debug, Serialize)]

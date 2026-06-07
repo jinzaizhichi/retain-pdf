@@ -2,6 +2,7 @@ use crate::error::AppError;
 use crate::job_failure::classify_job_failure;
 use crate::models::{JobDiagnosticsView, JobFailureInfo, JobResumePlanView, JobSnapshot};
 use crate::services::jobs::stage_plan::resume_plan;
+use crate::storage_paths::resolve_pipeline_summary;
 
 use super::super::super::presentation::load_supported_job;
 use super::super::JobsFacade;
@@ -9,7 +10,7 @@ use super::super::JobsFacade;
 impl<'a> JobsFacade<'a> {
     pub fn job_diagnostics_view(&self, job_id: &str) -> Result<JobDiagnosticsView, AppError> {
         let job = load_supported_job(self.query.db, self.query.data_root, job_id)?;
-        Ok(build_job_diagnostics_view(&job))
+        Ok(build_job_diagnostics_view(&job, self.query.data_root))
     }
 
     pub fn resume_plan_view(&self, job_id: &str) -> Result<JobResumePlanView, AppError> {
@@ -18,9 +19,13 @@ impl<'a> JobsFacade<'a> {
     }
 }
 
-fn build_job_diagnostics_view(job: &JobSnapshot) -> JobDiagnosticsView {
+fn build_job_diagnostics_view(
+    job: &JobSnapshot,
+    data_root: &std::path::Path,
+) -> JobDiagnosticsView {
     let failure = resolved_failure(job);
     let resume_plan = build_resume_plan_view(job);
+    let render_diagnostics = load_render_diagnostics(job, data_root);
     match failure {
         Some(failure) => JobDiagnosticsView {
             failed_stage: Some(failure.failed_stage_value().to_string()),
@@ -35,6 +40,7 @@ fn build_job_diagnostics_view(job: &JobSnapshot) -> JobDiagnosticsView {
             suggestion: failure.suggestion.clone(),
             retryable: failure.retryable,
             resume_available: resume_plan.can_resume,
+            render_diagnostics,
         },
         None => JobDiagnosticsView {
             failed_stage: job.stage.clone(),
@@ -51,8 +57,23 @@ fn build_job_diagnostics_view(job: &JobSnapshot) -> JobDiagnosticsView {
             suggestion: None,
             retryable: false,
             resume_available: resume_plan.can_resume,
+            render_diagnostics,
         },
     }
+}
+
+fn load_render_diagnostics(
+    job: &JobSnapshot,
+    data_root: &std::path::Path,
+) -> Option<serde_json::Value> {
+    let path = resolve_pipeline_summary(job, data_root)?;
+    let data = std::fs::read_to_string(path).ok()?;
+    let summary: serde_json::Value = serde_json::from_str(&data).ok()?;
+    let diagnostics = summary.get("render_diagnostics")?;
+    if diagnostics.is_null() {
+        return None;
+    }
+    Some(diagnostics.clone())
 }
 
 fn build_resume_plan_view(job: &JobSnapshot) -> JobResumePlanView {

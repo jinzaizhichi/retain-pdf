@@ -337,9 +337,25 @@
   "detail": "provider timed out",
   "suggestion": "从断点恢复任务",
   "retryable": true,
-  "resume_available": true
+  "resume_available": true,
+  "render_diagnostics": {
+    "typst_cover_fallback_pages": {
+      "count": 2,
+      "head": [2, 5],
+      "tail": []
+    },
+    "typst_cover_fallback_items": {
+      "count": 3,
+      "head": ["p002-b002", "p005-b004", "p005-b007"],
+      "tail": []
+    }
+  }
 }
 ```
+
+`render_diagnostics` 是可选字段，只在 `artifacts/pipeline_summary.json`
+包含渲染诊断时返回。它用于排查物理删除失败后哪些页或 block
+走了 Typst 白底兜底，不表示任务失败。
 
 断点恢复计划：
 

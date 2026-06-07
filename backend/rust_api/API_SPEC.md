@@ -532,6 +532,12 @@ Security note:
 - job detail / diagnostics / events only expose redacted payloads
 - credential presence is surfaced through `*_configured` booleans instead of plaintext secrets
 
+Diagnostics note:
+
+- `GET /api/v1/jobs/{job_id}/diagnostics` returns failure-oriented fields plus optional `render_diagnostics`
+- `render_diagnostics` is copied from `artifacts/pipeline_summary.json` when present
+- current render diagnostics include fallback summaries such as `typst_cover_fallback_pages` and `typst_cover_fallback_items`; these are operational diagnostics, not failure classification fields
+
 Workflow contract:
 
 - `workflow=book`: current provider-backed OCR -> Normalize -> Translate -> Render chain

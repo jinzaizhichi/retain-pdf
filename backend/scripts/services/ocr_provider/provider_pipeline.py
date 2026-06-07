@@ -16,7 +16,7 @@ from foundation.shared.stage_specs import build_stage_invocation_metadata
 from foundation.shared.stage_specs import resolve_credential_ref
 from foundation.shared.tee_output import enable_job_log_capture
 from runtime.pipeline.book_pipeline import run_book_pipeline
-from runtime.pipeline.render_preprocess import run_ocr_render_preprocess
+from runtime.pipeline.render_preprocess import start_ocr_render_preprocess
 from services.document_schema import adapt_path_to_document_v1_with_report
 from services.document_schema import DOCUMENT_SCHEMA_REPORT_FILE_NAME
 from services.document_schema import validate_saved_document_path
@@ -281,7 +281,7 @@ def main() -> None:
             message="OCR provider 已完成，标准化文档已就绪",
             provider=provider,
         )
-        run_ocr_render_preprocess(
+        render_visual_prewarm_handle = start_ocr_render_preprocess(
             source_json_path=translation_source_json_path,
             source_pdf_path=source_pdf_path,
             output_pdf_path=output_pdf_path,
@@ -336,6 +336,7 @@ def main() -> None:
                 stage="provider",
                 stage_spec_schema_version=stage_spec_schema_version,
             ),
+            render_visual_prewarm_handle=render_visual_prewarm_handle,
         )
         summary_path = job_dirs.artifacts_dir / PIPELINE_SUMMARY_FILE_NAME
         write_pipeline_summary(

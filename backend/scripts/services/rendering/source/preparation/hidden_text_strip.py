@@ -7,7 +7,7 @@ import fitz
 import pikepdf
 from pikepdf import Name
 
-from services.rendering.source.background.detect import page_has_large_background_image
+from services.rendering.source.document_ops import page_is_pseudo_editable_scan
 
 
 TEXT_SHOW_OPERATORS = {"Tj", "TJ", "'", '"'}
@@ -22,29 +22,7 @@ class HiddenTextStripResult:
 
 
 def _page_hidden_text_scan_candidate(page: fitz.Page) -> bool:
-    if not page_has_large_background_image(page):
-        return False
-
-    try:
-        traces = page.get_texttrace()
-    except Exception:
-        return False
-
-    if not traces:
-        return False
-
-    hidden = 0
-    visible = 0
-    for trace in traces:
-        try:
-            trace_type = int(trace.get("type", 0))
-        except Exception:
-            trace_type = 0
-        if trace_type == 3 or float(trace.get("opacity", 1.0) or 0.0) <= 0.0:
-            hidden += 1
-        else:
-            visible += 1
-    return hidden > 0 and visible == 0
+    return page_is_pseudo_editable_scan(page)
 
 
 def _collect_hidden_text_scan_pages(

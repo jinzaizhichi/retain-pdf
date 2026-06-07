@@ -346,6 +346,7 @@ def build_book_typst_pdf(
     prebuilt_source_path: Path | None = None,
     source_cleanup_strategy: str = "typst_fill",
     precomputed_colors_by_item_id: dict[str, dict[str, tuple[float, float, float]]] | None = None,
+    visual_cover_page_indices: frozenset[int] = frozenset(),
     request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> dict[str, object]:
     doc = _build_overlay_base_doc(source_pdf_path)
@@ -375,6 +376,7 @@ def build_book_typst_pdf(
             precomputed_colors_by_item_id=precomputed_colors_by_item_id,
             pikepdf_output_pdf_path=output_pdf_path,
             source_cleanup_strategy=source_cleanup_strategy,
+            visual_cover_page_indices=visual_cover_page_indices,
             request_chat_content_fn=request_chat_content_fn,
         )
         overlay_elapsed = time.perf_counter() - overlay_started

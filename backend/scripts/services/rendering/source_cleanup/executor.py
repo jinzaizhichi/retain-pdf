@@ -22,6 +22,7 @@ def execute_source_cleanup(request: SourceCleanupRequest) -> SourceCleanupResult
         translated_pages=request.translated_pages,
         skip_formula_pages=request.options.skip_formula_pages,
         skip_form_xobject_pages=request.options.skip_form_xobject_pages,
+        document_analysis=request.document_analysis,
     )
     print(
         "source cleanup: bbox candidates "

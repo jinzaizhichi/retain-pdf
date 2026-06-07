@@ -18,7 +18,6 @@ from services.rendering.layout.payload.render_item import seed_render_fields
 from services.rendering.output.typst.book_support import prepare_translated_pages_for_render
 from services.rendering.source_cleanup.types import BBoxTextStripCandidates
 from services.rendering.source_cleanup import plan_source_cleanup
-from services.rendering.policy import should_use_fast_overlay_cover_path
 from services.rendering.source.prewarm_color_profile import build_render_color_profile_manifest
 from services.rendering.source.prewarm_contracts import FIRST_LINE_INDENT_ALGORITHM_VERSION
 from services.rendering.source.prewarm_contracts import GEOMETRY_ADJUSTMENT_ALGORITHM_VERSION
@@ -68,11 +67,7 @@ def build_payload_prewarm(
             )
     timings["geometry_indent"] = time.perf_counter() - geometry_started
     mode = str(effective_render_mode or "").strip()
-    skip_bbox_candidate_prewarm = should_use_fast_overlay_cover_path(
-        translated_page_count=len([page_idx for page_idx, items in translated_pages.items() if items]),
-        strip_hidden_text=mode != "overlay",
-    )
-    if layout.use_bbox_text_strip_cleanup(source_cleanup_strategy) and not skip_bbox_candidate_prewarm:
+    if layout.use_bbox_text_strip_cleanup(source_cleanup_strategy):
         try:
             bbox_started = time.perf_counter()
             bbox_candidates = (

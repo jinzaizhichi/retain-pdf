@@ -9,17 +9,20 @@ from foundation.config import runtime
 from runtime.pipeline.render_plan import RenderPlan
 from services.rendering.workflow.context import RenderExecutionContext
 from services.rendering.workflow.cover_fallback import TypstCoverFallbackPlan
+from services.rendering.workflow.document_analysis import document_analysis_diagnostics
+from services.rendering.workflow.document_analysis import document_analysis_prewarm_hit
+from services.rendering.workflow.document_analysis import resolve_cached_workflow_document_analysis
 from services.rendering.workflow.modes import run_background_typst_render
 from services.rendering.workflow.modes import run_dual_render
 from services.rendering.workflow.modes import run_overlay_render
 from services.rendering.workflow.modes import run_selected_pages_overlay_render
+from services.rendering.workflow.prewarm_cache import build_sync_payload_prewarm
+from services.rendering.workflow.prewarm_cache import has_material_payload_prewarm
+from services.rendering.workflow.prewarm_cache import persist_sync_render_source_prewarm
 from services.rendering.source.render_source import build_render_source_pdf
 from services.rendering.source.prewarm import try_load_prewarmed_render_source_pdf
 from services.rendering.source.prewarm import try_load_render_payload_prewarm
-from services.rendering.source.prewarm_fingerprint import build_render_prewarm_fingerprint
-from services.rendering.source.prewarm_manifest import write_json_atomic
-from services.rendering.source.prewarm_manifest_io import bbox_candidates_to_manifest
-from services.rendering.source.prewarm_manifest_io import build_prewarm_manifest
+from services.rendering.source.prewarm_manifest_io import render_payload_prewarm_from_manifest_payload
 
 
 def execute_render_plan(
@@ -70,6 +73,14 @@ def execute_render_plan(
         else None
     )
     render_source_prewarm_hit = render_source_pdf is not None
+    render_document_analysis_hit = document_analysis_prewarm_hit(
+        render_source_pdf=render_source_pdf,
+        payload_prewarm=payload_prewarm,
+    )
+    document_analysis = resolve_cached_workflow_document_analysis(
+        render_source_pdf=render_source_pdf,
+        payload_prewarm=payload_prewarm,
+    )
     render_source_sync_cache_written = False
     if render_source_pdf is None:
         sync_prepare_started = time.perf_counter()
@@ -92,8 +103,13 @@ def execute_render_plan(
                 else None
             ),
             source_cleanup_strategy=cleanup_strategy,
+            document_analysis=document_analysis,
         )
-        render_source_sync_cache_written = _persist_sync_render_source_prewarm(
+        merged_sync_payload_prewarm = build_sync_payload_prewarm(
+            manifest_path=render_prewarm_manifest_path,
+            prepared=render_source_pdf,
+        )
+        render_source_sync_cache_written = persist_sync_render_source_prewarm(
             manifest_path=render_prewarm_manifest_path,
             prepared=render_source_pdf,
             source_pdf_path=render_plan.render_inputs.source_pdf_path,
@@ -104,7 +120,13 @@ def execute_render_plan(
             pdf_compress_dpi=pdf_compress_dpi,
             source_cleanup_strategy=cleanup_strategy,
             elapsed=time.perf_counter() - sync_prepare_started,
+            payload_prewarm=merged_sync_payload_prewarm,
         )
+        if payload_prewarm is None:
+            payload_prewarm = render_payload_prewarm_from_manifest_payload(
+                merged_sync_payload_prewarm,
+                document_analysis=getattr(render_source_pdf, "document_analysis", None),
+            )
 
     cover_fallback_plan = TypstCoverFallbackPlan.build(
         source_pdf_path=render_plan.render_inputs.source_pdf_path,
@@ -112,6 +134,13 @@ def execute_render_plan(
         cleanup_strategy=cleanup_strategy,
         precleaned_page_indices=render_source_pdf.source_text_precleaned_page_indices,
         skipped_page_indices=render_source_pdf.bbox_text_strip_skipped_page_indices,
+        document_analysis=document_analysis,
+        source_cleanup_cover_fallback_page_indices=render_source_pdf.source_cleanup_cover_fallback_page_indices,
+        source_cleanup_item_fallback_ids=(
+            render_source_pdf.bbox_text_strip_candidates.uncovered_unsafe_vector_item_ids
+            if render_source_pdf.bbox_text_strip_candidates is not None
+            else frozenset()
+        ),
     )
     context = RenderExecutionContext(
         output_pdf_path=output_pdf_path,
@@ -149,6 +178,8 @@ def execute_render_plan(
             if payload_prewarm is not None
             else None
         ),
+        page_routes_by_index=document_analysis.pages if document_analysis is not None else None,
+        visual_cover_page_indices=cover_fallback_plan.page_indices,
     )
     render_diagnostics: dict[str, object] = {}
     try:
@@ -164,7 +195,8 @@ def execute_render_plan(
         execute_render_plan.last_render_diagnostics = {
             **render_diagnostics,
             "render_source_prewarm_hit": render_source_prewarm_hit,
-            "render_payload_prewarm_hit": payload_prewarm is not None,
+            "render_payload_prewarm_hit": has_material_payload_prewarm(payload_prewarm),
+            "render_document_analysis_hit": render_document_analysis_hit,
             "render_source_prewarm_manifest": str(render_prewarm_manifest_path or ""),
             "render_source_sync_cache_written": render_source_sync_cache_written,
             "source_cleanup_strategy": cleanup_strategy,
@@ -182,58 +214,10 @@ def execute_render_plan(
                 else 0
             ),
             **cover_fallback_plan.diagnostics(),
+            **document_analysis_diagnostics(document_analysis),
         }
         for temp_source_path in render_source_pdf.temp_paths:
             temp_source_path.unlink(missing_ok=True)
-
-
-def _persist_sync_render_source_prewarm(
-    *,
-    manifest_path: Path | None,
-    prepared,
-    source_pdf_path: Path,
-    translated_pages: dict[int, list[dict]],
-    effective_render_mode: str,
-    start_page: int,
-    end_page: int,
-    pdf_compress_dpi: int,
-    source_cleanup_strategy: str,
-    elapsed: float,
-) -> bool:
-    if manifest_path is None:
-        return False
-    try:
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest = build_prewarm_manifest(
-            manifest_path=manifest_path,
-            prepared=prepared,
-            fingerprint=build_render_prewarm_fingerprint(
-                source_pdf_path=source_pdf_path,
-                translated_pages=translated_pages,
-                effective_render_mode=effective_render_mode,
-                start_page=start_page,
-                end_page=end_page,
-                pdf_compress_dpi=pdf_compress_dpi,
-                source_cleanup_strategy=source_cleanup_strategy,
-            ),
-            elapsed=elapsed,
-            payload_prewarm=_sync_source_payload_prewarm(prepared),
-        )
-        write_json_atomic(manifest_path, manifest)
-        print(f"render prewarm: cached synchronous source manifest={manifest_path}", flush=True)
-        return True
-    except Exception as exc:
-        print(f"render prewarm: sync source cache write failed {type(exc).__name__}: {exc}", flush=True)
-        return False
-
-
-def _sync_source_payload_prewarm(prepared) -> dict[str, object]:
-    candidates = getattr(prepared, "bbox_text_strip_candidates", None)
-    if candidates is None:
-        return {}
-    return {
-        "bbox_text_strip_candidates": bbox_candidates_to_manifest(candidates),
-    }
 
 
 def _dispatch_render_mode(

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import fitz
 
+from services.rendering.contracts import RenderDocumentAnalysis
 from services.rendering.source_cleanup.planning.accumulator import BBoxTextStripCandidateAccumulator
 from services.rendering.source_cleanup.planning.geometry import formula_guard_rects
 from services.rendering.source_cleanup.planning.geometry import ocr_bbox_to_pdf_rect
@@ -37,6 +38,7 @@ def plan_source_cleanup(
     translated_pages: dict[int, list[dict]],
     skip_formula_pages: bool = False,
     skip_form_xobject_pages: bool = True,
+    document_analysis: RenderDocumentAnalysis | None = None,
 ) -> BBoxTextStripCandidates:
     accumulator = BBoxTextStripCandidateAccumulator()
     doc = fitz.open(source_pdf_path)
@@ -54,6 +56,7 @@ def plan_source_cleanup(
                 skip_formula_pages=skip_formula_pages,
                 skip_form_xobject_pages=skip_form_xobject_pages,
                 features=features,
+                document_analysis=document_analysis,
             )
             accumulator.add_page_plan(page_idx, page_plan)
     finally:
@@ -69,7 +72,12 @@ def plan_source_cleanup_page(
     skip_formula_pages: bool = False,
     skip_form_xobject_pages: bool = True,
     features: PageCleanupFeatures | None = None,
+    document_analysis: RenderDocumentAnalysis | None = None,
 ) -> BBoxTextStripPagePlan:
+    if document_analysis is not None:
+        route = document_analysis.page(page.number)
+        if route is not None and not route.allows_pikepdf_text_strip:
+            return BBoxTextStripPagePlan(skip_reason=BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND)
     items_skip_reason = bbox_text_strip_items_skip_reason(
         translated_items,
         skip_formula_pages=skip_formula_pages,
@@ -106,6 +114,10 @@ def plan_source_cleanup_page(
     return BBoxTextStripPagePlan(
         strip_rects=tuple(strip_rects),
         protected_rects=tuple(protected_rects),
+        uncovered_unsafe_vector_item_ids=uncovered_unsafe_vector_item_ids(
+            strip_pairs,
+            unsafe_rects=resolver.unsafe_vector_index,
+        ),
     )
 
 
@@ -180,15 +192,21 @@ def item_ids_with_uncovered_unsafe_vector_overlap(
 
 
 def page_uncovered_unsafe_vector_item_ids(page: fitz.Page, translated_items: list[dict]) -> frozenset[str]:
-    item_ids: set[str] = set()
     strip_items = [item for item in translated_items if item_should_emit_strip_rect(item)]
     if not strip_items:
         return frozenset()
     resolver = PageBBoxResolver.build(page, bboxes=[item.get("bbox", []) for item in strip_items])
-    unsafe_rects = resolver.unsafe_vector_index
+    return uncovered_unsafe_vector_item_ids(
+        iter_strip_item_rect_pairs_for_page(page, strip_items, resolver=resolver, prefiltered=True),
+        unsafe_rects=resolver.unsafe_vector_index,
+    )
+
+
+def uncovered_unsafe_vector_item_ids(strip_pairs, *, unsafe_rects) -> frozenset[str]:
     if not unsafe_rects.rects:
         return frozenset()
-    for pair in iter_strip_item_rect_pairs_for_page(page, strip_items, resolver=resolver, prefiltered=True):
+    item_ids: set[str] = set()
+    for pair in strip_pairs:
         item_id = str(pair.item.get("item_id") or "").strip()
         if not item_id:
             continue

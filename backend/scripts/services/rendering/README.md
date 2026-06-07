@@ -157,6 +157,41 @@ PyMuPDF 主要保留在读和分析场景：
 `source_cleanup_strategy=pikepdf_text_strip` 是正式策略名，后续新配置应使用这个名字。
 渲染 diagnostics 会记录 `legacy_pymupdf_redaction_pages`、`legacy_pymupdf_overlay_pages` 和 `legacy_pdf_write_reasons`；真实样本回归时优先观察这些值是否仍非零。
 
+## 纯 Typst 编译速度
+
+大文档 overlay 路径不要退化成逐页 Typst 编译。逐页 PDF 会重复嵌入字体和资源，最终文件体积容易膨胀。
+
+当前分片是显式 opt-in 策略，不作为默认路径。默认仍优先整本 Typst 编译，因为这通常体积最小，并且很多大文档整本编译并不慢。
+
+显式开启后，策略是体积受控的大块分片：
+
+- 只有设置 `RETAIN_TYPST_OVERLAY_CHUNKED=1` 且可以用 `pikepdf` 合并 overlay 的大文档才启用。
+- 默认 `256` 页以上启用分片，默认每片 `128` 页。
+- 每片生成一个多页 overlay PDF，再由 `pikepdf` 一次性合并回源 PDF。
+- 小文档继续走整本 Typst 编译，保持体积最优。
+
+可调环境变量：
+
+- `RETAIN_TYPST_OVERLAY_CHUNKED=1` 开启分片编译。
+- `RETAIN_TYPST_OVERLAY_CHUNK_MIN_PAGES` 调整启用阈值。
+- `RETAIN_TYPST_OVERLAY_CHUNK_PAGES` 调整每片页数。不要轻易设得太小，除非已经确认文件体积可接受。
+
+## Render Prewarm 复用
+
+`render_prewarm` 同时承载两类产物：
+
+- source 产物：预处理后的源 PDF、bbox text-strip candidates。
+- payload 产物：首行缩进、effective inner bbox、颜色 profile、背景模式 page specs。
+
+render-only 阶段必须同时复用这两类产物。特别注意：同步刷新 source manifest 时不能清空既有
+`payload_prewarm`，否则 overlay 渲染会重新跑 payload prepare 和颜色采样。
+
+真实 635 页样本中，payload prewarm 命中后：
+
+- `color_adapt_elapsed_seconds` 从约 `14.1s` 降到约 `0.1s`。
+- `payload_prepare_elapsed_seconds` 从约 `22.3s` 降到约 `9.9s`。
+- 总 render-only 从约 `49s` 降到约 `23s`。
+
 ## 真实 PDF 回归
 
 真实样本放在 [resources/samples/golden-pdfs](/home/wxyhgk/tmp/Code/resources/samples/golden-pdfs)。

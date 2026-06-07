@@ -29,6 +29,9 @@ from services.rendering.source.prewarm_manifest_io import bbox_candidates_to_man
 from services.rendering.source_cleanup.types import BBoxTextStripCandidates
 from services.rendering.source_cleanup.planning.intent_classifier import classify_source_cleanup_intent
 from services.rendering.source_cleanup.planning import segments
+from services.rendering.analysis.document.builder import build_render_page_analysis
+from services.rendering.contracts import RenderDocumentAnalysis
+from devtools.tests.rendering_support.page_profiles import sample_render_page_profile
 
 
 def test_bbox_text_strip_segments_keep_inline_formula_sides_deletable() -> None:
@@ -775,7 +778,7 @@ def test_bbox_text_strip_skips_form_recursion_but_keeps_page_text_fast_path() ->
         assert "FORMTEXT" in text
 
 
-def test_render_source_skips_physical_strip_for_large_overlay_cover_path() -> None:
+def test_render_source_skips_physical_strip_when_document_analysis_requires_visual_cover() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         source_pdf = root / "source.pdf"
@@ -806,6 +809,12 @@ def test_render_source_skips_physical_strip_for_large_overlay_cover_path() -> No
             strip_hidden_text=False,
             artifact_mode=True,
             source_cleanup_strategy="pikepdf_text_strip",
+            document_analysis=RenderDocumentAnalysis(
+                pages={
+                    index: build_render_page_analysis(sample_render_page_profile("scan_image"))
+                    for index in translated_pages
+                }
+            ),
         )
 
         assert result.path == source_pdf

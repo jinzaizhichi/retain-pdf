@@ -6,6 +6,7 @@ from typing import Any
 
 from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_CANDIDATE_SOURCE_MANIFEST
 from services.rendering.source_cleanup.types import BBoxTextStripCandidates
+from services.rendering.contracts import RenderDocumentAnalysis
 from services.rendering.source.prewarm_color_profile import render_colors_from_manifest
 from services.rendering.source.prewarm_contracts import BBOX_TEXT_STRIP_ALGORITHM_VERSION
 from services.rendering.source.prewarm_contracts import RENDER_PREWARM_SCHEMA
@@ -28,20 +29,29 @@ def build_prewarm_manifest(
     fingerprint: dict[str, Any],
     elapsed: float,
     payload_prewarm: dict[str, Any] | None = None,
+    document_analysis: RenderDocumentAnalysis | None = None,
 ) -> dict[str, Any]:
     return {
         "schema": RENDER_PREWARM_SCHEMA,
         "fingerprint": fingerprint,
+        "document_analysis": document_analysis.to_manifest() if document_analysis is not None else {},
         "render_source": {
             "path": relative_to_manifest(manifest_path, prepared.path),
             "image_compressed": prepared.image_compressed,
             "bbox_text_stripped_page_indices": sorted(prepared.bbox_text_stripped_page_indices),
             "bbox_text_strip_skipped_page_indices": sorted(prepared.bbox_text_strip_skipped_page_indices),
             "source_text_precleaned_page_indices": sorted(prepared.source_text_precleaned_page_indices),
+            "source_cleanup_cover_fallback_page_indices": sorted(
+                getattr(prepared, "source_cleanup_cover_fallback_page_indices", frozenset())
+            ),
         },
         "payload_prewarm": payload_prewarm or {},
         "elapsed_seconds": round(float(elapsed), 3),
-    }
+}
+
+
+def document_analysis_from_manifest(value: object) -> RenderDocumentAnalysis | None:
+    return RenderDocumentAnalysis.from_manifest(value)
 
 
 def try_load_prewarmed_render_source_pdf(
@@ -74,9 +84,13 @@ def try_load_prewarmed_render_source_pdf(
         if render_source_path is None or not render_source_path.exists():
             print("render prewarm: source file missing; fallback to synchronous render source prep", flush=True)
             return None
+        if _looks_like_legacy_fast_cover_manifest(render_source):
+            print("render prewarm: legacy fast-cover source manifest ignored; rebuilding source cleanup", flush=True)
+            return None
         bbox_candidates = bbox_candidates_from_manifest(
             dict(manifest.get("payload_prewarm") or {}).get("bbox_text_strip_candidates")
         )
+        document_analysis = document_analysis_from_manifest(manifest.get("document_analysis"))
         print(f"render prewarm: hit source={render_source_path}", flush=True)
         return RenderSourcePdf(
             path=render_source_path,
@@ -85,7 +99,11 @@ def try_load_prewarmed_render_source_pdf(
             bbox_text_stripped_page_indices=frozenset(int_list(render_source.get("bbox_text_stripped_page_indices"))),
             bbox_text_strip_skipped_page_indices=frozenset(int_list(render_source.get("bbox_text_strip_skipped_page_indices"))),
             source_text_precleaned_page_indices=frozenset(int_list(render_source.get("source_text_precleaned_page_indices"))),
+            source_cleanup_cover_fallback_page_indices=frozenset(
+                int_list(render_source.get("source_cleanup_cover_fallback_page_indices"))
+            ),
             bbox_text_strip_candidates=bbox_candidates,
+            document_analysis=document_analysis,
         )
     except Exception as exc:
         print(f"render prewarm: load failed {type(exc).__name__}: {exc}; fallback", flush=True)
@@ -113,9 +131,37 @@ def try_load_render_payload_prewarm(
         pdf_compress_dpi=pdf_compress_dpi,
         source_cleanup_strategy=source_cleanup_strategy,
     )
+    visual_only = False
+    if manifest is None:
+        manifest = load_visual_payload_matching_manifest(
+            manifest_path=manifest_path,
+            source_pdf_path=source_pdf_path,
+            translated_pages=translated_pages,
+            effective_render_mode=effective_render_mode,
+            start_page=start_page,
+            end_page=end_page,
+            pdf_compress_dpi=pdf_compress_dpi,
+            source_cleanup_strategy=source_cleanup_strategy,
+        )
+        visual_only = manifest is not None
     if manifest is None:
         return None
     payload = dict(manifest.get("payload_prewarm") or {})
+    if visual_only:
+        payload = {
+            "render_color_profile": payload.get("render_color_profile"),
+        }
+    return render_payload_prewarm_from_manifest_payload(
+        payload,
+        document_analysis=document_analysis_from_manifest(manifest.get("document_analysis")),
+    )
+
+
+def render_payload_prewarm_from_manifest_payload(
+    payload: dict[str, Any],
+    *,
+    document_analysis: RenderDocumentAnalysis | None = None,
+) -> RenderPayloadPrewarm | None:
     first_line_indent_lookup = {
         str(key): float(value)
         for key, value in dict(payload.get("first_line_indent_by_item_id") or {}).items()
@@ -137,6 +183,7 @@ def try_load_render_payload_prewarm(
         and bbox_candidates is None
         and background_render_page_specs is None
         and not render_colors_by_item_id
+        and document_analysis is None
     ):
         return None
     print(
@@ -154,6 +201,7 @@ def try_load_render_payload_prewarm(
         bbox_text_strip_candidates=bbox_candidates,
         background_render_page_specs=background_render_page_specs,
         render_colors_by_item_id=render_colors_by_item_id or None,
+        document_analysis=document_analysis,
     )
 
 
@@ -203,6 +251,66 @@ def _source_fingerprint(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if key not in ignored}
 
 
+def load_visual_payload_matching_manifest(
+    *,
+    manifest_path: Path | None,
+    source_pdf_path: Path,
+    translated_pages: dict[int, list[dict]],
+    effective_render_mode: str,
+    start_page: int,
+    end_page: int,
+    pdf_compress_dpi: int,
+    source_cleanup_strategy: str = "pikepdf_text_strip",
+) -> dict[str, Any] | None:
+    if manifest_path is None or not Path(manifest_path).exists():
+        return None
+    try:
+        with Path(manifest_path).open("r", encoding="utf-8") as f:
+            manifest = json.load(f)
+        if manifest.get("schema") != RENDER_PREWARM_SCHEMA:
+            return None
+        expected = build_render_prewarm_fingerprint(
+            source_pdf_path=source_pdf_path,
+            translated_pages=translated_pages,
+            effective_render_mode=effective_render_mode,
+            start_page=start_page,
+            end_page=end_page,
+            pdf_compress_dpi=pdf_compress_dpi,
+            source_cleanup_strategy=source_cleanup_strategy,
+        )
+        actual = dict(manifest.get("fingerprint") or {})
+        if _visual_payload_fingerprint(actual) != _visual_payload_fingerprint(expected):
+            return None
+        return manifest
+    except Exception as exc:
+        print(f"render prewarm: visual payload load failed {type(exc).__name__}: {exc}; fallback", flush=True)
+        return None
+
+
+def _visual_payload_fingerprint(value: dict[str, Any]) -> dict[str, Any]:
+    keep = {
+        "source_pdf_path",
+        "source_pdf_size",
+        "source_pdf_mtime_ns",
+        "page_range",
+        "effective_render_mode",
+        "pdf_compress_dpi",
+        "visual_payload_hash",
+        "geometry_adjustment_algorithm",
+        "payload_render_algorithm",
+    }
+    return {key: value.get(key) for key in keep}
+
+
+def _looks_like_legacy_fast_cover_manifest(render_source: dict[str, Any]) -> bool:
+    return (
+        not int_list(render_source.get("bbox_text_stripped_page_indices"))
+        and not int_list(render_source.get("source_text_precleaned_page_indices"))
+        and bool(int_list(render_source.get("bbox_text_strip_skipped_page_indices")))
+        and "source_cleanup_cover_fallback_page_indices" not in render_source
+    )
+
+
 def bbox_candidates_to_manifest(candidates: BBoxTextStripCandidates) -> dict[str, Any]:
     return {
         "algorithm": BBOX_TEXT_STRIP_ALGORITHM_VERSION,
@@ -215,6 +323,7 @@ def bbox_candidates_to_manifest(candidates: BBoxTextStripCandidates) -> dict[str
             str(page_idx): [list(rect) for rect in rects]
             for page_idx, rects in sorted((candidates.page_protected_rects or {}).items())
         },
+        "uncovered_unsafe_vector_item_ids": sorted(candidates.uncovered_unsafe_vector_item_ids),
         "pages_skipped_complex": candidates.pages_skipped_complex,
         "pages_skipped_no_text_overlap": candidates.pages_skipped_no_text_overlap,
         "pages_skipped_visual_background": candidates.pages_skipped_visual_background,
@@ -274,6 +383,11 @@ def bbox_candidates_from_manifest(value: object) -> BBoxTextStripCandidates | No
     return BBoxTextStripCandidates(
         page_rects=page_rects,
         page_protected_rects=page_protected_rects,
+        uncovered_unsafe_vector_item_ids=frozenset(
+            str(value)
+            for value in list(payload.get("uncovered_unsafe_vector_item_ids") or [])
+            if str(value).strip()
+        ),
         candidate_source=BBOX_TEXT_STRIP_CANDIDATE_SOURCE_MANIFEST,
         pages_skipped_complex=int(payload.get("pages_skipped_complex") or 0),
         pages_skipped_no_text_overlap=int(payload.get("pages_skipped_no_text_overlap") or 0),
@@ -306,7 +420,10 @@ __all__ = [
     "bbox_candidates_from_manifest",
     "bbox_candidates_to_manifest",
     "build_prewarm_manifest",
+    "document_analysis_from_manifest",
     "load_matching_manifest",
+    "load_visual_payload_matching_manifest",
+    "render_payload_prewarm_from_manifest_payload",
     "try_load_prewarmed_render_source_pdf",
     "try_load_render_payload_prewarm",
 ]

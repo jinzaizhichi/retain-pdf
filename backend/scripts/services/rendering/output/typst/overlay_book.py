@@ -14,7 +14,6 @@ from services.rendering.output.typst.overlay_diagnostics import apply_redaction_
 from services.rendering.output.typst.overlay_diagnostics import new_overlay_merge_diagnostics
 from services.rendering.output.typst.page_compile import compile_overlay_page_specs
 from services.rendering.output.typst.source_page_overlay import apply_source_page_overlay
-from services.rendering.output.typst.source_page_overlay import mark_image_page_overlay_mode
 from services.rendering.output.typst.sanitize import sanitize_page_specs_for_typst_book_overlay
 from services.pipeline_shared.events import emit_render_page_progress
 
@@ -28,11 +27,7 @@ def prepare_overlay_doc_pages(
     ordered_page_indices = sorted(page_idx for page_idx in translated_pages if 0 <= page_idx < len(doc))
     if not ordered_page_indices:
         return [], translated_pages
-
-    prepared_pages = dict(translated_pages)
-    for page_idx in ordered_page_indices:
-        prepared_pages[page_idx] = mark_image_page_overlay_mode(doc[page_idx], prepared_pages[page_idx])
-    return ordered_page_indices, prepared_pages
+    return ordered_page_indices, translated_pages
 
 
 def build_overlay_page_specs(

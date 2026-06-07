@@ -5,7 +5,6 @@ from pathlib import Path
 import fitz
 
 from services.rendering.layout.payload.blocks import build_render_blocks
-from services.rendering.source.background.page_overlay import mark_image_page_overlay_mode
 from services.rendering.source.background.page_overlay import overlay_pages_from_single_pdf as _overlay_pages_from_single_pdf
 from services.rendering.source.background.redaction_plan import redaction_items_from_blocks
 from services.rendering.source.background.redaction_plan import should_redact_source_page
@@ -88,7 +87,6 @@ def overlay_pages_from_single_pdf(
 
 __all__ = [
     "apply_source_page_overlay",
-    "mark_image_page_overlay_mode",
     "overlay_pages_from_single_pdf",
     "redaction_items_from_render_blocks",
     "should_redact_source_page",

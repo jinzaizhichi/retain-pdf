@@ -5,6 +5,7 @@ from pathlib import Path
 
 from services.rendering.layout.model.models import RenderLayoutBlock
 from services.rendering.layout.model.models import RenderPageSpec
+from services.rendering.contracts import RenderDocumentAnalysis
 from services.rendering.policy import apply_typst_cover_fallback_fields
 from services.rendering.source_cleanup import item_ids_with_uncovered_unsafe_vector_overlap
 
@@ -23,25 +24,24 @@ class TypstCoverFallbackPlan:
         cleanup_strategy: str,
         precleaned_page_indices: frozenset[int],
         skipped_page_indices: frozenset[int],
+        document_analysis: RenderDocumentAnalysis | None = None,
+        source_cleanup_cover_fallback_page_indices: frozenset[int] = frozenset(),
+        source_cleanup_item_fallback_ids: frozenset[str] = frozenset(),
     ) -> "TypstCoverFallbackPlan":
-        page_indices = cover_fallback_page_indices(
-            translated_pages=translated_pages,
-            cleanup_strategy=cleanup_strategy,
-            precleaned_page_indices=precleaned_page_indices,
-            skipped_page_indices=skipped_page_indices,
-        )
+        page_indices = source_cleanup_cover_fallback_page_indices
+        if document_analysis is not None:
+            page_indices = page_indices | document_analysis.visual_cover_page_indices
         translated_page_indices = frozenset(page_idx for page_idx, items in translated_pages.items() if items)
+        item_ids = frozenset()
+        if not translated_page_indices <= page_indices:
+            item_ids = source_cleanup_item_fallback_ids or cover_fallback_item_ids(
+                source_pdf_path=source_pdf_path,
+                translated_pages=translated_pages,
+                cleanup_strategy=cleanup_strategy,
+            )
         return cls(
             page_indices=page_indices,
-            item_ids=(
-                frozenset()
-                if translated_page_indices <= page_indices
-                else cover_fallback_item_ids(
-                    source_pdf_path=source_pdf_path,
-                    translated_pages=translated_pages,
-                    cleanup_strategy=cleanup_strategy,
-                )
-            ),
+            item_ids=item_ids,
         )
 
     def apply_to_translated_pages(self, translated_pages: dict[int, list[dict]]) -> dict[int, list[dict]]:

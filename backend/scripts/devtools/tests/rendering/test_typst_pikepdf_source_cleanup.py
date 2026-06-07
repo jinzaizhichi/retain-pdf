@@ -66,31 +66,11 @@ from services.rendering.workflow.context import RenderExecutionContext
 from services.rendering.workflow.modes import _compress_final_pdf_if_needed
 from services.rendering.document.pikepdf_overlay import overlay_pdf_pages_with_pikepdf
 from services.rendering.document.pikepdf_overlay import overlay_page_pdfs_with_pikepdf
+from services.rendering.document.pikepdf_overlay import PikepdfOverlayResult
 from services.rendering.document.pikepdf_pages import extract_pages_with_pikepdf
 from services.rendering.layout.inline_content.core.markdown import build_direct_typst_passthrough_text
-
-
-def _page_spec(background_pdf_path: Path | None = None) -> RenderPageSpec:
-    return RenderPageSpec(
-        page_index=0,
-        page_width_pt=200.0,
-        page_height_pt=300.0,
-        background_pdf_path=background_pdf_path,
-        blocks=[
-            RenderLayoutBlock(
-                block_id="b1",
-                page_index=0,
-                background_rect=[10.0, 20.0, 80.0, 60.0],
-                content_rect=[12.0, 22.0, 78.0, 58.0],
-                content_kind="markdown",
-                content_text="hello $x^2$",
-                plain_text="hello x^2",
-                math_map=[],
-                font_size_pt=10.0,
-                leading_em=0.6,
-            )
-        ],
-    )
+from services.rendering.output.typst.overlay_chunk_compile import OverlayChunkCompileResult
+from devtools.tests.rendering_support.page_specs import sample_page_spec as _page_spec
 
 def test_overlay_diagnostics_count_legacy_pymupdf_redaction_pages() -> None:
     diagnostics = new_overlay_merge_diagnostics()
@@ -222,6 +202,188 @@ def test_pikepdf_text_strip_allows_book_overlay_pikepdf_merge() -> None:
         ordered_page_indices=[0, 1, 2],
         translated_pages={0: [{}], 1: [{}], 2: [{}]},
     )
+
+
+def test_large_pikepdf_overlay_uses_chunked_typst_compile_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RETAIN_TYPST_OVERLAY_CHUNKED", "1")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "out.pdf"
+
+        doc = fitz.open()
+        for _index in range(256):
+            doc.new_page(width=200, height=300)
+        doc.save(source_pdf)
+        doc.close()
+
+        source_doc = fitz.open(source_pdf)
+        try:
+            with mock.patch(
+                "services.rendering.output.typst.overlay_ops.compile_book_overlay_pdf",
+                side_effect=AssertionError("large pikepdf overlay should use chunked compile"),
+            ), mock.patch(
+                "services.rendering.output.typst.overlay_ops.compile_book_overlay_pdf_chunks",
+                return_value=OverlayChunkCompileResult(
+                    chunk_pdf_paths=[root / "chunk-1.pdf", root / "chunk-2.pdf"],
+                    chunk_source_page_indices=[list(range(128)), list(range(128, 256))],
+                    elapsed_seconds=1.25,
+                    chunk_page_count=128,
+                    chunk_count=2,
+                    workers=2,
+                ),
+            ), mock.patch(
+                "services.rendering.output.typst.overlay_ops.overlay_pdf_chunks_with_pikepdf",
+                return_value=PikepdfOverlayResult(
+                    output_pdf_path=output_pdf,
+                    pages_merged=256,
+                    elapsed_seconds=0.5,
+                ),
+            ):
+                diagnostics = overlay_translated_pages_on_doc(
+                    source_doc,
+                    {
+                        page_idx: [
+                            {
+                                "item_id": f"p{page_idx + 1:03d}-b001",
+                                "bbox": [10.0, 20.0, 180.0, 60.0],
+                                "translated_text": "hello",
+                                "protected_translated_text": "hello",
+                            }
+                        ]
+                        for page_idx in range(256)
+                    },
+                    stem="book-overlay",
+                    temp_root=root,
+                    source_text_precleaned_page_indices=frozenset(range(256)),
+                    source_base_pdf_path=source_pdf,
+                    pikepdf_output_pdf_path=output_pdf,
+                    source_cleanup_strategy="pikepdf_text_strip",
+                )
+        finally:
+            source_doc.close()
+
+        assert diagnostics["mode"] == "book_overlay_chunked_pikepdf"
+        assert diagnostics["typst_chunked_compile"] is True
+        assert diagnostics["typst_chunk_count"] == 2
+        assert diagnostics["typst_chunk_page_count"] == 128
+        assert diagnostics["pikepdf_overlay_pages"] == 256
+
+
+def test_overlay_does_not_promote_unprecleaned_pikepdf_pages_to_cover_fallback() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "out.pdf"
+        overlay_pdf = root / "overlay.pdf"
+
+        doc = fitz.open()
+        doc.new_page(width=200, height=300)
+        doc.save(source_pdf)
+        doc.close()
+
+        overlay_doc = fitz.open()
+        overlay_doc.new_page(width=200, height=300)
+        overlay_doc.save(overlay_pdf)
+        overlay_doc.close()
+
+        source_doc = fitz.open(source_pdf)
+        try:
+            with mock.patch(
+                "services.rendering.output.typst.overlay_ops.compile_book_overlay_pdf",
+                return_value=overlay_pdf,
+            ) as compile_mock, mock.patch(
+                "services.rendering.output.typst.overlay_ops.overlay_pdf_pages_with_pikepdf",
+                return_value=PikepdfOverlayResult(
+                    output_pdf_path=output_pdf,
+                    pages_merged=1,
+                    elapsed_seconds=0.1,
+                ),
+            ):
+                diagnostics = overlay_translated_pages_on_doc(
+                    source_doc,
+                    {
+                        0: [
+                            {
+                                "item_id": "p001-b001",
+                                "block_kind": "text",
+                                "bbox": [10.0, 20.0, 180.0, 60.0],
+                                "translated_text": "hello",
+                                "protected_translated_text": "hello",
+                            }
+                        ]
+                    },
+                    stem="book-overlay",
+                    temp_root=root,
+                    source_text_precleaned_page_indices=frozenset(),
+                    source_base_pdf_path=source_pdf,
+                    pikepdf_output_pdf_path=output_pdf,
+                    source_cleanup_strategy="pikepdf_text_strip",
+                    visual_cover_page_indices=frozenset(),
+                )
+        finally:
+            source_doc.close()
+
+        assert compile_mock.call_args.kwargs["include_cover_rect"] is False
+        assert diagnostics["typst_cover_fallback_pages"] == []
+
+
+def test_overlay_uses_explicit_visual_cover_pages_for_cover_fallback() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "out.pdf"
+        overlay_pdf = root / "overlay.pdf"
+
+        doc = fitz.open()
+        doc.new_page(width=200, height=300)
+        doc.save(source_pdf)
+        doc.close()
+
+        overlay_doc = fitz.open()
+        overlay_doc.new_page(width=200, height=300)
+        overlay_doc.save(overlay_pdf)
+        overlay_doc.close()
+
+        source_doc = fitz.open(source_pdf)
+        try:
+            with mock.patch(
+                "services.rendering.output.typst.overlay_ops.compile_book_overlay_pdf",
+                return_value=overlay_pdf,
+            ) as compile_mock, mock.patch(
+                "services.rendering.output.typst.overlay_ops.overlay_pdf_pages_with_pikepdf",
+                return_value=PikepdfOverlayResult(
+                    output_pdf_path=output_pdf,
+                    pages_merged=1,
+                    elapsed_seconds=0.1,
+                ),
+            ):
+                diagnostics = overlay_translated_pages_on_doc(
+                    source_doc,
+                    {
+                        0: [
+                            {
+                                "item_id": "p001-b001",
+                                "block_kind": "text",
+                                "bbox": [10.0, 20.0, 180.0, 60.0],
+                                "translated_text": "hello",
+                                "protected_translated_text": "hello",
+                            }
+                        ]
+                    },
+                    stem="book-overlay",
+                    temp_root=root,
+                    source_text_precleaned_page_indices=frozenset(),
+                    source_base_pdf_path=source_pdf,
+                    pikepdf_output_pdf_path=output_pdf,
+                    source_cleanup_strategy="pikepdf_text_strip",
+                    visual_cover_page_indices=frozenset({0}),
+                )
+        finally:
+            source_doc.close()
+
+        assert compile_mock.call_args.kwargs["include_cover_rect"] is True
+        assert diagnostics["typst_cover_fallback_pages"] == [0]
 
 
 def test_pikepdf_text_strip_compile_fallback_does_not_reenter_source_overlay() -> None:

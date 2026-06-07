@@ -12,7 +12,6 @@ from services.rendering.source.text_redaction import remove_text_under_rects_wit
 from services.rendering.source.vector_profile import page_drawing_count
 from services.rendering.source.vector_profile import page_is_vector_heavy_count
 from services.rendering.source.rects import merge_rects
-from services.rendering.source.background import page_has_large_background_image
 from services.rendering.source.background.source_overlay import apply_source_page_overlay
 from services.rendering.document.pikepdf_overlay import overlay_pdf_pages_with_pikepdf
 from services.rendering.output.typst.overlay_diagnostics import apply_merge_elapsed
@@ -58,14 +57,6 @@ def _draw_overlay_visual_covers(page: fitz.Page, cleanup_items: list[dict]) -> i
     merged = merge_rects(cover_rects)
     draw_white_covers(page, merged)
     return len(merged)
-
-
-def mark_image_page_overlay_mode(page: fitz.Page, translated_items: list[dict]) -> list[dict]:
-    if not translated_items:
-        return translated_items
-    if not page_has_large_background_image(page):
-        return translated_items
-    return translated_items
 
 
 def _can_use_pikepdf_single_pdf_overlay(

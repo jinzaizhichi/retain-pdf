@@ -13,7 +13,8 @@ from services.rendering.layout.payload.metrics import block_metrics
 from services.rendering.layout.payload.metrics import box_capacity_units
 from services.rendering.layout.payload.metrics import text_demand_units
 from services.rendering.layout.inline_content.mode_router import is_direct_typst_math_mode
-from services.rendering.layout.payload.first_line_indent import detect_first_line_indent_pt
+from services.rendering.layout.payload.first_line_indent import detect_first_line_indent_pt_with_displaylist
+from services.rendering.layout.payload.first_line_indent import is_first_line_indent_candidate
 from services.rendering.layout.payload.render_item import clear_render_fields
 from services.rendering.layout.payload.render_item import group_render_unit_items
 from services.rendering.layout.payload.render_item import group_unit_formula_map
@@ -81,6 +82,7 @@ def _attach_first_line_indents(
         if page_idx not in page_metrics:
             continue
         page_font_size, page_line_pitch, page_line_height, density_baseline, page_text_width_med = page_metrics[page_idx]
+        displaylist: fitz.DisplayList | None = None
         for item in items:
             item_id = str(item.get("item_id", "") or "")
             if first_line_indent_lookup is not None and item_id:
@@ -98,8 +100,13 @@ def _attach_first_line_indents(
                 density_baseline,
                 page_text_width_med,
             )
-            indent_pt = detect_first_line_indent_pt(
+            if not is_first_line_indent_candidate(item, page_text_width_med=page_text_width_med):
+                continue
+            if displaylist is None:
+                displaylist = source_doc[page_idx].get_displaylist()
+            indent_pt = detect_first_line_indent_pt_with_displaylist(
                 source_doc,
+                displaylist,
                 item,
                 page_idx=page_idx,
                 font_size_pt=font_size_pt,

@@ -85,6 +85,11 @@ def run_selected_pages_overlay_render(
         for page_idx in context.source_text_precleaned_page_indices
         if context.start_page <= page_idx <= context.end_page
     )
+    remapped_visual_cover_pages = frozenset(
+        page_idx - context.start_page
+        for page_idx in context.visual_cover_page_indices
+        if context.start_page <= page_idx <= context.end_page
+    )
     overlay_diagnostics = build_book_typst_pdf(
         source_pdf_path=selected_source_path,
         output_pdf_path=context.output_pdf_path,
@@ -102,6 +107,7 @@ def run_selected_pages_overlay_render(
         source_text_precleaned_page_indices=remapped_precleaned_pages,
         source_cleanup_strategy=context.source_cleanup_strategy,
         precomputed_colors_by_item_id=context.render_colors_by_item_id,
+        visual_cover_page_indices=remapped_visual_cover_pages,
         request_chat_content_fn=request_chat_content,
     )
     final_compressed = _compress_final_pdf_if_needed(context, mode="selected_pages_overlay")
@@ -133,6 +139,7 @@ def run_overlay_render(
         source_text_precleaned_page_indices=context.source_text_precleaned_page_indices,
         source_cleanup_strategy=context.source_cleanup_strategy,
         precomputed_colors_by_item_id=context.render_colors_by_item_id,
+        visual_cover_page_indices=context.visual_cover_page_indices,
         request_chat_content_fn=request_chat_content,
     )
     final_compressed = _compress_final_pdf_if_needed(context, mode="overlay")

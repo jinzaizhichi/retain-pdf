@@ -40,6 +40,7 @@ class BBoxTextStripResult:
 class BBoxTextStripCandidates:
     page_rects: dict[int, tuple[tuple[float, float, float, float], ...]]
     page_protected_rects: dict[int, tuple[tuple[float, float, float, float], ...]] | None = None
+    uncovered_unsafe_vector_item_ids: frozenset[str] = frozenset()
     candidate_source: str = BBOX_TEXT_STRIP_CANDIDATE_SOURCE_FRESH_PLAN
     pages_skipped_complex: int = 0
     pages_skipped_no_text_overlap: int = 0
@@ -71,3 +72,4 @@ class BBoxTextStripPagePlan:
     strip_rects: tuple[fitz.Rect, ...] = ()
     protected_rects: tuple[fitz.Rect, ...] = ()
     skip_reason: str = BBOX_TEXT_STRIP_PAGE_SKIP_NONE
+    uncovered_unsafe_vector_item_ids: frozenset[str] = frozenset()

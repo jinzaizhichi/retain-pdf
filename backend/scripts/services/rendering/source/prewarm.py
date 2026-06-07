@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import time
 
+from foundation.config import layout
 from runtime.pipeline.render_mode import resolve_effective_render_mode
 from services.translation.public import resolve_page_range
 from services.pipeline_shared.events import emit_stage_progress
@@ -45,17 +46,19 @@ def _run_render_source_prewarm(spec: RenderPrewarmSpec, manifest_path: Path) -> 
     try:
         prewarm_dir = manifest_path.parent
         prewarm_dir.mkdir(parents=True, exist_ok=True)
+        resolved_start, resolved_stop = resolve_page_range(
+            len(spec.translated_pages),
+            spec.start_page,
+            spec.end_page,
+        )
+        document_analysis = spec.document_analysis
         effective_render_mode = resolve_effective_render_mode(
             render_mode=spec.render_mode,
             source_pdf_path=spec.source_pdf_path,
             start_page=spec.start_page,
             end_page=spec.end_page,
             translated_pages_map=_pages_for_prewarm_mode_probe(spec.translated_pages),
-        )
-        resolved_start, resolved_stop = resolve_page_range(
-            len(spec.translated_pages),
-            spec.start_page,
-            spec.end_page,
+            document_analysis=document_analysis,
         )
         prepared = _load_existing_render_source(
             spec,
@@ -65,6 +68,7 @@ def _run_render_source_prewarm(spec: RenderPrewarmSpec, manifest_path: Path) -> 
             end_page=resolved_stop,
         )
         if prepared is None:
+            cleanup_strategy = spec.source_cleanup_strategy if spec.include_source_cleanup else layout.SOURCE_CLEANUP_TYPST_FILL
             prepared = build_render_source_pdf(
                 source_pdf_path=spec.source_pdf_path,
                 output_pdf_path=prewarm_dir / spec.output_pdf_path.name,
@@ -74,15 +78,20 @@ def _run_render_source_prewarm(spec: RenderPrewarmSpec, manifest_path: Path) -> 
                 start_page=resolved_start,
                 end_page=resolved_stop,
                 artifact_mode=True,
-                source_cleanup_strategy=spec.source_cleanup_strategy,
+                source_cleanup_strategy=cleanup_strategy,
+                document_analysis=document_analysis,
             )
         payload_prewarm = build_payload_prewarm(
             source_pdf_path=spec.source_pdf_path,
             translated_pages=spec.translated_pages,
             manifest_path=manifest_path,
             effective_render_mode=effective_render_mode,
-            source_cleanup_strategy=spec.source_cleanup_strategy,
-            bbox_text_strip_candidates=prepared.bbox_text_strip_candidates,
+            source_cleanup_strategy=(
+                spec.source_cleanup_strategy
+                if spec.include_source_cleanup
+                else layout.SOURCE_CLEANUP_TYPST_FILL
+            ),
+            bbox_text_strip_candidates=prepared.bbox_text_strip_candidates if spec.include_source_cleanup else None,
         )
         manifest = build_prewarm_manifest(
             manifest_path=manifest_path,
@@ -94,10 +103,11 @@ def _run_render_source_prewarm(spec: RenderPrewarmSpec, manifest_path: Path) -> 
                 start_page=resolved_start,
                 end_page=resolved_stop,
                 pdf_compress_dpi=spec.pdf_compress_dpi,
-                source_cleanup_strategy=spec.source_cleanup_strategy,
+                source_cleanup_strategy=spec.source_cleanup_strategy if spec.include_source_cleanup else layout.SOURCE_CLEANUP_TYPST_FILL,
             ),
             elapsed=time.perf_counter() - started,
             payload_prewarm=payload_prewarm,
+            document_analysis=prepared.document_analysis or document_analysis,
         )
         write_json_atomic(manifest_path, manifest)
         emit_stage_progress(

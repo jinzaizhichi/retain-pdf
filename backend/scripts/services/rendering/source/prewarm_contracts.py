@@ -6,13 +6,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from services.rendering.layout.model.models import RenderPageSpec
+from services.rendering.contracts import RenderDocumentAnalysis
 from services.rendering.source_cleanup.types import BBoxTextStripCandidates
 
 
 RENDER_PREWARM_DIR_NAME = "render_prewarm"
 RENDER_PREWARM_MANIFEST_NAME = "render_source_prewarm_manifest.json"
 RENDER_PREWARM_SCHEMA = "render_source_prewarm_v1"
-BBOX_TEXT_STRIP_ALGORITHM_VERSION = "bbox_text_strip_v18_page_features_lpt"
+BBOX_TEXT_STRIP_ALGORITHM_VERSION = "bbox_text_strip_v19_item_fallback_ids"
 HIDDEN_TEXT_STRIP_ALGORITHM_VERSION = "hidden_text_strip_v1"
 IMAGE_COMPRESSION_ALGORITHM_VERSION = "image_only_compress_v1"
 FIRST_LINE_INDENT_ALGORITHM_VERSION = "first_line_indent_v1"
@@ -31,6 +32,8 @@ class RenderPrewarmSpec:
     end_page: int
     pdf_compress_dpi: int
     source_cleanup_strategy: str = "pikepdf_text_strip"
+    document_analysis: RenderDocumentAnalysis | None = None
+    include_source_cleanup: bool = True
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,7 @@ class RenderPayloadPrewarm:
     bbox_text_strip_candidates: BBoxTextStripCandidates | None = None
     background_render_page_specs: list[RenderPageSpec] | None = None
     render_colors_by_item_id: dict[str, dict[str, tuple[float, float, float]]] | None = None
+    document_analysis: RenderDocumentAnalysis | None = None
 
 
 def prewarm_manifest_path_from_artifacts_dir(artifacts_dir: Path) -> Path:

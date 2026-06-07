@@ -14,9 +14,9 @@ from foundation.config.paths import OUTPUT_DIR
 from foundation.config.paths import ROOT_DIR
 from foundation.config.paths import SOURCE_JSON
 from foundation.config.paths import SOURCE_PDF
+from foundation.config.paths import RENDER_TYPOGRAPHY_MEMORY_DIR
 from foundation.config.paths import TRANSLATION_UNIT_CACHE_DIR
 from foundation.config.paths import TRANSLATIONS_DIR
 from foundation.config.runtime import DEFAULT_OUTPUT_NAME
 from foundation.config.runtime import DEFAULT_PAGE_INDEX
 from foundation.config.runtime import DEFAULT_PDF_COMPRESS_DPI
-

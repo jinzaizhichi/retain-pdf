@@ -21,8 +21,6 @@ from services.rendering.layout.payload.collision import mark_adjacent_collision_
 from services.rendering.layout.payload.emit import payload_to_render_block
 from services.rendering.layout.payload.first_line_indent import detect_first_line_indent_pt
 from services.rendering.layout.payload.line_structure import maybe_preserve_structured_line_breaks
-from services.rendering.layout.model.models import RenderLayoutBlock
-from services.rendering.layout.model.models import RenderPageSpec
 from services.rendering.layout.page_specs import build_render_page_specs
 from services.rendering.layout.payload.continuation_split import split_protected_text_for_boxes
 from services.rendering.layout.payload.prepare import prepare_render_payloads_by_page
@@ -63,33 +61,13 @@ from services.rendering.output.typst.overlay_ops import _can_use_pikepdf_book_ov
 from services.rendering.workflow.cover_fallback import cover_fallback_page_indices
 from services.rendering.workflow.context import RenderExecutionContext
 from services.rendering.workflow.modes import _compress_final_pdf_if_needed
+from services.rendering.document.pikepdf_overlay import PikepdfOverlayChunk
+from services.rendering.document.pikepdf_overlay import overlay_pdf_chunks_with_pikepdf
 from services.rendering.document.pikepdf_overlay import overlay_pdf_pages_with_pikepdf
 from services.rendering.document.pikepdf_overlay import overlay_page_pdfs_with_pikepdf
 from services.rendering.document.pikepdf_pages import extract_pages_with_pikepdf
 from services.rendering.layout.inline_content.core.markdown import build_direct_typst_passthrough_text
-
-
-def _page_spec(background_pdf_path: Path | None = None) -> RenderPageSpec:
-    return RenderPageSpec(
-        page_index=0,
-        page_width_pt=200.0,
-        page_height_pt=300.0,
-        background_pdf_path=background_pdf_path,
-        blocks=[
-            RenderLayoutBlock(
-                block_id="b1",
-                page_index=0,
-                background_rect=[10.0, 20.0, 80.0, 60.0],
-                content_rect=[12.0, 22.0, 78.0, 58.0],
-                content_kind="markdown",
-                content_text="hello $x^2$",
-                plain_text="hello x^2",
-                math_map=[],
-                font_size_pt=10.0,
-                leading_em=0.6,
-            )
-        ],
-    )
+from devtools.tests.rendering_support.page_specs import sample_page_spec as _page_spec
 
 def test_pikepdf_overlay_merges_overlay_page_without_pymupdf_write() -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -158,6 +136,55 @@ def test_pikepdf_overlay_merges_single_page_pdfs_by_source_page() -> None:
             assert "page two overlay" not in merged[0].get_text()
             assert "page two overlay" in merged[1].get_text()
             assert "page two overlay" not in merged[2].get_text()
+        finally:
+            merged.close()
+
+
+def test_pikepdf_overlay_merges_chunk_pdfs_by_source_pages() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        chunk_one_pdf = root / "chunk-one.pdf"
+        chunk_two_pdf = root / "chunk-two.pdf"
+        output_pdf = root / "merged.pdf"
+
+        doc = fitz.open()
+        for index in range(4):
+            page = doc.new_page(width=200, height=120)
+            page.insert_text((20, 40), f"source page {index + 1}", fontsize=12)
+        doc.save(source_pdf)
+        doc.close()
+
+        doc = fitz.open()
+        page = doc.new_page(width=200, height=120)
+        page.insert_text((20, 80), "chunk one page one", fontsize=12)
+        page = doc.new_page(width=200, height=120)
+        page.insert_text((20, 80), "chunk one page two", fontsize=12)
+        doc.save(chunk_one_pdf)
+        doc.close()
+
+        doc = fitz.open()
+        page = doc.new_page(width=200, height=120)
+        page.insert_text((20, 80), "chunk two page one", fontsize=12)
+        doc.save(chunk_two_pdf)
+        doc.close()
+
+        result = overlay_pdf_chunks_with_pikepdf(
+            source_pdf_path=source_pdf,
+            overlay_chunks=[
+                PikepdfOverlayChunk(chunk_one_pdf, [0, 1]),
+                PikepdfOverlayChunk(chunk_two_pdf, [3]),
+            ],
+            output_pdf_path=output_pdf,
+        )
+
+        assert result.pages_merged == 3
+        merged = fitz.open(output_pdf)
+        try:
+            assert "chunk one page one" in merged[0].get_text()
+            assert "chunk one page two" in merged[1].get_text()
+            assert "chunk two page one" not in merged[2].get_text()
+            assert "chunk two page one" in merged[3].get_text()
         finally:
             merged.close()
 
@@ -240,5 +267,3 @@ def test_pikepdf_extract_pages_copies_selected_page() -> None:
             selected.close()
         assert "page 2" in text
         assert "page 1" not in text
-
-

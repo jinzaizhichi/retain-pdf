@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass
 
 import fitz
 
@@ -8,16 +9,93 @@ from services.rendering.layout.font_roles import is_title_like_block
 from services.rendering.layout.typography.geometry import cover_bbox
 from services.rendering.policy import item_overlay_fill
 from services.rendering.policy import item_uses_white_overlay_fill
+from services.rendering.source.background.fill import LocalBackgroundSampler
 from services.rendering.source.background.color_sampling import sample_local_background_fill
 
 
 DARK_BACKGROUND_BRIGHTNESS_MAX = 0.42
+LIGHT_BACKGROUND_VISUAL_TITLE_BRIGHTNESS_MIN = 0.94
+PAGE_TEXT_COLOR_SAMPLER_MIN_TITLES = 2
 TITLE_COLOR_SAMPLE_SCALE = 3.0
 TITLE_COLOR_MIN_DISTANCE = 42.0
 TITLE_COLOR_QUANTUM = 16
 DEFAULT_COVER_FILL = (1, 1, 1)
 DEFAULT_TEXT_COLOR = (0, 0, 0)
 SPAN_COLOR_MIN_DISTANCE = 24.0
+
+
+@dataclass(frozen=True)
+class SpanColorSample:
+    rect: fitz.Rect
+    text: str
+    rgb: tuple[int, int, int]
+
+
+class PageTextColorSampler:
+    def __init__(self, samples: list[SpanColorSample]) -> None:
+        self.samples = samples
+
+    @classmethod
+    def build(cls, page: fitz.Page) -> "PageTextColorSampler | None":
+        try:
+            text = page.get_text("dict")
+        except Exception:
+            return None
+        samples: list[SpanColorSample] = []
+        for block in text.get("blocks", []):
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    span_text = str(span.get("text") or "")
+                    if not span_text.strip():
+                        continue
+                    rgb = _rgb_from_span_color(span.get("color"))
+                    if rgb is None:
+                        continue
+                    rect = _span_rect(span)
+                    if rect is None:
+                        continue
+                    samples.append(SpanColorSample(rect=rect, text=span_text, rgb=rgb))
+        return cls(samples) if samples else None
+
+    def title_text_color(
+        self,
+        rect: fitz.Rect,
+        background: tuple[float, float, float] | None = None,
+    ) -> tuple[float, float, float] | None:
+        if rect.is_empty or rect.is_infinite:
+            return None
+        bg = (
+            tuple(max(0, min(255, int(round(component * 255)))) for component in background)
+            if background is not None
+            else None
+        )
+        threshold_sq = int(SPAN_COLOR_MIN_DISTANCE * SPAN_COLOR_MIN_DISTANCE)
+        buckets: dict[tuple[int, int, int], list[int]] = {}
+        for sample in self.samples:
+            if not sample.rect.intersects(rect):
+                continue
+            if bg is not None and _color_distance_sq(sample.rgb, bg) < threshold_sq:
+                continue
+            key = _quantize_color(sample.rgb)
+            bucket = buckets.setdefault(key, [0, 0, 0, 0])
+            weight = max(1, len(sample.text.strip()))
+            bucket[0] += sample.rgb[0] * weight
+            bucket[1] += sample.rgb[1] * weight
+            bucket[2] += sample.rgb[2] * weight
+            bucket[3] += weight
+        if not buckets:
+            return None
+        _key, bucket = max(buckets.items(), key=lambda entry: entry[1][3])
+        count = bucket[3]
+        if count <= 0:
+            return None
+        return _float_color_from_rgb(
+            (
+                int(round(bucket[0] / count)),
+                int(round(bucket[1] / count)),
+                int(round(bucket[2] / count)),
+            )
+        )
 
 
 def relative_brightness(color: tuple[float, float, float]) -> float:
@@ -29,6 +107,10 @@ def text_color_for_fill(fill: tuple[float, float, float]) -> tuple[float, float,
     if relative_brightness(fill) <= DARK_BACKGROUND_BRIGHTNESS_MAX:
         return (1, 1, 1)
     return (0, 0, 0)
+
+
+def should_probe_title_visual_color(fill: tuple[float, float, float]) -> bool:
+    return relative_brightness(fill) < LIGHT_BACKGROUND_VISUAL_TITLE_BRIGHTNESS_MIN
 
 
 def _color_distance_sq(
@@ -54,6 +136,19 @@ def _rgb_from_span_color(value: object) -> tuple[int, int, int] | None:
             return tuple(max(0, min(255, int(round(component * 255)))) for component in components)
         return tuple(max(0, min(255, int(round(component)))) for component in components)
     return None
+
+
+def _span_rect(span: dict) -> fitz.Rect | None:
+    bbox = span.get("bbox")
+    if not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
+        return None
+    try:
+        rect = fitz.Rect(float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3]))
+    except Exception:
+        return None
+    if rect.is_empty or rect.is_infinite:
+        return None
+    return rect
 
 
 def _float_color_from_rgb(color: tuple[int, int, int]) -> tuple[float, float, float]:
@@ -250,14 +345,19 @@ def _item_uses_explicit_white_fill(item: dict) -> bool:
     return item_uses_white_overlay_fill(item) and not _item_needs_local_color_sampling(item)
 
 
-def _sample_item_cover_fill(page: fitz.Page, item: dict) -> tuple[tuple[float, float, float], fitz.Rect | None]:
+def _sample_item_cover_fill(
+    page: fitz.Page,
+    item: dict,
+    *,
+    sampler: LocalBackgroundSampler | None = None,
+) -> tuple[tuple[float, float, float], fitz.Rect | None]:
     bbox = cover_bbox(item)
     if len(bbox) != 4:
         return DEFAULT_COVER_FILL, None
     rect = fitz.Rect(bbox)
     if rect.is_empty or rect.is_infinite:
         return DEFAULT_COVER_FILL, None
-    return sample_local_background_fill(page, rect), rect
+    return sample_local_background_fill(page, rect, sampler=sampler), rect
 
 
 def apply_adaptive_overlay_colors(
@@ -267,6 +367,13 @@ def apply_adaptive_overlay_colors(
     precomputed_colors_by_item_id: dict[str, dict[str, tuple[float, float, float]]] | None = None,
 ) -> list[dict]:
     adapted: list[dict] = []
+    local_sampler = LocalBackgroundSampler.build(page, _local_sampling_rects(items))
+    title_count = sum(1 for item in items if is_title_like_block(item))
+    text_color_sampler = (
+        PageTextColorSampler.build(page)
+        if title_count >= PAGE_TEXT_COLOR_SAMPLER_MIN_TITLES
+        else None
+    )
     for item in items:
         next_item = dict(item)
         item_id = str(next_item.get("item_id") or "")
@@ -286,7 +393,7 @@ def apply_adaptive_overlay_colors(
         title_like = is_title_like_block(next_item)
         rect: fitz.Rect | None = None
         if _item_needs_local_color_sampling(next_item):
-            fill, rect = _sample_item_cover_fill(page, next_item)
+            fill, rect = _sample_item_cover_fill(page, next_item, sampler=local_sampler)
         else:
             fill = DEFAULT_COVER_FILL
             bbox = cover_bbox(next_item)
@@ -298,18 +405,40 @@ def apply_adaptive_overlay_colors(
         next_item["_render_cover_fill"] = fill
         text_color = text_color_for_fill(fill)
         if rect is not None and title_like:
-            title_color = title_text_color_from_text_spans(page, rect)
+            title_color = (
+                text_color_sampler.title_text_color(rect)
+                if text_color_sampler is not None
+                else title_text_color_from_text_spans(page, rect)
+            )
             if title_color is None:
                 if not _item_needs_local_color_sampling(next_item) and not _item_uses_explicit_white_fill(next_item):
-                    fill, rect = _sample_item_cover_fill(page, next_item)
+                    fill, rect = _sample_item_cover_fill(page, next_item, sampler=local_sampler)
                     next_item["_render_cover_fill"] = fill
                     text_color = text_color_for_fill(fill)
-                title_color = title_text_color_from_visual_components(page, rect, fill)
+                title_color = (
+                    title_text_color_from_visual_components(page, rect, fill)
+                    if should_probe_title_visual_color(fill)
+                    else None
+                )
             if title_color is not None:
                 text_color = title_color
         next_item["_render_text_color"] = text_color
         adapted.append(next_item)
     return adapted
+
+
+def _local_sampling_rects(items: list[dict]) -> list[fitz.Rect]:
+    rects: list[fitz.Rect] = []
+    for item in items:
+        if not _item_needs_local_color_sampling(item):
+            continue
+        bbox = cover_bbox(item)
+        if len(bbox) != 4:
+            continue
+        rect = fitz.Rect(bbox)
+        if not rect.is_empty and not rect.is_infinite:
+            rects.append(rect)
+    return rects
 
 
 __all__ = [

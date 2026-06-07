@@ -14,6 +14,12 @@ class PikepdfOverlayResult:
     elapsed_seconds: float
 
 
+@dataclass(frozen=True)
+class PikepdfOverlayChunk:
+    overlay_pdf_path: Path
+    source_page_indices: list[int]
+
+
 def _page_media_rect(page: pikepdf.Page) -> pikepdf.Rectangle:
     box = page.mediabox
     return pikepdf.Rectangle(float(box[0]), float(box[1]), float(box[2]), float(box[3]))
@@ -50,6 +56,45 @@ def overlay_pdf_pages_with_pikepdf(
                 expand=False,
             )
             pages_merged += 1
+        pdf.save(
+            output_pdf_path,
+            object_stream_mode=pikepdf.ObjectStreamMode.generate,
+            compress_streams=True,
+            recompress_flate=False,
+        )
+    return PikepdfOverlayResult(
+        output_pdf_path=output_pdf_path,
+        pages_merged=pages_merged,
+        elapsed_seconds=time.perf_counter() - started,
+    )
+
+
+def overlay_pdf_chunks_with_pikepdf(
+    *,
+    source_pdf_path: Path,
+    overlay_chunks: list[PikepdfOverlayChunk],
+    output_pdf_path: Path,
+) -> PikepdfOverlayResult:
+    started = time.perf_counter()
+    output_pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    with pikepdf.Pdf.open(source_pdf_path) as pdf:
+        pages_merged = 0
+        for chunk in overlay_chunks:
+            with pikepdf.Pdf.open(chunk.overlay_pdf_path) as overlay_pdf:
+                for overlay_page_idx, source_page_idx in enumerate(chunk.source_page_indices):
+                    if source_page_idx < 0 or source_page_idx >= len(pdf.pages):
+                        continue
+                    if overlay_page_idx < 0 or overlay_page_idx >= len(overlay_pdf.pages):
+                        continue
+                    source_page = pdf.pages[source_page_idx]
+                    source_page.add_overlay(
+                        overlay_pdf.pages[overlay_page_idx],
+                        rect=_page_crop_rect(source_page),
+                        push_stack=True,
+                        shrink=False,
+                        expand=False,
+                    )
+                    pages_merged += 1
         pdf.save(
             output_pdf_path,
             object_stream_mode=pikepdf.ObjectStreamMode.generate,

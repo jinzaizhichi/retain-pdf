@@ -67,29 +67,8 @@ from services.rendering.document.pikepdf_overlay import overlay_pdf_pages_with_p
 from services.rendering.document.pikepdf_overlay import overlay_page_pdfs_with_pikepdf
 from services.rendering.document.pikepdf_pages import extract_pages_with_pikepdf
 from services.rendering.layout.inline_content.core.markdown import build_direct_typst_passthrough_text
+from devtools.tests.rendering_support.page_specs import sample_page_spec as _page_spec
 
-
-def _page_spec(background_pdf_path: Path | None = None) -> RenderPageSpec:
-    return RenderPageSpec(
-        page_index=0,
-        page_width_pt=200.0,
-        page_height_pt=300.0,
-        background_pdf_path=background_pdf_path,
-        blocks=[
-            RenderLayoutBlock(
-                block_id="b1",
-                page_index=0,
-                background_rect=[10.0, 20.0, 80.0, 60.0],
-                content_rect=[12.0, 22.0, 78.0, 58.0],
-                content_kind="markdown",
-                content_text="hello $x^2$",
-                plain_text="hello x^2",
-                math_map=[],
-                font_size_pt=10.0,
-                leading_em=0.6,
-            )
-        ],
-    )
 
 def test_typst_overlay_fit_respects_python_min_font_and_leading() -> None:
     translated_items = [

@@ -1,10 +1,6 @@
-from services.rendering.layout.payload.blocks import build_render_blocks
-from services.rendering.layout.payload import body_policy_facade as body_policy
-from services.rendering.layout.payload.prepare import prepare_render_payloads_by_page
+"""Payload layout internals.
 
-
-__all__ = [
-    "body_policy",
-    "build_render_blocks",
-    "prepare_render_payloads_by_page",
-]
+Import concrete modules directly; this package intentionally avoids re-exporting
+pipeline entrypoints so utility modules can depend on small helpers without
+initializing the whole payload graph.
+"""

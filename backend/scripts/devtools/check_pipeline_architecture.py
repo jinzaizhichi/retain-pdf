@@ -251,6 +251,7 @@ RENDERING_SOURCE_ROOT = RENDERING_ROOT / "source"
 RENDERING_SOURCE_CLEANUP_ROOT = RENDERING_SOURCE_ROOT / "cleanup"
 RENDERING_ALLOWED_ROOT_DIRS = {
     "analysis",
+    "contracts",
     "document",
     "layout",
     "legacy",
@@ -269,6 +270,7 @@ RENDERING_LAYER_IMPORT_RULES: dict[str, tuple[str, ...]] = {
     "workflow": (
         "services.rendering.workflow",
         "services.rendering.analysis",
+        "services.rendering.contracts",
         "services.rendering.document",
         "services.rendering.policy",
         "services.rendering.source",
@@ -279,15 +281,23 @@ RENDERING_LAYER_IMPORT_RULES: dict[str, tuple[str, ...]] = {
     ),
     "analysis": (
         "services.rendering.analysis",
+        "services.rendering.contracts",
         # Page profiling may inspect source image metadata, but must not execute cleanup/output.
         "services.rendering.source.background.detect",
+    ),
+    "contracts": (
+        "services.rendering.contracts",
+        "services.rendering.analysis.profile.models",
+        "services.rendering.analysis.route.models",
     ),
     "document": (
         "services.rendering.document",
         "services.rendering.layout.model",
+        "services.rendering.contracts",
     ),
     "source": (
         "services.rendering.source",
+        "services.rendering.contracts",
         "services.rendering.document",
         "services.rendering.policy",
         "services.rendering.layout",
@@ -319,6 +329,7 @@ RENDERING_LAYER_IMPORT_RULES: dict[str, tuple[str, ...]] = {
     ),
     "source_cleanup": (
         "services.rendering.source_cleanup",
+        "services.rendering.contracts",
         "services.rendering.policy",
         "services.rendering.source.background.detect",
         "services.rendering.source.rects",

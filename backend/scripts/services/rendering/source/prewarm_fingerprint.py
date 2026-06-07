@@ -7,6 +7,7 @@ from typing import Any
 
 from foundation.config import layout
 from services.document_schema.semantics import block_kind as schema_block_kind
+from services.rendering.policy.cleanup_policy import item_will_render_translated_overlay
 from services.rendering.source.prewarm_contracts import BBOX_TEXT_STRIP_ALGORITHM_VERSION
 from services.rendering.source.prewarm_contracts import GEOMETRY_ADJUSTMENT_ALGORITHM_VERSION
 from services.rendering.source.prewarm_contracts import HIDDEN_TEXT_STRIP_ALGORITHM_VERSION
@@ -21,6 +22,23 @@ def build_payload_structure_hash(translated_pages: dict[int, list[dict]]) -> str
     for page_idx in sorted(translated_pages):
         compact_items = [
             _payload_structure_item(page_idx, item)
+            for item in translated_pages[page_idx]
+            if _is_render_payload_candidate(item)
+        ]
+        if not compact_items:
+            continue
+        digest.update(f"page:{page_idx}\n".encode("utf-8"))
+        for compact in compact_items:
+            digest.update(json.dumps(compact, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+            digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def build_visual_payload_hash(translated_pages: dict[int, list[dict]]) -> str:
+    digest = hashlib.sha256()
+    for page_idx in sorted(translated_pages):
+        compact_items = [
+            _payload_visual_item(page_idx, item)
             for item in translated_pages[page_idx]
             if _is_render_payload_candidate(item)
         ]
@@ -58,6 +76,7 @@ def build_render_prewarm_fingerprint(
         "pdf_compress_dpi": int(pdf_compress_dpi),
         "source_cleanup_strategy": cleanup_strategy,
         "payload_structure_hash": build_payload_structure_hash(translated_pages),
+        "visual_payload_hash": build_visual_payload_hash(translated_pages),
         "render_payload_hash": build_payload_structure_hash(translated_pages),
         "bbox_text_strip_algorithm": BBOX_TEXT_STRIP_ALGORITHM_VERSION,
         "hidden_text_strip_algorithm": HIDDEN_TEXT_STRIP_ALGORITHM_VERSION,
@@ -100,7 +119,24 @@ def _payload_structure_item(page_idx: int, item: dict) -> dict[str, Any]:
             "force_visual_cover_only": bool(item.get("_force_visual_cover_only")),
             "render_use_cover_fill": bool(item.get("_render_use_cover_fill")),
         },
-        "strip_candidate": _has_render_source_or_output_text(item),
+        "strip_candidate": _has_text_overlay(item),
+    }
+
+
+def _payload_visual_item(page_idx: int, item: dict) -> dict[str, Any]:
+    return {
+        "item_id": str(item.get("item_id", "") or ""),
+        "page_idx": int_or_default(item.get("page_idx"), page_idx),
+        "block_type": str(item.get("block_type", "") or ""),
+        "block_kind": schema_block_kind(item),
+        "bbox": [float_or_zero(value) for value in list(item.get("bbox", []) or [])[:4]],
+        "layout_role": str(item.get("layout_role", "") or ""),
+        "semantic_role": str(item.get("semantic_role", "") or ""),
+        "structure_role": str(item.get("structure_role", "") or ""),
+        "raw_block_type": str(item.get("raw_block_type", "") or ""),
+        "normalized_sub_type": str(item.get("normalized_sub_type", "") or ""),
+        "lines": _line_signature(item.get("lines")),
+        "source_line_texts": [str(value) for value in list(item.get("source_line_texts") or [])],
     }
 
 
@@ -115,7 +151,7 @@ def _bbox_text_strip_page_indexes(translated_pages: dict[int, list[dict]]) -> li
 def _is_bbox_text_strip_candidate(item: dict) -> bool:
     if not _is_render_payload_candidate(item):
         return False
-    return _has_render_source_or_output_text(item)
+    return _has_text_overlay(item)
 
 
 def _is_render_payload_candidate(item: dict) -> bool:
@@ -129,8 +165,8 @@ def _is_render_payload_candidate(item: dict) -> bool:
     return True
 
 
-def _has_render_source_or_output_text(item: dict) -> bool:
-    return bool(_render_source_text(item))
+def _has_text_overlay(item: dict) -> bool:
+    return item_will_render_translated_overlay(item)
 
 
 def _render_source_text(item: dict) -> str:
@@ -178,4 +214,5 @@ def _jsonable(value: object) -> object:
 __all__ = [
     "build_payload_structure_hash",
     "build_render_prewarm_fingerprint",
+    "build_visual_payload_hash",
 ]

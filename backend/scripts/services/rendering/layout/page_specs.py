@@ -16,6 +16,7 @@ from services.rendering.layout.model.models import RenderLayoutBlock
 from services.rendering.layout.model.models import RenderPageSpec
 from services.rendering.layout.title_fit import apply_title_fit_budget_to_render_blocks
 from services.rendering.policy import apply_render_pages_policy_fields
+from services.rendering.layout.typography_memory.learning import observe_payload_typography
 from foundation.config import layout
 
 RenderPageSpecProgressCallback = Callable[[int, int, int], None]
@@ -74,6 +75,7 @@ def _layout_page_spec(
     if layout.FONT_UNIFY_MODE != "off":
         unify_annotation_fonts(ordered_payloads)
     mark_adjacent_collision_risk(ordered_payloads)
+    observe_payload_typography(ordered_payloads)
     blocks = [
         _layout_block_from_render_block(block, page_index=page_index)
         for block in emit_render_blocks(block_payloads)

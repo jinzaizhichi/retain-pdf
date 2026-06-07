@@ -7,6 +7,8 @@ from typing import Callable
 import fitz
 
 from foundation.config import fonts
+from services.rendering.document.pikepdf_overlay import PikepdfOverlayChunk
+from services.rendering.document.pikepdf_overlay import overlay_pdf_chunks_with_pikepdf
 from services.rendering.document.pikepdf_overlay import overlay_pdf_pages_with_pikepdf
 from services.rendering.output.typst.compiler import TypstCompileError
 from services.rendering.output.typst.book_support import prepare_translated_pages_for_render
@@ -14,19 +16,18 @@ from services.rendering.output.typst.overlay_book import build_overlay_page_spec
 from services.rendering.output.typst.overlay_book import overlay_pages_via_page_fallback
 from services.rendering.output.typst.overlay_book import prepare_overlay_doc_pages
 from services.rendering.output.typst.overlay_book import sanitize_overlay_page_specs
+from services.rendering.output.typst.overlay_chunk_compile import compile_book_overlay_pdf_chunks
+from services.rendering.output.typst.overlay_chunk_compile import should_use_chunked_overlay_compile
 from services.rendering.output.typst.overlay_compile import compile_book_overlay_pdf
 from services.rendering.output.typst.overlay_compile import compile_page_overlay_pdf
 from services.rendering.output.typst.overlay_color import apply_overlay_page_colors
 from services.rendering.output.typst.overlay_diagnostics import new_overlay_merge_diagnostics
 from services.rendering.output.typst.overlay_runtime import can_use_pikepdf_book_overlay
 from services.rendering.output.typst.overlay_runtime import extract_failed_overlay_indices
-from services.rendering.output.typst.overlay_runtime import FAST_PATCH_PAGE_THRESHOLD
 from services.rendering.output.typst.overlay_runtime import overlay_pdf_size_mismatches
 from services.rendering.output.typst.overlay_source_cache import resolve_prebuilt_overlay_source
 from services.rendering.output.typst.source_page_overlay import apply_source_page_overlay
-from services.rendering.output.typst.source_page_overlay import mark_image_page_overlay_mode
 from services.rendering.output.typst.source_page_overlay import overlay_pages_from_single_pdf
-from services.rendering.policy import apply_typst_cover_fallback_fields
 from services.pipeline_shared.events import emit_render_compile_progress
 from services.pipeline_shared.events import emit_render_page_progress
 
@@ -51,7 +52,6 @@ def overlay_translated_items_on_page(
     redaction_strategy: str | None = None,
     request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> None:
-    translated_items = mark_image_page_overlay_mode(page, translated_items)
     if apply_source_overlay:
         apply_source_page_overlay(
             page,
@@ -105,6 +105,7 @@ def overlay_translated_pages_on_doc(
     precomputed_colors_by_item_id: dict[str, dict[str, tuple[float, float, float]]] | None = None,
     pikepdf_output_pdf_path: Path | None = None,
     source_cleanup_strategy: str = "typst_fill",
+    visual_cover_page_indices: frozenset[int] = frozenset(),
     request_chat_content_fn: TypstRepairRequestFn | None = None,
 ) -> dict[str, object]:
     prepare_started = time.perf_counter()
@@ -119,15 +120,8 @@ def overlay_translated_pages_on_doc(
     cover_fallback_page_indices = frozenset(
         page_idx
         for page_idx in ordered_page_indices
-        if source_cleanup_strategy == "pikepdf_text_strip"
-        and page_idx not in source_text_precleaned_page_indices
-        and translated_pages.get(page_idx)
+        if page_idx in visual_cover_page_indices and translated_pages.get(page_idx)
     )
-    if cover_fallback_page_indices:
-        translated_pages = apply_typst_cover_fallback_fields(
-            translated_pages,
-            cover_fallback_page_indices,
-        )
     prepare_elapsed = time.perf_counter() - prepare_started
     if not ordered_page_indices:
         return {
@@ -171,16 +165,36 @@ def overlay_translated_pages_on_doc(
     page_specs = build_overlay_page_specs(doc, ordered_page_indices, translated_pages, stem=stem)
     book_specs = [(page_width, page_height, items) for _, page_width, page_height, items, _ in page_specs]
     specs_elapsed = time.perf_counter() - specs_started
-    use_typst_overlay_fill_only = len(ordered_page_indices) >= FAST_PATCH_PAGE_THRESHOLD
-    include_cover_rect_in_overlay = bool(cover_fallback_page_indices or use_typst_overlay_fill_only)
-    active_prebuilt_source_path, source_prepare_elapsed = resolve_prebuilt_overlay_source(
-        prebuilt_source_path=prebuilt_source_path,
-        temp_root=temp_root,
-        stem=stem,
-        book_specs=book_specs,
-        font_family=font_family,
-        include_cover_rect=include_cover_rect_in_overlay,
+    use_typst_overlay_fill_only = False
+    include_cover_rect_in_overlay = bool(cover_fallback_page_indices)
+    can_merge_whole_overlay_with_pikepdf = (
+        source_base_pdf_path is not None
+        and pikepdf_output_pdf_path is not None
+        and _can_use_pikepdf_book_overlay(
+            apply_source_overlay=False,
+            use_typst_overlay_fill_only=use_typst_overlay_fill_only,
+            source_cleanup_strategy=source_cleanup_strategy,
+            source_text_precleaned_page_indices=source_text_precleaned_page_indices,
+            ordered_page_indices=ordered_page_indices,
+            translated_pages=translated_pages,
+        )
     )
+    use_chunked_overlay_compile = (
+        can_merge_whole_overlay_with_pikepdf
+        and should_use_chunked_overlay_compile(len(ordered_page_indices))
+    )
+    if use_chunked_overlay_compile:
+        active_prebuilt_source_path = None
+        source_prepare_elapsed = 0.0
+    else:
+        active_prebuilt_source_path, source_prepare_elapsed = resolve_prebuilt_overlay_source(
+            prebuilt_source_path=prebuilt_source_path,
+            temp_root=temp_root,
+            stem=stem,
+            book_specs=book_specs,
+            font_family=font_family,
+            include_cover_rect=include_cover_rect_in_overlay,
+        )
     compile_started = time.perf_counter()
     try:
         emit_render_compile_progress(
@@ -189,6 +203,67 @@ def overlay_translated_pages_on_doc(
             message=f"正在编译整本 Typst overlay，共 {len(ordered_page_indices)} 页",
             payload={"render_stage": "typst_book_compile_start"},
         )
+        if use_chunked_overlay_compile:
+            chunk_result = compile_book_overlay_pdf_chunks(
+                ordered_page_indices=ordered_page_indices,
+                book_specs=book_specs,
+                stem=stem,
+                font_family=font_family,
+                include_cover_rect=include_cover_rect_in_overlay,
+                font_paths=font_paths,
+                temp_root=temp_root,
+                compile_workers=compile_workers,
+            )
+            compile_elapsed = time.perf_counter() - compile_started
+            emit_render_compile_progress(
+                current=4,
+                total=4,
+                message=f"分片 Typst overlay 编译完成，共 {len(ordered_page_indices)} 页",
+                payload={
+                    "render_stage": "typst_chunked_book_compile_done",
+                    "chunk_count": chunk_result.chunk_count,
+                    "chunk_page_count": chunk_result.chunk_page_count,
+                },
+            )
+            merge_started = time.perf_counter()
+            pike_result = overlay_pdf_chunks_with_pikepdf(
+                source_pdf_path=source_base_pdf_path,
+                overlay_chunks=[
+                    PikepdfOverlayChunk(path, source_indices)
+                    for path, source_indices in zip(
+                        chunk_result.chunk_pdf_paths,
+                        chunk_result.chunk_source_page_indices,
+                    )
+                ],
+                output_pdf_path=pikepdf_output_pdf_path,
+            )
+            merge_elapsed = time.perf_counter() - merge_started
+            diagnostics = new_overlay_merge_diagnostics()
+            diagnostics["compile_elapsed_seconds"] = compile_elapsed
+            diagnostics["sanitize_elapsed_seconds"] = 0.0
+            diagnostics["source_overlay_elapsed_seconds"] = 0.0
+            diagnostics["overlay_merge_elapsed_seconds"] = merge_elapsed
+            diagnostics["page_count"] = len(ordered_page_indices)
+            diagnostics["mode"] = "book_overlay_chunked_pikepdf"
+            diagnostics["typst_cover_blocks"] = False
+            diagnostics["source_overlay_skipped_reason"] = "prepared_source_pdf"
+            diagnostics["payload_prepare_elapsed_seconds"] = prepare_elapsed
+            diagnostics["color_adapt_elapsed_seconds"] = color_elapsed
+            diagnostics["page_specs_elapsed_seconds"] = specs_elapsed
+            diagnostics["typst_cover_fallback_pages"] = sorted(cover_fallback_page_indices)
+            diagnostics["typst_source_prepare_elapsed_seconds"] = source_prepare_elapsed
+            diagnostics["typst_prebuilt_source_path"] = str(active_prebuilt_source_path or "")
+            diagnostics["typst_chunked_compile"] = True
+            diagnostics["typst_chunk_count"] = chunk_result.chunk_count
+            diagnostics["typst_chunk_page_count"] = chunk_result.chunk_page_count
+            diagnostics["typst_chunk_workers"] = chunk_result.workers
+            diagnostics["typst_chunk_compile_elapsed_seconds"] = chunk_result.elapsed_seconds
+            diagnostics["pikepdf_overlay_output_pdf_path"] = str(pike_result.output_pdf_path)
+            diagnostics["pikepdf_overlay_pages"] = pike_result.pages_merged
+            diagnostics["pikepdf_overlay_elapsed_seconds"] = pike_result.elapsed_seconds
+            diagnostics.setdefault("compile_errors", [])
+            diagnostics.setdefault("sanitize_page_diagnostics", [])
+            return diagnostics
         overlay_pdf = compile_book_overlay_pdf(
             book_specs,
             stem=stem,
@@ -247,18 +322,7 @@ def overlay_translated_pages_on_doc(
             diagnostics.setdefault("compile_errors", [])
             diagnostics.setdefault("sanitize_page_diagnostics", [])
             return diagnostics
-        if (
-            source_base_pdf_path is not None
-            and pikepdf_output_pdf_path is not None
-            and _can_use_pikepdf_book_overlay(
-                apply_source_overlay=False,
-                use_typst_overlay_fill_only=use_typst_overlay_fill_only,
-                source_cleanup_strategy=source_cleanup_strategy,
-                source_text_precleaned_page_indices=source_text_precleaned_page_indices,
-                ordered_page_indices=ordered_page_indices,
-                translated_pages=translated_pages,
-            )
-        ):
+        if can_merge_whole_overlay_with_pikepdf:
             merge_started = time.perf_counter()
             pike_result = overlay_pdf_pages_with_pikepdf(
                 source_pdf_path=source_base_pdf_path,

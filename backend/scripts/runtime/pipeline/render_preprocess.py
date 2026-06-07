@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from services.rendering.analysis.document import build_render_document_analysis
 from services.rendering.source.prewarm import RenderPrewarmSpec
+from services.rendering.source.prewarm import RenderPrewarmHandle
 from services.rendering.source.prewarm import prewarm_manifest_path_from_artifacts_dir
 from services.rendering.source.prewarm import start_render_source_prewarm
 from services.translation.public import build_translation_record
@@ -45,6 +47,34 @@ def run_ocr_render_preprocess(
     source_cleanup_strategy: str,
     math_mode: str = "direct_typst",
 ) -> Path | None:
+    handle = start_ocr_render_preprocess(
+        source_json_path=source_json_path,
+        source_pdf_path=source_pdf_path,
+        output_pdf_path=output_pdf_path,
+        artifacts_dir=artifacts_dir,
+        render_mode=render_mode,
+        start_page=start_page,
+        end_page=end_page,
+        pdf_compress_dpi=pdf_compress_dpi,
+        source_cleanup_strategy=source_cleanup_strategy,
+        math_mode=math_mode,
+    )
+    return handle.wait() if handle is not None else None
+
+
+def start_ocr_render_preprocess(
+    *,
+    source_json_path: Path,
+    source_pdf_path: Path,
+    output_pdf_path: Path,
+    artifacts_dir: Path,
+    render_mode: str,
+    start_page: int,
+    end_page: int,
+    pdf_compress_dpi: int,
+    source_cleanup_strategy: str,
+    math_mode: str = "direct_typst",
+) -> RenderPrewarmHandle | None:
     pages = build_source_render_preprocess_pages(
         source_json_path=source_json_path,
         start_page=start_page,
@@ -53,7 +83,13 @@ def run_ocr_render_preprocess(
     )
     if not pages:
         return None
-    handle = start_render_source_prewarm(
+    document_analysis = build_render_document_analysis(
+        source_pdf_path=source_pdf_path,
+        translated_pages=pages,
+        start_page=start_page,
+        end_page=end_page,
+    )
+    return start_render_source_prewarm(
         RenderPrewarmSpec(
             source_pdf_path=source_pdf_path,
             output_pdf_path=output_pdf_path,
@@ -64,13 +100,15 @@ def run_ocr_render_preprocess(
             end_page=end_page,
             pdf_compress_dpi=pdf_compress_dpi,
             source_cleanup_strategy=source_cleanup_strategy,
+            document_analysis=document_analysis,
+            include_source_cleanup=False,
         )
     )
-    return handle.wait()
 
 
 __all__ = [
     "build_source_render_preprocess_pages",
     "prewarm_manifest_path_from_artifacts_dir",
     "run_ocr_render_preprocess",
+    "start_ocr_render_preprocess",
 ]

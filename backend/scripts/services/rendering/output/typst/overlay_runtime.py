@@ -7,7 +7,6 @@ import fitz
 
 from services.rendering.output.typst.compiler import TypstCompileError
 from services.rendering.output.typst.overlay_source_cache import PAGE_SIZE_TOLERANCE_PT
-from services.rendering.policy import FAST_PATCH_PAGE_THRESHOLD
 
 
 OVERLAY_STEM_RE = re.compile(r"\bbook-overlay-(\d{3,})\b")
@@ -107,7 +106,6 @@ def overlay_pdf_size_mismatches(
 
 
 __all__ = [
-    "FAST_PATCH_PAGE_THRESHOLD",
     "can_use_pikepdf_book_overlay",
     "extract_failed_overlay_indices",
     "overlay_pdf_size_mismatches",

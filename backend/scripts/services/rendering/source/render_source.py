@@ -5,6 +5,7 @@ from pathlib import Path
 import time
 
 from services.rendering.source.compression.pdf_copy import build_image_compressed_pdf_copy
+from services.rendering.contracts import RenderDocumentAnalysis
 from services.rendering.source_cleanup.types import BBoxTextStripCandidates
 from services.rendering.source.preparation.hidden_text_strip import build_hidden_text_stripped_pdf_copy
 from services.rendering.source.preparation.xobject_sanitize import build_invalid_xobject_sanitized_pdf_copy
@@ -12,7 +13,6 @@ from services.rendering.source_cleanup import SourceCleanupOptions
 from services.rendering.source_cleanup import SourceCleanupRequest
 from services.rendering.source_cleanup import execute_source_cleanup
 from services.rendering.output.typst.shared import default_typst_temp_root
-from services.rendering.policy import should_use_fast_overlay_cover_path
 from services.rendering.policy import source_cleanup_max_seconds
 from foundation.config import layout
 
@@ -25,7 +25,9 @@ class RenderSourcePdf:
     bbox_text_stripped_page_indices: frozenset[int] = frozenset()
     bbox_text_strip_skipped_page_indices: frozenset[int] = frozenset()
     source_text_precleaned_page_indices: frozenset[int] = frozenset()
+    source_cleanup_cover_fallback_page_indices: frozenset[int] = frozenset()
     bbox_text_strip_candidates: BBoxTextStripCandidates | None = None
+    document_analysis: RenderDocumentAnalysis | None = None
 
 
 def build_render_source_pdf(
@@ -40,6 +42,7 @@ def build_render_source_pdf(
     artifact_mode: bool = False,
     bbox_text_strip_candidates: BBoxTextStripCandidates | None = None,
     source_cleanup_strategy: str = "pikepdf_text_strip",
+    document_analysis: RenderDocumentAnalysis | None = None,
 ) -> RenderSourcePdf:
     temp_paths: list[Path] = []
     render_source_path = source_pdf_path
@@ -48,7 +51,7 @@ def build_render_source_pdf(
     bbox_text_stripped_page_indices: frozenset[int] = frozenset()
     bbox_text_strip_skipped_page_indices: frozenset[int] = frozenset()
     source_text_precleaned_page_indices: frozenset[int] = frozenset()
-
+    source_cleanup_cover_fallback_page_indices: frozenset[int] = frozenset()
     sanitize_started = time.perf_counter()
     sanitized_source_path = work_root / f"{output_pdf_path.stem}.source-xobject-sanitized.pdf"
     sanitize_result = build_invalid_xobject_sanitized_pdf_copy(
@@ -67,7 +70,8 @@ def build_render_source_pdf(
     else:
         sanitized_source_path.unlink(missing_ok=True)
 
-    if strip_hidden_text:
+    hidden_text_page_indices = document_analysis.hidden_text_strip_page_indices if document_analysis is not None else frozenset()
+    if strip_hidden_text and hidden_text_page_indices:
         hidden_started = time.perf_counter()
         hidden_text_stripped_path = work_root / f"{output_pdf_path.stem}.source-hidden-text-stripped.pdf"
         hidden_text_result = build_hidden_text_stripped_pdf_copy(
@@ -89,14 +93,17 @@ def build_render_source_pdf(
 
     if translated_pages and layout.use_bbox_text_strip_cleanup(source_cleanup_strategy):
         translated_page_indices = frozenset(page_idx for page_idx, items in translated_pages.items() if items)
-        if should_use_fast_overlay_cover_path(
-            translated_page_count=len(translated_page_indices),
-            strip_hidden_text=strip_hidden_text,
-        ):
+        pikepdf_text_strip_page_indices = (
+            document_analysis.pikepdf_text_strip_page_indices & translated_page_indices
+            if document_analysis is not None
+            else translated_page_indices
+        )
+        if not pikepdf_text_strip_page_indices:
             bbox_text_strip_skipped_page_indices = translated_page_indices
+            source_cleanup_cover_fallback_page_indices = translated_page_indices
             print(
                 "render source pdf: bbox-text strip skipped "
-                f"fast-overlay-cover-path pages={len(bbox_text_strip_skipped_page_indices)}",
+                f"no-pikepdf-text-strip-pages pages={len(bbox_text_strip_skipped_page_indices)}",
                 flush=True,
             )
         else:
@@ -113,6 +120,7 @@ def build_render_source_pdf(
                         skip_formula_pages=False,
                         max_elapsed_seconds=source_cleanup_max_seconds(),
                     ),
+                    document_analysis=document_analysis,
                 )
             )
             bbox_text_result = source_cleanup_result.bbox_text_strip
@@ -125,10 +133,13 @@ def build_render_source_pdf(
                 | bbox_text_result.skipped_form_xobject_page_indices
                 | bbox_text_result.strip_no_effect_page_indices
             )
-            source_text_precleaned_page_indices = (
-                bbox_text_result.changed_page_indices
-                - bbox_text_result.skipped_form_xobject_page_indices
-            )
+            source_text_precleaned_page_indices = bbox_text_result.changed_page_indices
+            source_cleanup_cover_fallback_page_indices = (
+                bbox_text_result.skipped_complex_page_indices
+                | bbox_text_result.skipped_visual_background_page_indices
+                | bbox_text_result.skipped_form_xobject_page_indices
+                | bbox_text_result.strip_no_effect_page_indices
+            ) - bbox_text_result.changed_page_indices
             bbox_text_strip_candidates = bbox_text_result.candidates
             if bbox_text_result.changed and bbox_text_result.output_pdf_path is not None:
                 render_source_path = bbox_text_result.output_pdf_path
@@ -148,7 +159,9 @@ def build_render_source_pdf(
             bbox_text_stripped_page_indices=bbox_text_stripped_page_indices,
             bbox_text_strip_skipped_page_indices=bbox_text_strip_skipped_page_indices,
             source_text_precleaned_page_indices=source_text_precleaned_page_indices,
+            source_cleanup_cover_fallback_page_indices=source_cleanup_cover_fallback_page_indices,
             bbox_text_strip_candidates=bbox_text_strip_candidates,
+            document_analysis=document_analysis,
         )
     compress_started = time.perf_counter()
     compressed_source_path = (
@@ -166,7 +179,9 @@ def build_render_source_pdf(
             bbox_text_stripped_page_indices=bbox_text_stripped_page_indices,
             bbox_text_strip_skipped_page_indices=bbox_text_strip_skipped_page_indices,
             source_text_precleaned_page_indices=source_text_precleaned_page_indices,
+            source_cleanup_cover_fallback_page_indices=source_cleanup_cover_fallback_page_indices,
             bbox_text_strip_candidates=bbox_text_strip_candidates,
+            document_analysis=document_analysis,
         )
     compressed_source_path.unlink(missing_ok=True)
     print("render source pdf: source image compression skipped", flush=True)
@@ -176,7 +191,9 @@ def build_render_source_pdf(
         bbox_text_stripped_page_indices=bbox_text_stripped_page_indices,
         bbox_text_strip_skipped_page_indices=bbox_text_strip_skipped_page_indices,
         source_text_precleaned_page_indices=source_text_precleaned_page_indices,
+        source_cleanup_cover_fallback_page_indices=source_cleanup_cover_fallback_page_indices,
         bbox_text_strip_candidates=bbox_text_strip_candidates,
+        document_analysis=document_analysis,
     )
 
 def prepare_render_source_pdf(

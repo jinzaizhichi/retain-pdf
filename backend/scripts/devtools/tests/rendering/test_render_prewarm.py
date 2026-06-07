@@ -1,15 +1,22 @@
 import sys
 import tempfile
+import json
 from pathlib import Path
 from unittest import mock
-
-import fitz
 
 
 REPO_SCRIPTS_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 
+from devtools.tests.rendering_support.prewarm_fixtures import empty_region_page_payload as _empty_region_page_payload
+from devtools.tests.rendering_support.prewarm_fixtures import page_payload as _page_payload
+from devtools.tests.rendering_support.prewarm_fixtures import source_document_analysis
+from devtools.tests.rendering_support.prewarm_fixtures import tight_gap_page_payload as _tight_gap_page_payload
+from devtools.tests.rendering_support.prewarm_fixtures import translated_page_payload as _translated_page_payload
+from devtools.tests.rendering_support.prewarm_fixtures import write_document_v1 as _document_v1
+from devtools.tests.rendering_support.prewarm_fixtures import write_pseudo_editable_scan_pdf as _pseudo_editable_scan_pdf
+from devtools.tests.rendering_support.prewarm_fixtures import write_source_pdf as _source_pdf
 from runtime.pipeline.render_plan import RenderPlan
 from runtime.pipeline.render_inputs import RenderInputs
 from foundation.config import layout
@@ -25,14 +32,6 @@ from services.rendering.source.prewarm_payload import first_line_indent_from_ite
 from services.rendering.source.prewarm_page_specs import render_page_specs_from_manifest
 from services.rendering.workflow.executor import execute_render_plan
 from runtime.pipeline.render_preprocess import run_ocr_render_preprocess
-
-
-def _source_pdf(path: Path) -> None:
-    doc = fitz.open()
-    page = doc.new_page(width=200, height=200)
-    page.insert_text((20, 40), "inside source", fontsize=12)
-    doc.save(path)
-    doc.close()
 
 
 def test_first_line_indent_from_item_lines_uses_structured_line_bboxes() -> None:
@@ -58,174 +57,6 @@ def test_first_line_indent_from_item_lines_ignores_small_offsets() -> None:
     assert first_line_indent_from_item_lines(item, font_size_pt=12.0) == 0.0
 
 
-def _pseudo_editable_scan_pdf(path: Path) -> None:
-    doc = fitz.open()
-    page = doc.new_page(width=200, height=200)
-    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 200, 200), False)
-    pix.clear_with(255)
-    page.insert_image(page.rect, pixmap=pix)
-    page.insert_textbox(
-        fitz.Rect(10, 20, 150, 60),
-        "inside source",
-        fontsize=12,
-    )
-    doc.save(path)
-    doc.close()
-
-
-def _document_v1(path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        """
-{
-  "schema": "normalized_document_v1",
-  "schema_version": "1.1",
-  "document_id": "test-doc",
-  "source": {"provider": "test"},
-  "page_count": 1,
-  "derived": {},
-  "markers": {},
-  "pages": [
-    {
-      "page_index": 0,
-      "page": 1,
-      "width": 200,
-      "height": 200,
-      "unit": "pt",
-      "blocks": [
-        {
-          "block_id": "p001-b001",
-          "page_index": 0,
-          "order": 0,
-          "type": "text",
-          "sub_type": "text",
-          "bbox": [10.0, 20.0, 150.0, 60.0],
-          "text": "inside source",
-          "geometry": {"bbox": [10.0, 20.0, 150.0, 60.0]},
-          "content": {"kind": "text", "text": "inside source", "text_flow": "flow"},
-          "layout_role": "paragraph",
-          "semantic_role": "body",
-          "structure_role": "body",
-          "policy": {"translate": true, "translate_reason": "test"},
-          "provenance": {
-            "provider": "test",
-            "raw_label": "text",
-            "raw_sub_type": "text",
-            "raw_bbox": [10.0, 20.0, 150.0, 60.0],
-            "raw_path": "$.pages[0].blocks[0]"
-          },
-          "continuation_hint": {
-            "source": "",
-            "group_id": "",
-            "role": "single",
-            "scope": "",
-            "reading_order": 0,
-            "confidence": 0.0
-          },
-          "metadata": {},
-          "source": {"provider": "test", "raw_type": "text"},
-          "lines": []
-        }
-      ]
-    }
-  ]
-}
-""".strip(),
-        encoding="utf-8",
-    )
-
-
-def _page_payload() -> dict[int, list[dict]]:
-    return {
-        0: [
-            {
-                "item_id": "p001-b001",
-                "page_idx": 0,
-                "block_kind": "text",
-                "block_type": "text",
-                "layout_role": "paragraph",
-                "semantic_role": "body",
-                "structure_role": "body",
-                "policy_translate": True,
-                "bbox": [10.0, 20.0, 150.0, 60.0],
-                "protected_source_text": "inside source",
-                "protected_translated_text": "",
-            }
-        ]
-    }
-
-
-def _translated_page_payload() -> dict[int, list[dict]]:
-    pages = _page_payload()
-    pages[0][0]["protected_translated_text"] = "内部来源"
-    return pages
-
-
-def _empty_region_page_payload() -> dict[int, list[dict]]:
-    return {
-        0: [
-            {
-                "item_id": "p001-b001",
-                "page_idx": 0,
-                "block_kind": "text",
-                "block_type": "text",
-                "layout_role": "paragraph",
-                "semantic_role": "body",
-                "structure_role": "body",
-                "policy_translate": True,
-                "bbox": [10.0, 120.0, 150.0, 170.0],
-                "protected_source_text": "source outside",
-                "protected_translated_text": "无重叠区域",
-            }
-        ]
-    }
-
-
-def _tight_gap_page_payload() -> dict[int, list[dict]]:
-    return {
-        0: [
-            {
-                "item_id": "p001-b001",
-                "page_idx": 0,
-                "block_kind": "text",
-                "block_type": "text",
-                "layout_role": "paragraph",
-                "semantic_role": "body",
-                "structure_role": "body",
-                "bbox": [10.0, 20.0, 170.0, 70.0],
-                "source_text": (
-                    "This body paragraph has enough source text to be treated as body text "
-                    "and it contains more than forty compact characters."
-                ),
-                "protected_source_text": (
-                    "This body paragraph has enough source text to be treated as body text "
-                    "and it contains more than forty compact characters."
-                ),
-                "protected_translated_text": "这是一个正文段落，用于触发预热阶段的紧邻 bbox 几何分析。",
-            },
-            {
-                "item_id": "p001-b002",
-                "page_idx": 0,
-                "block_kind": "text",
-                "block_type": "text",
-                "layout_role": "paragraph",
-                "semantic_role": "body",
-                "structure_role": "body",
-                "bbox": [10.0, 70.6, 170.0, 122.0],
-                "source_text": (
-                    "This second body paragraph follows closely in the same column and also "
-                    "contains enough compact characters for body detection."
-                ),
-                "protected_source_text": (
-                    "This second body paragraph follows closely in the same column and also "
-                    "contains enough compact characters for body detection."
-                ),
-                "protected_translated_text": "这是同一栏的下一段正文，用于提供紧邻边界。",
-            },
-        ]
-    }
-
-
 def test_render_source_prewarm_manifest_is_reused_without_temp_cleanup() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -248,6 +79,7 @@ def test_render_source_prewarm_manifest_is_reused_without_temp_cleanup() -> None
                 end_page=0,
                 pdf_compress_dpi=0,
                 source_cleanup_strategy="bbox_text_strip",
+                document_analysis=source_document_analysis(source_pdf),
             )
         )
         manifest_path = handle.wait()
@@ -369,6 +201,212 @@ def test_render_plan_persists_sync_source_prewarm_for_next_render() -> None:
         assert diagnostics["bbox_text_strip_candidate_pages"] > 0
 
 
+def test_render_plan_reuses_source_prewarm_without_sync_document_analysis() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "rendered" / "out.pdf"
+        artifacts_dir = root / "artifacts"
+        translations_dir = root / "translated"
+        output_pdf.parent.mkdir()
+        translations_dir.mkdir()
+        _source_pdf(source_pdf)
+        manifest_path = prewarm_manifest_path_from_artifacts_dir(artifacts_dir)
+        render_plan = RenderPlan(
+            render_inputs=RenderInputs(
+                source_pdf_path=source_pdf,
+                translations_dir=translations_dir,
+                translation_manifest_path=None,
+            ),
+            selected_pages=_translated_page_payload(),
+            effective_render_mode="overlay",
+        )
+
+        def _fake_overlay(*, source_pdf_path, translated_pages, context):
+            assert source_pdf_path.exists()
+            return 1, {"route": "sync-cache-test"}
+
+        with mock.patch(
+            "services.rendering.workflow.executor.run_overlay_render",
+            side_effect=_fake_overlay,
+        ):
+            execute_render_plan(
+                render_plan=render_plan,
+                output_pdf_path=output_pdf,
+                start_page=0,
+                end_page=0,
+                pdf_compress_dpi=0,
+                source_cleanup_strategy="bbox_text_strip",
+                render_prewarm_manifest_path=manifest_path,
+            )
+
+        with mock.patch(
+            "services.rendering.analysis.document.builder.build_render_document_analysis",
+            side_effect=AssertionError("cached render source should not trigger document analysis scan"),
+        ), mock.patch(
+            "services.rendering.workflow.executor.build_render_source_pdf",
+            side_effect=AssertionError("persisted sync render source should be reused"),
+        ), mock.patch(
+            "services.rendering.workflow.executor.run_overlay_render",
+            side_effect=_fake_overlay,
+        ):
+            pages = execute_render_plan(
+                render_plan=render_plan,
+                output_pdf_path=output_pdf,
+                start_page=0,
+                end_page=0,
+                pdf_compress_dpi=0,
+                source_cleanup_strategy="bbox_text_strip",
+                render_prewarm_manifest_path=manifest_path,
+            )
+
+        assert pages == 1
+
+
+def test_legacy_fast_cover_source_manifest_is_ignored() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "rendered" / "out.pdf"
+        artifacts_dir = root / "artifacts"
+        output_pdf.parent.mkdir()
+        _source_pdf(source_pdf)
+        manifest_path = prewarm_manifest_path_from_artifacts_dir(artifacts_dir)
+        manifest_path.parent.mkdir(parents=True)
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "schema": "render_source_prewarm_v1",
+                    "fingerprint": build_render_prewarm_fingerprint(
+                        source_pdf_path=source_pdf,
+                        translated_pages=_translated_page_payload(),
+                        effective_render_mode="overlay",
+                        start_page=0,
+                        end_page=0,
+                        pdf_compress_dpi=0,
+                        source_cleanup_strategy="bbox_text_strip",
+                    ),
+                    "render_source": {
+                        "path": str(source_pdf),
+                        "bbox_text_stripped_page_indices": [],
+                        "bbox_text_strip_skipped_page_indices": [0],
+                        "source_text_precleaned_page_indices": [],
+                    },
+                    "payload_prewarm": {},
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        prepared = try_load_prewarmed_render_source_pdf(
+            manifest_path=manifest_path,
+            source_pdf_path=source_pdf,
+            translated_pages=_translated_page_payload(),
+            effective_render_mode="overlay",
+            start_page=0,
+            end_page=0,
+            pdf_compress_dpi=0,
+            source_cleanup_strategy="bbox_text_strip",
+        )
+
+        assert prepared is None
+
+
+def test_sync_source_prewarm_preserves_existing_payload_prewarm() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "rendered" / "out.pdf"
+        artifacts_dir = root / "artifacts"
+        translations_dir = root / "translated"
+        output_pdf.parent.mkdir()
+        translations_dir.mkdir()
+        _source_pdf(source_pdf)
+        manifest_path = prewarm_manifest_path_from_artifacts_dir(artifacts_dir)
+        manifest_path.parent.mkdir(parents=True)
+        render_plan = RenderPlan(
+            render_inputs=RenderInputs(
+                source_pdf_path=source_pdf,
+                translations_dir=translations_dir,
+                translation_manifest_path=None,
+            ),
+            selected_pages=_translated_page_payload(),
+            effective_render_mode="overlay",
+        )
+        existing_payload = {
+            "first_line_indent_by_item_id": {"p001-b001": 12.5},
+            "effective_inner_bbox_by_item_id": {"p001-b001": [10, 20, 100, 80]},
+            "render_color_profile": {
+                "algorithm": "render_color_profile_v2_tuple_color",
+                "colors_by_item_id": {
+                    "p001-b001": {
+                        "cover_fill": [0.9, 0.9, 0.9],
+                        "text_color": [0.1, 0.1, 0.1],
+                    }
+                },
+            },
+        }
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "schema": "render_source_prewarm_v1",
+                    "fingerprint": build_render_prewarm_fingerprint(
+                        source_pdf_path=source_pdf,
+                        translated_pages=_translated_page_payload(),
+                        effective_render_mode="overlay",
+                        start_page=0,
+                        end_page=0,
+                        pdf_compress_dpi=0,
+                        source_cleanup_strategy="bbox_text_strip",
+                    ),
+                    "render_source": {"path": "missing.pdf"},
+                    "payload_prewarm": existing_payload,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        seen_colors: list[dict] = []
+
+        def _fake_overlay(*, source_pdf_path, translated_pages, context):
+            assert source_pdf_path.exists()
+            seen_colors.append(context.render_colors_by_item_id or {})
+            return 1, {"route": "sync-cache-payload-preserve"}
+
+        with mock.patch(
+            "services.rendering.workflow.executor.run_overlay_render",
+            side_effect=_fake_overlay,
+        ):
+            pages = execute_render_plan(
+                render_plan=render_plan,
+                output_pdf_path=output_pdf,
+                start_page=0,
+                end_page=0,
+                pdf_compress_dpi=0,
+                source_cleanup_strategy="bbox_text_strip",
+                render_prewarm_manifest_path=manifest_path,
+            )
+
+        assert pages == 1
+        payload_prewarm = try_load_render_payload_prewarm(
+            manifest_path=manifest_path,
+            source_pdf_path=source_pdf,
+            translated_pages=_translated_page_payload(),
+            effective_render_mode="overlay",
+            start_page=0,
+            end_page=0,
+            pdf_compress_dpi=0,
+            source_cleanup_strategy="bbox_text_strip",
+        )
+        assert payload_prewarm is not None
+        assert payload_prewarm.first_line_indent_lookup["p001-b001"] == 12.5
+        assert payload_prewarm.render_colors_by_item_id is not None
+        assert payload_prewarm.render_colors_by_item_id["p001-b001"]["text_color"] == (0.1, 0.1, 0.1)
+        assert seen_colors and seen_colors[0]["p001-b001"]["cover_fill"] == (0.9, 0.9, 0.9)
+
+
 def test_ocr_render_preprocess_manifest_matches_translated_payload() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -401,7 +439,7 @@ def test_ocr_render_preprocess_manifest_matches_translated_payload() -> None:
         translated_payload[0][0]["normalized_sub_type"] = "text"
 
         assert manifest_path == prewarm_manifest_path_from_artifacts_dir(artifacts_dir)
-        prepared = try_load_prewarmed_render_source_pdf(
+        assert try_load_prewarmed_render_source_pdf(
             manifest_path=manifest_path,
             source_pdf_path=source_pdf,
             translated_pages=translated_payload,
@@ -410,9 +448,20 @@ def test_ocr_render_preprocess_manifest_matches_translated_payload() -> None:
             end_page=0,
             pdf_compress_dpi=0,
             source_cleanup_strategy="bbox_text_strip",
+        ) is None
+        payload = try_load_render_payload_prewarm(
+            manifest_path=manifest_path,
+            source_pdf_path=source_pdf,
+            translated_pages=translated_payload,
+            effective_render_mode="overlay",
+            start_page=0,
+            end_page=0,
+            pdf_compress_dpi=0,
+            source_cleanup_strategy=layout.SOURCE_CLEANUP_TYPST_FILL,
         )
-        assert prepared is not None
-        assert prepared.path.exists()
+        assert payload is not None
+        assert payload.render_colors_by_item_id
+        assert payload.document_analysis is not None
 
 
 def test_prewarm_mode_probe_uses_source_text_without_mutating_payload() -> None:
@@ -445,6 +494,7 @@ def test_second_prewarm_reuses_existing_source_and_refreshes_payload() -> None:
                 end_page=0,
                 pdf_compress_dpi=0,
                 source_cleanup_strategy="bbox_text_strip",
+                document_analysis=source_document_analysis(source_pdf),
             )
         )
         manifest_path = first_handle.wait()
@@ -502,6 +552,7 @@ def test_payload_prewarm_manifest_exposes_bbox_candidates() -> None:
                 end_page=0,
                 pdf_compress_dpi=0,
                 source_cleanup_strategy="bbox_text_strip",
+                document_analysis=source_document_analysis(source_pdf),
             )
         )
         manifest_path = handle.wait()
@@ -518,6 +569,8 @@ def test_payload_prewarm_manifest_exposes_bbox_candidates() -> None:
         )
 
         assert payload_prewarm is not None
+        assert payload_prewarm.document_analysis is not None
+        assert payload_prewarm.document_analysis.page(0) is not None
         assert payload_prewarm.bbox_text_strip_candidates is not None
         assert payload_prewarm.bbox_text_strip_candidates.page_rects
 

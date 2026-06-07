@@ -12,7 +12,7 @@ def classify_profile_kind(
     image_background: ImageBackgroundProfile,
     vector_layer: VectorLayerProfile,
 ) -> RenderPageKind:
-    if image_background.has_large_background and text_layer.has_hidden_text and not text_layer.has_visible_text:
+    if image_background.has_large_background and (text_layer.has_hidden_text or text_layer.has_visible_text):
         return "pseudo_editable_scan"
     if image_background.has_large_background and not text_layer.has_visible_text:
         return "scan_image"

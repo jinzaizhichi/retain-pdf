@@ -5,6 +5,7 @@ from pathlib import Path
 
 from foundation.config import fonts
 from foundation.config import runtime
+from services.rendering.contracts import RenderPageAnalysis
 from services.rendering.layout.model.models import RenderPageSpec
 
 
@@ -29,3 +30,5 @@ class RenderExecutionContext:
     source_cleanup_strategy: str = "pikepdf_text_strip"
     background_render_page_specs: list[RenderPageSpec] | None = None
     render_colors_by_item_id: dict[str, dict[str, tuple[float, float, float]]] | None = None
+    page_routes_by_index: dict[int, RenderPageAnalysis] | None = None
+    visual_cover_page_indices: frozenset[int] = frozenset()

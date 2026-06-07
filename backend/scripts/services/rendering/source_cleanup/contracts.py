@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from services.rendering.contracts import RenderDocumentAnalysis
 from services.rendering.source_cleanup.types import BBoxTextStripCandidates
 from services.rendering.source_cleanup.types import BBoxTextStripResult
 
@@ -23,6 +24,7 @@ class SourceCleanupRequest:
     translated_pages: dict[int, list[dict]]
     options: SourceCleanupOptions = SourceCleanupOptions()
     candidates: BBoxTextStripCandidates | None = None
+    document_analysis: RenderDocumentAnalysis | None = None
 
 
 @dataclass(frozen=True)

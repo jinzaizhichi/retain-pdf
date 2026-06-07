@@ -5,8 +5,8 @@ from dataclasses import dataclass
 import fitz
 
 from services.rendering.source.background.detect import page_has_large_background_image
-from services.rendering.source.cleanup.plan_types import RedactionPlan
 from services.rendering.source.vector_profile import page_drawing_count
+from services.rendering.source.cleanup.plan_types import RedactionPlan
 
 
 @dataclass(frozen=True)

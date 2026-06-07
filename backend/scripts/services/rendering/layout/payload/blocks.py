@@ -10,6 +10,7 @@ from services.rendering.layout.payload.collision import mark_adjacent_collision_
 from services.rendering.layout.payload.emit import emit_render_blocks
 from services.rendering.layout.model.models import RenderBlock
 from services.rendering.layout.payload.render_item import seed_render_fields
+from services.rendering.layout.typography_memory.learning import observe_payload_typography
 
 
 def build_render_blocks(
@@ -36,6 +37,7 @@ def build_render_blocks(
         unify_annotation_fonts(ordered_payloads)
     recover_underfilled_annotation_density(ordered_payloads)
     mark_adjacent_collision_risk(ordered_payloads)
+    observe_payload_typography(ordered_payloads)
     return emit_render_blocks(block_payloads)
 
 

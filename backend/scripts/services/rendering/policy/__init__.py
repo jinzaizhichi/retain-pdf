@@ -24,12 +24,9 @@ from services.rendering.policy.cleanup_plan import build_cleanup_item_plan
 from services.rendering.policy.formula_guard import protect_formula_regions_in_redaction_items
 from services.rendering.policy.models import RenderItemPolicy
 from services.rendering.policy.models import RenderPagePolicy
-from services.rendering.policy.performance import FAST_PATCH_PAGE_THRESHOLD
-from services.rendering.policy.performance import should_use_fast_overlay_cover_path
 from services.rendering.policy.performance import source_cleanup_max_seconds
 
 __all__ = [
-    "FAST_PATCH_PAGE_THRESHOLD",
     "RenderItemPolicy",
     "RenderCleanupItemPlan",
     "RenderPagePolicy",
@@ -56,6 +53,5 @@ __all__ = [
     "page_has_formula_region",
     "page_should_skip_bbox_text_strip",
     "protect_formula_regions_in_redaction_items",
-    "should_use_fast_overlay_cover_path",
     "source_cleanup_max_seconds",
 ]

@@ -15,6 +15,12 @@ ALLOWED_UNTRANSLATED_REASONS = {
     "skip_display_formula",
     "skip_model_keep_origin",
 }
+KEEP_ORIGIN_POLICY_LABELS = {
+    "code",
+    "keep_origin",
+    "no_trans",
+    "skip_model_keep_origin",
+}
 
 
 def translation_artifact_text(item: dict) -> str:
@@ -45,11 +51,9 @@ def has_repaired_translation_artifact(item: dict, diagnostics: dict | None = Non
 
 
 def is_allowed_untranslated(item: dict, diagnostics: dict | None = None, route_path: list | None = None) -> bool:
+    if _policy_state_allows_keep_origin(item):
+        return True
     diagnostics = dict(diagnostics or {})
-    if item.get("should_translate") is False:
-        return True
-    if str(item.get("policy_translate", "") or "").strip().lower() == "false":
-        return True
     if str(item.get("block_kind", "") or "").strip().lower() == "formula":
         return True
     route_names = {str(route or "").strip() for route in (route_path if route_path is not None else diagnostics.get("route_path") or [])}
@@ -116,6 +120,8 @@ def blocking_review_error_items(review: dict | None) -> list[dict[str, object]]:
             continue
         if str(issue.get("severity", "") or "") != "error":
             continue
+        if _review_issue_allowed_by_policy(issue):
+            continue
         blocked.append(
             {
                 "item_id": str(issue.get("item_id", "") or ""),
@@ -125,6 +131,43 @@ def blocking_review_error_items(review: dict | None) -> list[dict[str, object]]:
             }
         )
     return blocked
+
+
+def _review_issue_allowed_by_policy(issue: dict) -> bool:
+    policy_state = issue.get("policy_state") or {}
+    if not isinstance(policy_state, dict):
+        return False
+    has_explicit_keep_origin_state = (
+        policy_state.get("should_translate") is False
+        or str(policy_state.get("classification_label", "") or "").strip()
+        or str(policy_state.get("skip_reason", "") or "").strip()
+    )
+    if not has_explicit_keep_origin_state:
+        return False
+    return _policy_state_allows_keep_origin(policy_state)
+
+
+def _policy_state_allows_keep_origin(item: dict) -> bool:
+    if item.get("should_translate") is False:
+        return True
+    if _policy_bool(item.get("policy_translate")) is False:
+        return True
+    labels = {
+        str(item.get("skip_reason", "") or "").strip(),
+        str(item.get("classification_label", "") or "").strip(),
+    }
+    return bool(labels & KEEP_ORIGIN_POLICY_LABELS)
+
+
+def _policy_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    return None
 
 
 def enforce_no_blocking_review_errors(review: dict | None) -> None:
@@ -161,6 +204,7 @@ def enforce_no_blocking_untranslated(translated_pages_map: dict[int, list[dict]]
 __all__ = [
     "ALLOWED_UNTRANSLATED_REASONS",
     "ALLOWED_UNTRANSLATED_ROUTE_NAMES",
+    "KEEP_ORIGIN_POLICY_LABELS",
     "blocking_review_error_items",
     "blocking_untranslated_items",
     "enforce_no_blocking_review_errors",

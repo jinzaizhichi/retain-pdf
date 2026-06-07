@@ -23,6 +23,10 @@ _LAZY_EXPORTS = {
         "services.rendering.source_cleanup.planning.planner",
         "plan_source_cleanup",
     ),
+    "item_ids_with_uncovered_unsafe_vector_overlap": (
+        "services.rendering.source_cleanup.planning.planner",
+        "item_ids_with_uncovered_unsafe_vector_overlap",
+    ),
     "strip_segments_for_text_rect": (
         "services.rendering.source_cleanup.planning.segments",
         "strip_segments_for_text_rect",

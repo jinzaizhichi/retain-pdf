@@ -262,6 +262,7 @@ RENDERING_ALLOWED_ROOT_DIRS = {
 }
 RENDERING_ALLOWED_ROOT_FILES = {
     "__init__.py",
+    "performance.py",
     "README.md",
 }
 RENDERING_LAYER_IMPORT_RULES: dict[str, tuple[str, ...]] = {
@@ -271,6 +272,7 @@ RENDERING_LAYER_IMPORT_RULES: dict[str, tuple[str, ...]] = {
         "services.rendering.document",
         "services.rendering.policy",
         "services.rendering.source",
+        "services.rendering.source_cleanup",
         "services.rendering.layout",
         "services.rendering.output",
         "services.rendering.legacy",
@@ -352,6 +354,13 @@ RENDERING_LAYER_IMPORT_EXCEPTIONS: dict[Path, tuple[str, ...]] = {
         "services.rendering.layout.model.render_text",
     ),
 }
+REMOVED_SOURCE_PREPARATION_BBOX_MODULES = (
+    "services.rendering.source.preparation.bbox_text_strip_accumulator",
+    "services.rendering.source.preparation.bbox_text_strip_candidates",
+    "services.rendering.source.preparation.bbox_text_strip_engine",
+    "services.rendering.source.preparation.bbox_text_strip_hit_test",
+    "services.rendering.source.preparation.bbox_text_strip_segments",
+)
 
 ENTRYPOINT_IMPORT_ALLOWLIST: dict[Path, tuple[str, ...]] = {
     Path("build_book.py"): ("from runtime.pipeline.book_pipeline import",),
@@ -981,6 +990,15 @@ def check_rendering_internal_boundaries(errors: list[str]) -> None:
             if module in preparation_compat_imports:
                 errors.append(
                     f"{rel_path}: source/preparation must import source primitives or concrete cleanup modules, not compatibility facade '{module}'"
+                )
+                break
+
+    for path in scan_py_files(RENDERING_ROOT):
+        rel_path = rel(path)
+        for module in imported_modules(path):
+            if module_allowed(module, REMOVED_SOURCE_PREPARATION_BBOX_MODULES):
+                errors.append(
+                    f"{rel_path}: removed bbox source-preparation module '{module}'; use services.rendering.source_cleanup boundary"
                 )
                 break
 

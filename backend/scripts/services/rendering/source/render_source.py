@@ -12,8 +12,8 @@ from services.rendering.source_cleanup import SourceCleanupOptions
 from services.rendering.source_cleanup import SourceCleanupRequest
 from services.rendering.source_cleanup import execute_source_cleanup
 from services.rendering.output.typst.shared import default_typst_temp_root
-from services.rendering.performance import should_use_fast_overlay_cover_path
-from services.rendering.performance import source_cleanup_max_seconds
+from services.rendering.policy import should_use_fast_overlay_cover_path
+from services.rendering.policy import source_cleanup_max_seconds
 from foundation.config import layout
 
 

@@ -18,7 +18,7 @@ from services.rendering.layout.payload.render_item import seed_render_fields
 from services.rendering.output.typst.book_support import prepare_translated_pages_for_render
 from services.rendering.source_cleanup.types import BBoxTextStripCandidates
 from services.rendering.source_cleanup import plan_source_cleanup
-from services.rendering.performance import should_use_fast_overlay_cover_path
+from services.rendering.policy import should_use_fast_overlay_cover_path
 from services.rendering.source.prewarm_color_profile import build_render_color_profile_manifest
 from services.rendering.source.prewarm_contracts import FIRST_LINE_INDENT_ALGORITHM_VERSION
 from services.rendering.source.prewarm_contracts import GEOMETRY_ADJUSTMENT_ALGORITHM_VERSION

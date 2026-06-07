@@ -6,7 +6,7 @@ from pathlib import Path
 from services.rendering.layout.model.models import RenderLayoutBlock
 from services.rendering.layout.model.models import RenderPageSpec
 from services.rendering.policy import apply_typst_cover_fallback_fields
-from services.rendering.source_cleanup.planning.planner import item_ids_with_uncovered_unsafe_vector_overlap
+from services.rendering.source_cleanup import item_ids_with_uncovered_unsafe_vector_overlap
 
 
 @dataclass(frozen=True)

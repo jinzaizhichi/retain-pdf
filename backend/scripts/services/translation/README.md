@@ -240,12 +240,15 @@ public
 - `template_contract.py`、`template_records.py`、`template_sync.py` 负责模板 contract、记录和同步。
 - `parts/` 负责 payload 内部拆分后的纯数据处理，例如 apply、result entry、group split、result status、summary、translation units。
 
-policy 相关 mutation/check/default/state 已迁到 `services/policy/payload_rules/`：
+policy 相关 mutation/check/default 已迁到 `services/policy/payload_rules/`，统一策略状态写入在
+`core/payload/parts/policy_state.py`，运行时策略判定在 `services/policy/verdict.py`：
 
 - `policy_mutations.py`、`legacy_policy_mutations.py` 负责 policy 阶段写字段。
-- `policy_state.py` 负责 policy 阶段的通用 skip/source-preserve 状态。
 - `policy_defaults.py` 负责 reset 阶段的 foundational/default translatable 判定。
 - `legacy_policy_checks.py` 负责 legacy policy 中 CJK、引用条目、mixed literal 的纯判定。
+- `core/payload/parts/policy_state.py` 负责统一写入 `classification_label`、`should_translate`、
+  `skip_reason`、`final_status`。
+- `services/policy/verdict.py` 负责统一回答是否调用模型、是否允许保留原文、是否阻塞导出。
 
 禁止方向：
 

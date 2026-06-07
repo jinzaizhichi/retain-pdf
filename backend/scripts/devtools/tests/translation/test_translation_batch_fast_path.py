@@ -102,3 +102,20 @@ def test_fast_path_keep_origin_skips_pure_email_fragments_only() -> None:
     assert [[item["item_id"] for item in batch] for batch in batches] == [["body"]]
     assert [list(result)[0] for result in immediate] == ["email"]
     assert list(immediate[0].values())[0]["translation_diagnostics"]["degradation_reason"] == "hard_metadata_fragment"
+
+
+def test_fast_path_keep_origin_skips_protocol_hex_dump() -> None:
+    context = build_translation_control_context()
+    source = "Answer(slave-Base module):\n" + " ".join(["01", "03", "40", "FF", "00"] * 80)
+    batches, immediate = _build_translation_batches(
+        [
+            _item("p182-b016", source),
+            _item("body", "This sentence describes antibacterial activity and provides enough body text for translation."),
+        ],
+        effective_batch_size=4,
+        translation_context=context,
+    )
+
+    assert [[item["item_id"] for item in batch] for batch in batches] == [["body"]]
+    assert [list(result)[0] for result in immediate] == ["p182-b016"]
+    assert list(immediate[0].values())[0]["translation_diagnostics"]["degradation_reason"] == "protocol_hex_dump"

@@ -72,6 +72,31 @@ def test_review_error_items_are_diagnostic_not_export_gate() -> None:
     assert blocked[0]["item_id"] == "p001-b003"
 
 
+def test_review_error_items_ignore_policy_keep_origin_issue() -> None:
+    review = {
+        "issues": [
+            {
+                "item_id": "p182-b016",
+                "page_idx": 181,
+                "kind": "empty_translation",
+                "severity": "error",
+                "message": "Translation output is empty",
+                "policy_state": {
+                    "item_id": "p182-b016",
+                    "block_type": "text",
+                    "raw_block_type": "text",
+                    "classification_label": "skip_model_keep_origin",
+                    "should_translate": False,
+                    "skip_reason": "skip_model_keep_origin",
+                    "final_status": "kept_origin",
+                },
+            }
+        ]
+    }
+
+    assert blocking_review_error_items(review) == []
+
+
 def test_write_translation_review_round_trips_json() -> None:
     payload = {
         0: [

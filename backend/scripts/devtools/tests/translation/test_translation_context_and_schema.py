@@ -97,6 +97,22 @@ def test_garbled_reconstruction_does_not_overwrite_good_duplicate_glued_translat
     assert not garbled_reconstruction.should_reconstruct_garbled_item(item)
 
 
+def test_garbled_reconstruction_skips_protocol_hex_dump() -> None:
+    source = "Answer(slave-Base module):\n" + " ".join(["01", "03", "40", "FF", "00"] * 80)
+    item = {
+        "item_id": "p182-b016",
+        "block_type": "text",
+        "block_kind": "text",
+        "should_translate": True,
+        "source_text": source,
+        "translation_unit_protected_source_text": source,
+        "translation_unit_protected_translated_text": "",
+        "final_status": "failed",
+    }
+
+    assert not garbled_reconstruction.should_reconstruct_garbled_item(item)
+
+
 def test_garbled_reconstruction_rejects_invalid_llm_output() -> None:
     item = {
         "item_id": "p003-b008",

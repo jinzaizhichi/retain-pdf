@@ -11,10 +11,10 @@ from services.translation.core.item_reader import item_policy_translate
 from services.translation.core.item_reader import item_structure_role
 
 from services.translation.core.payload.parts.common import RESETTABLE_LABEL_PREFIXES
-from services.translation.core.payload.parts.common import clear_translation_fields
+from services.translation.core.payload.parts.policy_state import mark_policy_skip
+from services.translation.core.payload.parts.policy_state import mark_translation_required
+from services.translation.core.payload.parts.policy_state import preserve_source_as_translation
 from .policy_defaults import foundational_skip_defaults
-from .policy_state import mark_item_skipped
-from .policy_state import preserve_source_as_translation
 
 
 def reset_policy_state(payload: list[dict]) -> int:
@@ -30,20 +30,14 @@ def reset_policy_state(payload: list[dict]) -> int:
         foundational_skip = foundational_skip_defaults(item)
         if foundational_skip is not None:
             label, skip_reason = foundational_skip
-            item["classification_label"] = label
-            item["should_translate"] = False
-            item["skip_reason"] = skip_reason
-            clear_translation_fields(item)
-            item["final_status"] = "kept_origin"
+            mark_policy_skip(item, label, skip_reason=skip_reason)
             continue
         label = str(item.get("classification_label", "") or "")
         if not label:
             continue
         if not label.startswith(RESETTABLE_LABEL_PREFIXES):
             continue
-        item["classification_label"] = ""
-        item["should_translate"] = True
-        item["skip_reason"] = ""
+        mark_translation_required(item)
         reset += 1
     return reset
 
@@ -84,13 +78,11 @@ def apply_classification_labels(payload: list[dict], labels: dict[str, str]) -> 
             continue
         if label_value in {"code", "no_trans", "keep_origin"}:
             label_value = "skip_model_keep_origin"
-        item["classification_label"] = label_value
-        item["should_translate"] = not label_value.startswith("skip_")
+        if label_value.startswith("skip_"):
+            mark_policy_skip(item, label_value)
+        else:
+            mark_translation_required(item, label=label_value)
         classified_items += 1
-        if not item["should_translate"]:
-            item["skip_reason"] = label_value
-            clear_translation_fields(item)
-            item["final_status"] = "kept_origin"
     return classified_items
 
 
@@ -99,10 +91,7 @@ def apply_title_skip(payload: list[dict]) -> int:
     for item in payload:
         if not item_is_title_like(item):
             continue
-        item["classification_label"] = item.get("classification_label") or "skip_title"
-        item["should_translate"] = False
-        item["skip_reason"] = "skip_title"
-        clear_translation_fields(item)
+        mark_policy_skip(item, item.get("classification_label") or "skip_title", skip_reason="skip_title")
         preserve_source_as_translation(item)
         skipped += 1
     return skipped
@@ -133,12 +122,12 @@ def apply_reference_zone_skip(
             continue
 
         if item_is_reference_heading_like(item):
-            mark_item_skipped(item, "skip_reference_heading")
+            mark_policy_skip(item, "skip_reference_heading")
             skipped += 1
             continue
 
         if item_is_reference_like(item):
-            mark_item_skipped(item, "skip_reference_zone")
+            mark_policy_skip(item, "skip_reference_zone")
             skipped += 1
     return skipped
 
@@ -165,7 +154,7 @@ def apply_reference_tail_skip(
             continue
         if not item.get("should_translate", True):
             continue
-        mark_item_skipped(item, "skip_reference_tail")
+        mark_policy_skip(item, "skip_reference_tail")
         skipped += 1
     return skipped
 

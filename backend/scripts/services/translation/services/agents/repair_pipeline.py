@@ -5,11 +5,11 @@ from concurrent.futures import as_completed
 from dataclasses import dataclass
 
 from services.translation.core.payload import apply_translated_text_map
-from services.translation.core.item_reader import item_raw_block_type
 from services.translation.services.agents.coordinator import TranslationAgentCoordinator
 from services.translation.services.agents.repair import TranslationRepairRequest
 from services.translation.services.agents.repair import RepairAgent
 from services.translation.services.agents.runtime import TranslationAgentRuntime
+from services.translation.services.policy import should_skip_model_by_policy
 from services.translation.services.quality import TranslationQualityIssue
 from services.translation.services.quality import TranslationQualityReport
 from services.translation.services.quality import review_translation_item
@@ -62,9 +62,9 @@ def run_agent_repair_pipeline(
         item_id = str(item.get("item_id", "") or "")
         if not item_id or item_id not in translated_results:
             continue
-        if _should_skip_non_translatable_item(item):
+        if _should_skip_policy_keep_origin_item(item):
             skipped += 1
-            _record_agent_repair_skip(item, "non_translatable_item", [])
+            _record_agent_repair_skip(item, "policy_keep_origin_item", [])
             continue
         if _is_group_member_item(item):
             skipped += 1
@@ -213,16 +213,8 @@ def _is_group_member_item(item: dict) -> bool:
     return unit_id.startswith("group:")
 
 
-def _should_skip_non_translatable_item(item: dict) -> bool:
-    if item.get("should_translate") is False or item.get("policy_translate") is False:
-        return True
-    return item_raw_block_type(item) in {
-        "display_formula",
-        "formula",
-        "image",
-        "table",
-        "chart",
-    }
+def _should_skip_policy_keep_origin_item(item: dict) -> bool:
+    return should_skip_model_by_policy(item)
 
 
 def _record_agent_repair_skip(item: dict, reason: str, issues: list[TranslationQualityIssue]) -> None:

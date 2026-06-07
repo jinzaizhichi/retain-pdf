@@ -10,6 +10,7 @@ from services.translation.core.item_reader import item_block_kind
 from services.translation.llm.shared.structured_models import GARBLED_RECONSTRUCTION_RESPONSE_SCHEMA
 from services.translation.llm.shared.structured_parsers import parse_garbled_reconstruction_response
 from services.translation.artifacts.status import has_translation_artifact
+from services.translation.services.policy import should_skip_model_by_policy
 from services.translation.services.quality import review_translation_item
 
 
@@ -110,7 +111,7 @@ def _has_formula_identity(item: dict) -> bool:
 def should_reconstruct_garbled_item(item: dict) -> bool:
     if item_block_kind(item) != "text":
         return False
-    if not item.get("should_translate", True):
+    if should_skip_model_by_policy(item):
         return False
 
     source_text = _source_text(item)

@@ -18,8 +18,9 @@ from .legacy_policy_checks import english_words
 from .legacy_policy_checks import looks_like_cjk_dominant_body_text
 from .legacy_policy_checks import prose_cue_match
 from .legacy_policy_checks import should_force_translate_mixed_literal_item
-from .policy_state import mark_item_skipped
-from .policy_state import preserve_source_as_translation
+from services.translation.core.payload.parts.policy_state import mark_policy_skip
+from services.translation.core.payload.parts.policy_state import mark_translation_required
+from services.translation.core.payload.parts.policy_state import preserve_source_as_translation
 
 
 def _is_ref_text_like(item: dict) -> bool:
@@ -38,11 +39,8 @@ def apply_cjk_source_keep_origin(payload: list[dict]) -> int:
             continue
         if not looks_like_cjk_dominant_body_text(item):
             continue
-        item["classification_label"] = "skip_cjk_source_body"
-        item["should_translate"] = False
-        item["skip_reason"] = "skip_cjk_source_body"
+        mark_policy_skip(item, "skip_cjk_source_body")
         preserve_source_as_translation(item)
-        item["final_status"] = "kept_origin"
         skipped += 1
     return skipped
 
@@ -55,13 +53,11 @@ def apply_shared_literal_block_policy(payload: list[dict]) -> dict[str, int]:
             continue
         label = shared_literal_block_label(item)
         if label == "code":
-            mark_item_skipped(item, "code")
+            mark_policy_skip(item, "code")
             code_skipped += 1
             continue
         if label == "translate_literal":
-            item["classification_label"] = "translate_literal"
-            item["should_translate"] = True
-            item["skip_reason"] = ""
+            mark_translation_required(item, label="translate_literal")
             translate_forced += 1
     return {
         "shared_literal_code_skipped": code_skipped,
@@ -101,7 +97,7 @@ def apply_ref_text_skip(payload: list[dict]) -> int:
             continue
         if _should_preserve_ref_text_for_translation(item):
             continue
-        mark_item_skipped(item, "skip_ref_text")
+        mark_policy_skip(item, "skip_ref_text")
         skipped += 1
     return skipped
 
@@ -153,7 +149,7 @@ def apply_mixed_literal_split_policy(
         )
         item["mixed_original_protected_source_text"] = original_protected
         if action == "keep_all":
-            mark_item_skipped(item, "skip_mixed_keep_all")
+            mark_policy_skip(item, "skip_mixed_keep_all")
             keep_all += 1
             continue
         if action == "translate_tail":
@@ -167,27 +163,21 @@ def apply_mixed_literal_split_policy(
             )
             if not tail_protected:
                 if _should_force_translate_mixed_literal_item(item):
-                    item["classification_label"] = "translate_mixed_all"
-                    item["should_translate"] = True
-                    item["skip_reason"] = ""
+                    mark_translation_required(item, label="translate_mixed_all")
                     item["mixed_literal_action"] = "translate_all"
                     item["mixed_literal_prefix"] = ""
                     translate_all += 1
                     continue
-                mark_item_skipped(item, "skip_mixed_keep_all")
+                mark_policy_skip(item, "skip_mixed_keep_all")
                 keep_all += 1
                 continue
             item["protected_source_text"] = tail_protected
             if item.get("translation_unit_kind") == "single":
                 item["translation_unit_protected_source_text"] = tail_protected
-            item["classification_label"] = "translate_mixed_tail"
-            item["should_translate"] = True
-            item["skip_reason"] = ""
+            mark_translation_required(item, label="translate_mixed_tail")
             translate_tail += 1
             continue
-        item["classification_label"] = "translate_mixed_all"
-        item["should_translate"] = True
-        item["skip_reason"] = ""
+        mark_translation_required(item, label="translate_mixed_all")
         translate_all += 1
     return {
         "mixed_keep_all": keep_all,
@@ -209,7 +199,7 @@ def apply_metadata_fragment_skip(payload: list[dict], *, page_idx: int, max_page
             continue
         if not item.get("should_translate", True):
             continue
-        mark_item_skipped(item, "skip_metadata_fragment")
+        mark_policy_skip(item, "skip_metadata_fragment")
         skipped += 1
     return skipped
 

@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
 
-from services.translation.core.item_reader import item_is_caption_like
 from services.translation.core.item_reader import item_policy_translate
 from services.translation.llm.result_payload import result_entry
 from services.translation.llm.validation.placeholder_tokens import strip_placeholders
-from services.translation.services.policy.metadata_filter import looks_like_hard_nontranslatable_metadata
+from services.translation.services.policy import should_fast_path_keep_origin
 
 
 @dataclass(frozen=True)
@@ -17,12 +15,6 @@ class _PlanItemView:
     compact: str
     policy_translate: bool | None
     layout_zone: str
-
-
-@dataclass(frozen=True)
-class _KeepOriginRule:
-    reason: str
-    predicate: Callable[["_PlanItemView"], bool]
 
 
 def _source_text(item: dict) -> str:
@@ -63,39 +55,14 @@ def _fast_path_keep_origin_result(item: dict, reason: str) -> dict[str, dict[str
     return {str(item.get("item_id", "") or ""): payload}
 
 
-def _is_short_alnum_label(view: _PlanItemView) -> bool:
-    return len(view.compact) <= 4 and view.compact.replace(" ", "").isalnum()
-
-
-_FAST_PATH_KEEP_ORIGIN_RULES: tuple[_KeepOriginRule, ...] = (
-    _KeepOriginRule("empty_source_text", lambda view: not view.source.strip()),
-    _KeepOriginRule("placeholder_only", lambda view: not view.compact),
-    _KeepOriginRule("policy_skip", lambda view: view.policy_translate is False),
-    _KeepOriginRule("hard_metadata_fragment", lambda view: looks_like_hard_nontranslatable_metadata(view.item)),
-    _KeepOriginRule(
-        "short_non_body_label",
-        lambda view: _is_short_alnum_label(view) and item_is_caption_like(view.item),
-    ),
-    _KeepOriginRule(
-        "short_non_body_label",
-        lambda view: _is_short_alnum_label(view) and not view.policy_translate and view.layout_zone == "non_flow",
-    ),
-)
-
-
 def _is_fast_path_keep_origin_item(item: dict) -> tuple[bool, str]:
-    view = _plan_item_view(item)
-    matched_rule = next((rule for rule in _FAST_PATH_KEEP_ORIGIN_RULES if rule.predicate(view)), None)
-    return (True, matched_rule.reason) if matched_rule is not None else (False, "")
+    return should_fast_path_keep_origin(item)
 
 
 __all__ = [
-    "_FAST_PATH_KEEP_ORIGIN_RULES",
-    "_KeepOriginRule",
     "_PlanItemView",
     "_fast_path_keep_origin_result",
     "_is_fast_path_keep_origin_item",
-    "_is_short_alnum_label",
     "_normalized_text_without_placeholders",
     "_plan_item_view",
     "_source_text",

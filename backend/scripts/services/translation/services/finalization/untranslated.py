@@ -5,9 +5,11 @@ from dataclasses import dataclass
 
 from services.translation.artifacts import blocking_untranslated_items
 from services.translation.core.payload.parts.apply import apply_single_translated_entry
+from services.translation.core.payload.parts.policy_state import mark_keep_origin
 from services.translation.llm.shared.provider_runtime import request_chat_content
 from services.translation.llm.result_payload import result_entry
 from services.translation.llm.validation.quality import review_translation_item
+from services.translation.services.policy import should_skip_model_by_policy
 
 
 DEFAULT_MAX_WORKERS = 32
@@ -47,6 +49,19 @@ def recover_blocking_untranslated_items(
     if not blocking:
         return FinalUntranslatedRecoverySummary()
     item_by_id = _item_index(page_payloads)
+    blocking_before = len(blocking)
+    for item in (
+        item_by_id[item["item_id"]]
+        for item in blocking
+        if item.get("item_id") in item_by_id and should_skip_model_by_policy(item_by_id[item["item_id"]])
+    ):
+        _mark_final_policy_keep_origin(item)
+    blocking = blocking_untranslated_items(page_payloads)
+    if not blocking:
+        return FinalUntranslatedRecoverySummary(
+            blocking_before=blocking_before,
+            blocking_after=0,
+        )
     candidates = [
         item_by_id[item["item_id"]]
         for item in blocking[: max(0, max_items)]
@@ -54,7 +69,7 @@ def recover_blocking_untranslated_items(
     ]
     if not candidates:
         return FinalUntranslatedRecoverySummary(
-            blocking_before=len(blocking),
+            blocking_before=blocking_before,
             blocking_after=len(blocking),
         )
 
@@ -99,7 +114,7 @@ def recover_blocking_untranslated_items(
 
     after = blocking_untranslated_items(page_payloads)
     return FinalUntranslatedRecoverySummary(
-        blocking_before=len(blocking),
+        blocking_before=blocking_before,
         attempted_items=len(candidates),
         recovered_items=recovered,
         dead_letter_items=dead_letter,
@@ -117,9 +132,7 @@ def _item_index(page_payloads: dict[int, list[dict]]) -> dict[str, dict]:
 
 
 def _can_final_recover(item: dict) -> bool:
-    if item.get("should_translate") is False:
-        return False
-    if str(item.get("policy_translate", "") or "").strip().lower() == "false":
+    if should_skip_model_by_policy(item):
         return False
     source_text = _source_text(item)
     return bool(source_text and any(ch.isalpha() for ch in source_text))
@@ -226,10 +239,24 @@ def _mark_final_dead_letter(item: dict, exc: Exception | None) -> None:
         }
     )
     item["translation_diagnostics"] = diagnostics
-    item["final_status"] = "kept_origin"
-    item["classification_label"] = "skip_model_keep_origin"
-    item["skip_reason"] = "skip_model_keep_origin"
-    item["should_translate"] = False
+    mark_keep_origin(item)
+    item["translation_diagnostics"] = diagnostics
+
+
+def _mark_final_policy_keep_origin(item: dict) -> None:
+    diagnostics = dict(item.get("translation_diagnostics") or {})
+    diagnostics.update(
+        {
+            "item_id": item.get("item_id", ""),
+            "page_idx": item.get("page_idx"),
+            "route_path": ["block_level", "final_untranslated_recovery", "policy_keep_origin"],
+            "fallback_to": "policy_keep_origin",
+            "degradation_reason": "policy_keep_origin",
+            "final_status": "kept_origin",
+        }
+    )
+    mark_keep_origin(item)
+    item["translation_diagnostics"] = diagnostics
 
 
 __all__ = [

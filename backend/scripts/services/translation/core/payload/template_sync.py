@@ -3,6 +3,7 @@ from __future__ import annotations
 from services.translation.core.ocr.models import TextItem
 from services.translation.core.payload.formula_protection import protected_map_from_formula_map
 from services.translation.core.payload.formula_protection import re_protect_restored_formulas
+from services.translation.core.payload.parts.policy_state import mark_policy_skip
 
 from .template_records import build_translation_record
 from .template_records import contract_fields_from_item
@@ -168,33 +169,9 @@ def sync_translation_record(record: dict, item: TextItem, *, math_mode: str) -> 
         },
     ) or changed
     if not should_translate:
-        if record.get("classification_label") != classification_label:
-            record["classification_label"] = classification_label
-            changed = True
-        if record.get("should_translate") is not should_translate:
-            record["should_translate"] = should_translate
-            changed = True
-        if record.get("skip_reason") != skip_reason:
-            record["skip_reason"] = skip_reason
-            changed = True
-        if any(
-            record.get(field)
-            for field in (
-                "translation_unit_protected_translated_text",
-                "translation_unit_translated_text",
-                "protected_translated_text",
-                "translated_text",
-                "group_protected_translated_text",
-                "group_translated_text",
-            )
-        ):
-            record["translation_unit_protected_translated_text"] = ""
-            record["translation_unit_translated_text"] = ""
-            record["protected_translated_text"] = ""
-            record["translated_text"] = ""
-            record["group_protected_translated_text"] = ""
-            record["group_translated_text"] = ""
-            changed = True
+        before_state = _translation_policy_state_snapshot(record)
+        mark_policy_skip(record, classification_label, skip_reason=skip_reason)
+        changed = changed or before_state != _translation_policy_state_snapshot(record)
     changed = setdefault_record_fields(
         record,
         {
@@ -236,3 +213,18 @@ def sync_translation_record(record: dict, item: TextItem, *, math_mode: str) -> 
         )
         changed = True
     return changed
+
+
+def _translation_policy_state_snapshot(record: dict) -> tuple:
+    return (
+        record.get("classification_label"),
+        record.get("should_translate"),
+        record.get("skip_reason"),
+        record.get("final_status"),
+        record.get("translation_unit_protected_translated_text"),
+        record.get("translation_unit_translated_text"),
+        record.get("protected_translated_text"),
+        record.get("translated_text"),
+        record.get("group_protected_translated_text"),
+        record.get("group_translated_text"),
+    )

@@ -82,6 +82,29 @@ def test_final_untranslated_recovery_dead_letters_unrecoverable_item() -> None:
     assert blocking_untranslated_items({0: payload}) == []
 
 
+def test_final_untranslated_recovery_skips_protocol_hex_dump() -> None:
+    source = "Answer(slave-Base module):\n" + " ".join(["01", "03", "40", "FF", "00"] * 80)
+    payload = [_failed_item("p182-b016", source)]
+    calls = 0
+
+    def _fake_request(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("hex dump should not call provider")
+
+    summary = recover_blocking_untranslated_items(
+        {0: payload},
+        api_key="sk-test",
+        model="demo-model",
+        base_url="https://example.com/v1",
+        request_chat_content_fn=_fake_request,
+    )
+
+    assert calls == 0
+    assert summary.attempted_items == 0
+    assert blocking_untranslated_items({0: payload}) == []
+
+
 def test_final_untranslated_recovery_stage_saves_pages(monkeypatch, tmp_path: Path) -> None:
     path = tmp_path / "page-001.json"
     payload = [_failed_item("p001-b003", "The matrix is diagonalized in the basis.")]

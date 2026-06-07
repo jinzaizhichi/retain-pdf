@@ -1,25 +1,17 @@
 from __future__ import annotations
 
-from .common import clear_translation_fields
+from .policy_state import KEEP_ORIGIN_LABEL
+from .policy_state import mark_keep_origin as mark_policy_keep_origin
+from .policy_state import mark_translation_failed_policy_state
 from .result_entries import result_diagnostics_for_item
-
-KEEP_ORIGIN_LABEL = "skip_model_keep_origin"
 
 
 def mark_keep_origin(item: dict) -> None:
-    item["classification_label"] = KEEP_ORIGIN_LABEL
-    item["should_translate"] = False
-    item["skip_reason"] = KEEP_ORIGIN_LABEL
-    item["final_status"] = "kept_origin"
-    clear_translation_fields(item)
+    mark_policy_keep_origin(item)
 
 
 def mark_translation_failed(item: dict, metadata: dict) -> None:
-    item["should_translate"] = True
-    item["classification_label"] = ""
-    item["skip_reason"] = ""
-    item["final_status"] = "failed"
-    clear_translation_fields(item)
+    mark_translation_failed_policy_state(item)
     diagnostics = result_diagnostics_for_item(metadata, item)
     if diagnostics:
         diagnostics["final_status"] = "failed"

@@ -323,7 +323,7 @@ def test_agent_repair_pipeline_skips_continuation_group_members() -> None:
     assert payload[0]["translation_diagnostics"]["agent_repair_skip_reason"] == "continuation_group_member"
 
 
-def test_agent_repair_pipeline_skips_non_translatable_display_formula() -> None:
+def test_agent_repair_pipeline_skips_policy_keep_origin_display_formula() -> None:
     payload = [
         _item(
             "p002-b008",
@@ -353,7 +353,7 @@ def test_agent_repair_pipeline_skips_non_translatable_display_formula() -> None:
     assert summary.candidate_items == 0
     assert summary.repaired_items == 0
     assert summary.skipped_items == 1
-    assert payload[0]["translation_diagnostics"]["agent_repair_skip_reason"] == "non_translatable_item"
+    assert payload[0]["translation_diagnostics"]["agent_repair_skip_reason"] == "policy_keep_origin_item"
 
 
 def test_agent_coordinator_respects_glossary_mode_off() -> None:

@@ -1,5 +1,8 @@
 import { resetMissingUploadState, setSubmitBusy } from "./view.js";
 import { withTimeout } from "../../async-timeout.js";
+import { isDesktopConfigured, isDesktopMode } from "../../state/desktop-state.js";
+import { getUploadState } from "../../state/upload-state.js";
+import { syncCurrentJobSnapshot } from "../job-runtime/runtime-state.js";
 
 const DEEPSEEK_BALANCE_CHECK_TIMEOUT_MS = 12000;
 
@@ -83,13 +86,16 @@ export function mountAppActionsFeature({
   async function submitForm(event) {
     event.preventDefault();
     const workflow = currentWorkflow();
+    const desktopMode = isDesktopMode(state);
+    const uploadState = getUploadState(state);
     if (isMockMode()) {
       setSubmitBusyState(true);
       setText("error-box", "-");
       try {
         const payload = await submitJobRequest(apiPrefix, { workflow, source: {}, mock: true });
-        state.currentJobStartedAt = new Date().toISOString();
-        state.currentJobFinishedAt = "";
+        syncCurrentJobSnapshot(state, payload, payload.job_id || "", {
+          startedAt: new Date().toISOString(),
+        });
         renderJob(payload);
         getJobRuntimeFeature()?.startPolling(payload.job_id);
       } catch (err) {
@@ -99,12 +105,12 @@ export function mountAppActionsFeature({
       }
       return;
     }
-    if (state.desktopMode && !state.desktopConfigured && workflowNeedsCredentials(workflow)) {
+    if (desktopMode && !isDesktopConfigured(state) && workflowNeedsCredentials(workflow)) {
       openSetupDialog();
       setText("error-box", "请先完成首次配置。");
       return;
     }
-    if (workflowNeedsUpload(workflow) && !state.uploadId) {
+    if (workflowNeedsUpload(workflow) && !uploadState.uploadId) {
       setText("error-box", "请先选择并上传 PDF 文件");
       return;
     }
@@ -123,13 +129,13 @@ export function mountAppActionsFeature({
     if (workflowNeedsCredentials(workflow) && !(await getBrowserCredentialsFeature()?.ensureOcrCredentialsReady({
       onMissingToken: () => {
         setText("error-box", "请先填写当前 OCR Provider 凭证。");
-        if (!state.desktopMode) {
+        if (!desktopMode) {
           getBrowserCredentialsFeature()?.openBrowserCredentialsDialog();
         }
       },
       onInvalidToken: (result) => {
         setText("error-box", result.summary || "OCR Provider 凭证校验未通过。");
-        if (!state.desktopMode) {
+        if (!desktopMode) {
           getBrowserCredentialsFeature()?.openBrowserCredentialsDialog();
         }
       },
@@ -154,8 +160,9 @@ export function mountAppActionsFeature({
         }, delay);
       });
       document.dispatchEvent(new CustomEvent("retainpdf:open-translation-workflow"));
-      state.currentJobStartedAt = new Date().toISOString();
-      state.currentJobFinishedAt = "";
+      syncCurrentJobSnapshot(state, payload, payload.job_id || "", {
+        startedAt: new Date().toISOString(),
+      });
       renderJob(payload);
       getJobRuntimeFeature()?.startPolling(payload.job_id);
     } catch (err) {

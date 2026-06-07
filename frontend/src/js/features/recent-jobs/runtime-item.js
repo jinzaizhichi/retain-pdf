@@ -66,6 +66,12 @@ export function mergeLibraryJobItem(previousItem = {}, job = {}) {
     stage_detail: stageDetail,
     workflow: firstNonEmpty(job.workflow, job.job_type, previousItem.workflow),
     job_type: firstNonEmpty(job.job_type, job.workflow, previousItem.job_type),
+    title: firstNonEmpty(job.title, job.display_name, previousItem.title),
+    display_name: firstNonEmpty(job.display_name, job.title, previousItem.display_name),
+    source_file_name: firstNonEmpty(job.source_file_name, job.book_summary?.source_file_name, previousItem.source_file_name),
+    page_count: valueOrPrevious(numberOrNull(job.page_count ?? job.book_summary?.page_count), previousItem.page_count),
+    cover_url: firstNonEmpty(job.cover_url, previousItem.cover_url),
+    thumbnail_url: firstNonEmpty(job.thumbnail_url, previousItem.thumbnail_url),
     updated_at: firstNonEmpty(job.updated_at, previousItem.updated_at),
     progress,
   };

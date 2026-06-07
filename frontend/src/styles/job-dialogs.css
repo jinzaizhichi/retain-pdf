@@ -15,9 +15,9 @@
 
   .recent-jobs-list {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
     align-items: start;
-    gap: 22px 18px;
+    gap: 42px 36px;
     width: 100%;
   }
 
@@ -28,12 +28,12 @@
 
   .recent-job-item {
     display: grid;
-    gap: 10px;
+    gap: 9px;
     width: 100%;
     min-height: 0;
     padding: 0;
     border: none;
-    border-radius: 18px;
+    border-radius: 14px;
     background: transparent;
     color: #1d1d1f;
     text-align: center;
@@ -66,14 +66,14 @@
     aspect-ratio: 3 / 4;
     width: 100%;
     overflow: hidden;
-    border-radius: 12px;
+    border-radius: 10px;
     background:
       linear-gradient(145deg, rgba(255,255,255,.24), rgba(255,255,255,0)),
       linear-gradient(180deg, #f4f4f6, #d9dbe1);
     background-size: cover;
     background-position: center;
-    box-shadow: 0 16px 32px rgba(15, 23, 42, 0.13);
-    transition: transform .18s ease, box-shadow .18s ease;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
+    transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
   }
 
   .recent-job-hover-actions {
@@ -84,7 +84,7 @@
     align-items: center;
     justify-content: center;
     gap: 10px;
-    background: rgba(0, 0, 0, 0.34);
+    background: rgba(0, 0, 0, 0.22);
     opacity: 0;
     pointer-events: none;
     transition: opacity .18s ease;
@@ -100,10 +100,10 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 38px;
-    height: 38px;
-    min-width: 38px;
-    min-height: 38px;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
     padding: 0;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, .74);
@@ -118,8 +118,8 @@
   }
 
   .recent-job-item:hover .recent-job-cover {
-    transform: translateY(-3px);
-    box-shadow: 0 20px 42px rgba(15, 23, 42, 0.18);
+    transform: translateY(-2px);
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
   }
 
   .recent-job-cover.has-image .recent-job-cover-fallback {
@@ -185,12 +185,14 @@
   .recent-job-title-wrap {
     min-width: 0;
     display: grid;
-    gap: 3px;
+    gap: 2px;
+    padding-inline: 2px;
   }
 
   .recent-job-id {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
+    line-height: 1.35;
     color: #1d1d1f;
     min-width: 0;
     overflow: hidden;
@@ -199,7 +201,8 @@
   }
 
   .recent-job-real-id {
-    font-size: 11px;
+    font-size: 10px;
+    line-height: 1.35;
     color: #8a8a90;
     min-width: 0;
     overflow: hidden;
@@ -214,13 +217,13 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-height: 24px;
-    padding: 0 9px;
+    min-height: 22px;
+    padding: 0 8px;
     border-radius: 999px;
     background: rgba(255,255,255,.94);
     color: #fff;
     color: #1d1d1f;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     white-space: nowrap;
   }
@@ -237,17 +240,17 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 30px;
-    height: 30px;
-    min-width: 30px;
-    min-height: 30px;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
     padding: 0;
     border: none;
     border-radius: 999px;
     background: rgba(255, 255, 255, .94);
     color: #1d1d1f;
     opacity: 0;
-    box-shadow: 0 10px 22px rgba(15, 23, 42, .12);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, .12);
     transition: opacity .16s ease, transform .16s ease, background .16s ease, color .16s ease;
   }
 
@@ -271,17 +274,17 @@
   .recent-job-delete-popover {
     position: absolute;
     left: 8px;
-    top: 44px;
+    top: 40px;
     z-index: 3;
     width: min(136px, calc(100% - 16px));
-    padding: 8px;
-    border-radius: 12px;
+    padding: 7px;
+    border-radius: 10px;
     background: rgba(255, 255, 255, .96);
     color: #1d1d1f;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     text-align: left;
-    box-shadow: 0 18px 40px rgba(15, 23, 42, .18);
+    box-shadow: 0 14px 32px rgba(15, 23, 42, .16);
     opacity: 0;
     pointer-events: none;
     transform: translateY(-4px);

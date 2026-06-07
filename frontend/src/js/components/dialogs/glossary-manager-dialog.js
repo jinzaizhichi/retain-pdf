@@ -34,27 +34,29 @@ class GlossaryManagerDialog extends HTMLElement {
                 <button id="glossary-export-btn" type="button" class="secondary">导出</button>
                 <button id="glossary-delete-btn" type="button" class="secondary danger">删除</button>
               </div>
-              <div class="glossary-table-wrap">
-                <table class="glossary-table">
-                  <thead>
-                    <tr>
-                      <th class="glossary-col-source">原词</th>
-                      <th class="glossary-col-target">译文</th>
-                      <th class="glossary-col-note">备注</th>
-                      <th class="glossary-col-level">类型</th>
-                      <th class="glossary-col-match">匹配</th>
-                      <th class="glossary-col-action"></th>
-                    </tr>
-                  </thead>
-                  <tbody id="glossary-entries"></tbody>
-                </table>
-                <div id="glossary-entries-empty" class="events-empty">暂无词条</div>
-              </div>
-              <div class="glossary-import-panel hidden" id="glossary-import-panel">
-                <textarea id="glossary-csv-text" rows="6" placeholder="原词,译文,类型,匹配模式,备注"></textarea>
-                <div class="glossary-import-actions">
-                  <button id="glossary-import-apply-btn" type="button">解析</button>
-                  <button id="glossary-import-cancel-btn" type="button" class="secondary">取消</button>
+              <div class="glossary-editor-scroll">
+                <div class="glossary-table-wrap">
+                  <table class="glossary-table">
+                    <thead>
+                      <tr>
+                        <th class="glossary-col-source">原词</th>
+                        <th class="glossary-col-target">译文</th>
+                        <th class="glossary-col-note">备注</th>
+                        <th class="glossary-col-level">类型</th>
+                        <th class="glossary-col-match">匹配</th>
+                        <th class="glossary-col-action"></th>
+                      </tr>
+                    </thead>
+                    <tbody id="glossary-entries"></tbody>
+                  </table>
+                  <div id="glossary-entries-empty" class="events-empty">暂无词条</div>
+                </div>
+                <div class="glossary-import-panel hidden" id="glossary-import-panel">
+                  <textarea id="glossary-csv-text" rows="6" placeholder="原词,译文,类型,匹配模式,备注"></textarea>
+                  <div class="glossary-import-actions">
+                    <button id="glossary-import-apply-btn" type="button">解析</button>
+                    <button id="glossary-import-cancel-btn" type="button" class="secondary">取消</button>
+                  </div>
                 </div>
               </div>
               <div class="glossary-footer">

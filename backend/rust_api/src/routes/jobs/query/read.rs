@@ -9,11 +9,11 @@ use crate::models::{
 };
 use crate::AppState;
 
-use super::super::common::build_jobs_route_deps;
-use super::super::query_adapter::{
+use super::super::json_response::{
     job_artifact_manifest_response, job_artifacts_response, job_detail_response,
     job_events_response, list_jobs_response,
 };
+use crate::routes::common::build_jobs_route_deps;
 
 pub async fn list_jobs(
     State(state): State<AppState>,

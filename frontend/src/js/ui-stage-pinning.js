@@ -1,3 +1,9 @@
+import {
+  currentDisplayedStagePin,
+  resetDisplayedStagePin,
+  setDisplayedStagePin,
+} from "./features/job-runtime/runtime-state.js";
+
 function stageRank(stageKey) {
   return {
     queued: 0,
@@ -14,21 +20,21 @@ export function keepDisplayedStageForward({
   jobId = "",
 }) {
   const normalizedJobId = `${jobId || ""}`.trim();
-  if (state.currentJobDisplayedStageJobId !== normalizedJobId) {
-    state.currentJobDisplayedStageKey = "";
-    state.currentJobDisplayedStageJobId = normalizedJobId;
+  const pin = currentDisplayedStagePin(state);
+  if (pin.jobId !== normalizedJobId) {
+    resetDisplayedStagePin(state, normalizedJobId);
   }
-  const previous = `${state.currentJobDisplayedStageKey || ""}`.trim();
+  const previous = currentDisplayedStagePin(state).stageKey;
   const next = `${stageKey || ""}`.trim();
   if (next === "failed" || next === "canceled") {
-    state.currentJobDisplayedStageKey = next;
+    setDisplayedStagePin(state, next);
     return {
       stageKey: next,
       keptPrevious: false,
     };
   }
   if (!previous || stageRank(next) >= stageRank(previous)) {
-    state.currentJobDisplayedStageKey = next;
+    setDisplayedStagePin(state, next);
     return {
       stageKey: next,
       keptPrevious: false,

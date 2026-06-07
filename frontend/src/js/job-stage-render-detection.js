@@ -14,12 +14,14 @@ const RENDER_TEXT_MARKERS = [
 
 export function eventLooksLikeRender(item = {}) {
   const text = [
+    item.display_stage,
     item.stage,
     item.provider_stage,
     item.user_stage,
     item.substage,
     item.stage_detail,
     item.message,
+    item.payload?.display_stage,
     item.payload?.stage,
     item.payload?.provider_stage,
     item.payload?.user_stage,
@@ -29,4 +31,3 @@ export function eventLooksLikeRender(item = {}) {
   ].map((value) => `${value || ""}`.toLowerCase()).join(" ");
   return RENDER_TEXT_MARKERS.some((marker) => text.includes(marker));
 }
-

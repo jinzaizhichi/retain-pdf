@@ -13,7 +13,7 @@ class SourceCleanupOptions:
     strategy: str = "pikepdf_text_strip"
     skip_formula_pages: bool = False
     recurse_forms: bool | None = None
-    skip_form_xobject_pages: bool = True
+    skip_form_xobject_pages: bool = False
     max_elapsed_seconds: float | None = None
 
 
@@ -22,6 +22,7 @@ class SourceCleanupRequest:
     source_pdf_path: Path
     output_pdf_path: Path
     translated_pages: dict[int, list[dict]]
+    protected_pages: dict[int, list[dict]] | None = None
     options: SourceCleanupOptions = SourceCleanupOptions()
     candidates: BBoxTextStripCandidates | None = None
     document_analysis: RenderDocumentAnalysis | None = None

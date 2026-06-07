@@ -16,7 +16,9 @@ import {
   setStatusCardCancelEnabled,
   setUploadProgressView,
 } from "./job-ui-actions-view.js";
-import { resetUploadState, state } from "./state.js";
+import { resetUploadState } from "./state/actions.js";
+import { state } from "./state/store.js";
+import { clearCurrentJobTiming } from "./features/job-runtime/runtime-state.js";
 
 export function setActionLink(id, url, enabled) {
   setActionLinkView(id, url, enabled);
@@ -81,8 +83,7 @@ export function clearFileInputValue() {
 
 export function resetUploadedFile() {
   resetUploadState(state, { includePageRange: false });
-  state.currentJobStartedAt = "";
-  state.currentJobFinishedAt = "";
+  clearCurrentJobTiming(state);
   resetUploadedFileView();
 }
 

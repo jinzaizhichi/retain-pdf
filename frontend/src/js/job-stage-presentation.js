@@ -77,10 +77,12 @@ export function resolveDisplayedStagePresentation(job, eventsPayload) {
     return fallback;
   }
   const eventProgress = progressFromEvent(event);
+  const eventDisplayStage = normalizeUserStage(event.display_stage || event.payload?.display_stage || event.user_stage || event.payload?.user_stage || "");
   const rawEventPayload = {
     ...job,
     status: job.status,
-    user_stage: normalizeUserStage(event.user_stage || event.payload?.user_stage || ""),
+    display_stage: event.display_stage || event.payload?.display_stage || "",
+    user_stage: eventDisplayStage,
     current_stage: event.stage || event.provider_stage || normalizeUserStage(event.user_stage || event.payload?.user_stage) || job.current_stage || job.stage || "",
     substage: event.substage || event.payload?.substage || "",
     stage_detail: event.stage_detail || event.message || event.payload?.stage_detail || job.stage_detail || "",

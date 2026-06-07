@@ -5,7 +5,14 @@ import {
   savePersistedDesktopConfig,
   savePersistedBrowserStoredConfig,
 } from "./config.js";
-import { state } from "./state.js";
+import { state } from "./state/store.js";
+import {
+  setDesktopConfigured,
+  setDesktopMode,
+  setDeveloperConfig,
+} from "./state/actions.js";
+import { getDeveloperConfig } from "./state/developer-state.js";
+import { isDesktopConfigured } from "./state/desktop-state.js";
 
 export function showDesktopUi() {
   $("open-output-btn").classList.remove("hidden");
@@ -42,13 +49,13 @@ export function closeSetupDialog() {
 }
 
 export async function bootstrapDesktop(initialConfig = null) {
-  state.desktopMode = true;
+  setDesktopMode(state, true);
   showDesktopUi();
   const payload = initialConfig || await loadPersistedConfig();
-  state.developerConfig = payload.developerConfig || {};
+  setDeveloperConfig(state, payload.developerConfig || {});
   applyKeyInputs(payload.browserConfig || {});
-  state.desktopConfigured = !!payload.firstRunCompleted;
-  if (!state.desktopConfigured) {
+  setDesktopConfigured(state, payload.firstRunCompleted);
+  if (!isDesktopConfigured(state)) {
     openSetupDialog();
   } else {
     closeSetupDialog();
@@ -73,15 +80,15 @@ export async function saveDesktopConfig(mineruToken, modelApiKey, afterSave, ext
   let persisted = await savePersistedBrowserStoredConfig({
     ...nextBrowserConfig,
   });
-  state.developerConfig = persisted.developerConfig || state.developerConfig;
+  setDeveloperConfig(state, persisted.developerConfig || getDeveloperConfig(state));
   applyKeyInputs(persisted.browserConfig || {});
   if (markConfigured && !persisted.firstRunCompleted) {
     persisted = await savePersistedDesktopConfig({ firstRunCompleted: true });
-    state.developerConfig = persisted.developerConfig || state.developerConfig;
+    setDeveloperConfig(state, persisted.developerConfig || getDeveloperConfig(state));
     applyKeyInputs(persisted.browserConfig || {});
   }
-  state.desktopConfigured = !!persisted.firstRunCompleted;
-  if (state.desktopConfigured) {
+  setDesktopConfigured(state, persisted.firstRunCompleted);
+  if (isDesktopConfigured(state)) {
     closeSetupDialog();
     const errorBox = $("error-box") || $("error-box-inline");
     if (errorBox) {
@@ -93,14 +100,14 @@ export async function saveDesktopConfig(mineruToken, modelApiKey, afterSave, ext
     try {
       await callback();
     } catch (error) {
-      if (state.desktopConfigured) {
+      if (isDesktopConfigured(state)) {
         const message = error?.message || String(error);
         throw new Error(`首次配置已保存，但当前无法连接本地后端。${message}`);
       }
       throw error;
     }
   }
-  state.developerConfig = persisted.developerConfig || state.developerConfig;
+  setDeveloperConfig(state, persisted.developerConfig || getDeveloperConfig(state));
   applyKeyInputs(persisted.browserConfig || {});
   return persisted;
 }

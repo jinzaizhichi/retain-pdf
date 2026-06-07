@@ -1,4 +1,14 @@
 mod glossaries;
+mod http_contract;
+mod jobs_common;
 mod jobs_create;
-mod jobs_query;
+mod jobs_detail;
+mod jobs_diagnostics;
+mod jobs_events;
+mod jobs_list;
+mod jobs_live_stage;
+mod jobs_markdown;
+mod jobs_reader;
+mod jobs_retry;
+mod jobs_security;
 mod translation_debug;

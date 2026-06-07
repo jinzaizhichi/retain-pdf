@@ -1,9 +1,15 @@
 import { summarizeStatus } from "../../job.js";
-import { resetJobState } from "../../state.js";
+import {
+  clearAppliedPageRange,
+  resetJobState,
+} from "../../state/actions.js";
 import { resetStatusDetailRuntimeView } from "../app-shell/idle-reset.js";
 import { closeRuntimeDialogs, resetEventsList } from "../app-shell/view.js";
 import { clearActiveJobId } from "./active-job-storage.js";
-import { stopPolling } from "./runtime-state.js";
+import {
+  currentJobId,
+  stopPolling,
+} from "./runtime-state.js";
 
 export function returnJobRuntimeToHome({
   state,
@@ -17,12 +23,12 @@ export function returnJobRuntimeToHome({
   updateJobWarning,
   activateDetailTab,
 }) {
-  clearActiveJobId(state.currentJobId);
+  clearActiveJobId(currentJobId(state));
   stopPolling(state);
   closeRuntimeDialogs();
   onReaderDialogClose?.();
   resetJobState(state);
-  state.appliedPageRange = "";
+  clearAppliedPageRange(state);
   setWorkflowSections(null);
   resetUploadProgress();
   resetUploadedFile();

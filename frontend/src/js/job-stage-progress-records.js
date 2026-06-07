@@ -11,6 +11,7 @@ import {
   compareProgressEventOrder,
   canonicalStageOf,
   eventIdentity,
+  isMainLaneEvent,
   normalizeUserStage,
   progressUnitOf,
   progressUnitPriority,
@@ -29,6 +30,7 @@ export function stagePayloadFromEvent(job, item, progress) {
   return {
     ...job,
     status: item?.status || "running",
+    display_stage: item?.display_stage || item?.payload?.display_stage || "",
     user_stage: userStage,
     current_stage: rawStage,
     stage: item?.stage || "",
@@ -133,7 +135,8 @@ export function normalizeProgressRecord(job, item, itemStage) {
 }
 
 function itemStageForProgress(item) {
-  return `${item?.stage || item?.provider_stage || normalizeUserStage(item?.user_stage || item?.payload?.user_stage) || ""}`.trim();
+  const canonicalStage = canonicalStageOf(item);
+  return `${canonicalStage || item?.stage || item?.provider_stage || normalizeUserStage(item?.user_stage || item?.payload?.user_stage) || ""}`.trim();
 }
 
 export function collectLatestCurrentStageProgress(job, eventsPayload, stageKey = "", substageKey = "") {
@@ -147,6 +150,9 @@ export function collectLatestCurrentStageProgress(job, eventsPayload, stageKey =
   let latest = null;
   let latestSameSubstage = null;
   for (const item of items) {
+    if (!isMainLaneEvent(item)) {
+      continue;
+    }
     const itemStage = itemStageForProgress(item);
     if (!itemStage) {
       continue;
@@ -170,6 +176,9 @@ export function collectStageProgressByKey(job, eventsPayload) {
   const progressByKey = {};
   const progressBySubstage = {};
   for (const item of items) {
+    if (!isMainLaneEvent(item)) {
+      continue;
+    }
     const itemStage = itemStageForProgress(item);
     if (!itemStage) {
       continue;

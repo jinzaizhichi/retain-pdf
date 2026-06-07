@@ -7,10 +7,12 @@ mod creation;
 mod debug;
 mod downloads;
 mod facade;
-pub(crate) mod presentation;
+pub(super) mod live_stage;
+mod presentation;
 mod query;
 mod reader_regions;
 mod stage_plan;
+pub(super) mod summary_loaders;
 mod support;
 
 pub use control::wait_for_terminal_job;

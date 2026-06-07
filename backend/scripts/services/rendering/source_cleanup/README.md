@@ -47,8 +47,9 @@ and prewarm callers should only depend on this package boundary.
   mandatory whole-book render prerequisite.
 - Large overlay renders use Typst cover blocks for visual source hiding, so
   source prewarm skips whole-book physical stripping on that path.
-- Form XObject pages are not part of the default fast exact-strip set. The
-  executor marks them as skipped so the render fallback can cover those regions
-  visually instead of blocking render on recursive Form mutation.
-- Low-level `strip_bbox_text_rects_from_pdf_copy()` still supports Form
-  recursion for targeted tests and future explicit repair tools.
+- Form XObject recursion is enabled by default because some editable PDFs place
+  inline formulas inside Form streams while surrounding text lives in the page
+  stream. Skipping Forms leaves those formulas visible after source cleanup.
+- Low-level `strip_bbox_text_rects_from_pdf_copy()` still supports
+  `skip_form_xobject_pages=True` for explicit fast-path tests or emergency
+  fallbacks.

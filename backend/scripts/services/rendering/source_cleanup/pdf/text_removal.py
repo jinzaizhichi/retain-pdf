@@ -36,7 +36,7 @@ def decide_text_show_rewrite(
         text_state,
         text_length=text_metrics[0],
     )
-    remove = strip_index.contains_point_or_intersects(
+    remove = strip_index.matches_text_for_removal(
         user_point[0],
         user_point[1],
         text_rect,

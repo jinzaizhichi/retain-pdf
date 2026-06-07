@@ -1,4 +1,5 @@
-import { state } from "./state.js";
+import { state } from "./state/store.js";
+import { currentJobFinishedAt } from "./features/job-runtime/runtime-state.js";
 import {
   formatEventTimestamp,
   formatRuntimeDuration,
@@ -114,7 +115,7 @@ export function resolveLiveDurations(job) {
   const status = job.status || "";
   const terminal = isTerminalStatus(status);
   const updatedAt = parseIsoTime(job.updated_at);
-  const finishedAt = parseIsoTime(job.finished_at || state.currentJobFinishedAt);
+  const finishedAt = parseIsoTime(job.finished_at || currentJobFinishedAt(state));
   const now = terminal ? finishedAt || updatedAt || new Date() : new Date();
   const stageStartedAt = parseIsoTime(job.stage_started_at || job.last_stage_transition_at);
   const jobStartedAt = parseIsoTime(job.started_at || job.created_at);
@@ -169,7 +170,7 @@ export function resolveStageHistoryDuration(entry, job) {
     const status = job.status || "";
     const terminal = isTerminalStatus(status);
     const endAt = terminal
-      ? parseIsoTime(job.finished_at || state.currentJobFinishedAt || job.updated_at)
+      ? parseIsoTime(job.finished_at || currentJobFinishedAt(state) || job.updated_at)
       : new Date();
     if (endAt) {
       return Math.max(0, endAt.getTime() - enterAt.getTime());

@@ -1,8 +1,8 @@
 import {
   setHomeRecentJobsLoadingState as setGlobalHomeRecentJobsLoadingState,
   setHomeViewMode as setGlobalHomeViewMode,
-  state,
-} from "../../state.js";
+} from "../../state/actions.js";
+import { state } from "../../state/store.js";
 import {
   HOME_LOADING_STATES,
   HOME_VIEW_MODES,

@@ -17,7 +17,7 @@ function setStatusText(text) {
   if (!status) {
     return;
   }
-  status.classList.remove("hidden");
+  status.classList.toggle("hidden", !text);
   status.textContent = text;
 }
 
@@ -73,6 +73,21 @@ export function setUpdateChecking() {
   setPanelContent({
     title: "正在检查更新",
     body: "正在连接 GitHub Releases...",
+  });
+}
+
+export function setUpdateReady() {
+  const button = updateButton();
+  if (!button) {
+    return;
+  }
+  button.dataset.updateState = "idle";
+  button.classList.remove("has-update");
+  button.setAttribute("title", "检查更新");
+  setStatusText("");
+  setPanelContent({
+    title: "检查更新",
+    body: "点击“重新检查”从 GitHub Releases 获取最新版本。",
   });
 }
 

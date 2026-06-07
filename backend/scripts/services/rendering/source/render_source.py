@@ -36,6 +36,7 @@ def build_render_source_pdf(
     output_pdf_path: Path,
     pdf_compress_dpi: int,
     translated_pages: dict[int, list[dict]] | None = None,
+    protected_pages: dict[int, list[dict]] | None = None,
     strip_hidden_text: bool = True,
     start_page: int = 0,
     end_page: int = -1,
@@ -114,6 +115,7 @@ def build_render_source_pdf(
                     source_pdf_path=render_source_path,
                     output_pdf_path=bbox_text_stripped_path,
                     translated_pages=translated_pages,
+                    protected_pages=protected_pages,
                     candidates=bbox_text_strip_candidates,
                     options=SourceCleanupOptions(
                         strategy=source_cleanup_strategy,

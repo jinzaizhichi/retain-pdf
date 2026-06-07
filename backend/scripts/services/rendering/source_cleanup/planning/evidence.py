@@ -5,6 +5,7 @@ from services.rendering.policy.cleanup_policy import item_render_output_text
 from services.rendering.policy.cleanup_policy import item_render_source_text
 from services.rendering.source_cleanup.intents import SourceCleanupEvidence
 from services.rendering.source_cleanup.planning.mixed_content import item_has_unresolved_embedded_formula
+from services.rendering.source_cleanup.planning.item_classifier import item_allows_forced_text_strip
 from services.rendering.source_cleanup.policy.adapter import has_formula_region
 
 
@@ -18,6 +19,7 @@ def build_source_cleanup_evidence(item: dict) -> SourceCleanupEvidence:
         output_text=item_render_output_text(item),
         is_marked_non_translated=item_is_marked_non_translated(item),
         has_unresolved_embedded_formula=item_has_unresolved_embedded_formula(item),
+        is_force_strip_text=item_allows_forced_text_strip(item),
     )
 
 

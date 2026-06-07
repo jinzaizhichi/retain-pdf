@@ -1,5 +1,6 @@
 import { $ } from "./dom.js";
 import { apiBase, isDesktopMode } from "./config.js";
+import { currentJobId } from "./features/job-runtime/runtime-state.js";
 
 const PDFJS_MODULE_URL = new URL("./vendor/pdfjs-dist/build/pdf.mjs", window.location.href).toString();
 const PDFJS_CMAP_URL = new URL("./vendor/pdfjs-dist/cmaps/", window.location.href).toString();
@@ -138,9 +139,7 @@ export async function openReaderFromButton({ button, state, fetchProtected, setT
       jobId = "";
     }
   }
-  if (!jobId) {
-    jobId = `${state.currentJobId || ""}`.trim();
-  }
+  jobId = jobId || currentJobId(state);
   const feature = await ensureReaderDialogFeature({ state, fetchProtected, setTextFn });
   feature.open({
     url,

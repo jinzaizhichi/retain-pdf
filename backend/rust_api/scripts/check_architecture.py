@@ -18,7 +18,7 @@ ALLOWED_APPSTATE_FILES = {
     Path("src/lib.rs"),
     Path("src/routes/glossaries.rs"),
     Path("src/routes/health.rs"),
-    Path("src/routes/jobs/common.rs"),
+    Path("src/routes/common.rs"),
     Path("src/routes/jobs/control.rs"),
     Path("src/routes/jobs/create.rs"),
     Path("src/routes/jobs/download.rs"),
@@ -42,12 +42,11 @@ APPSTATE_GUARDED_DIRS = [
 ROUTE_RUNNER_IMPORT_ALLOWLIST = {
     Path("src/routes/health.rs"),
     Path("src/routes/providers.rs"),
-    Path("src/routes/jobs/common.rs"),
+    Path("src/routes/common.rs"),
 }
 
 ROUTE_STATE_RESOURCE_ALLOWLIST = {
     Path("src/routes/common.rs"),
-    Path("src/routes/jobs/common.rs"),
 }
 
 ROUTE_SERVICE_IMPORT_ALLOWLIST = {
@@ -60,17 +59,18 @@ ROUTE_SERVICE_IMPORT_ALLOWLIST = {
     Path("src/routes/uploads.rs"): (
         "crate::services::upload_api::",
     ),
-    Path("src/routes/jobs/common.rs"): (
-        "crate::services::jobs::build_jobs_facade",
-        "crate::services::jobs::JobsFacade",
-        "crate::services::jobs::{",
-        "crate::services::job_launcher::",
-        "crate::services::runtime_gateway::",
-    ),
     Path("src/routes/common.rs"): (
+        "crate::app::{build_jobs_facade_from_state, AppState}",
+        "crate::services::jobs::JobsFacade",
         "crate::services::library::LibraryDeps",
     ),
-    Path("src/routes/jobs/download_adapter.rs"): (
+    Path("src/routes/download_response/files.rs"): (
+        "crate::services::jobs::FileDownload",
+    ),
+    Path("src/routes/download_response/markdown.rs"): (
+        "crate::services::jobs::MarkdownDownload",
+    ),
+    Path("src/routes/download_response.rs"): (
         "crate::services::jobs::{FileDownload, MarkdownDownload}",
     ),
     Path("src/routes/providers.rs"): (
@@ -133,7 +133,7 @@ def check_jobs_route_deps_dedup(errors: list[str]) -> None:
     jobs_dir = SRC_ROOT / "routes" / "jobs"
     for path in scan_rs_files(jobs_dir):
         rel_path = rel(path)
-        if rel_path == Path("src/routes/jobs/common.rs"):
+        if rel_path == Path("src/routes/common.rs"):
             continue
         text = path.read_text(encoding="utf-8")
         if re.search(r"\bfn\s+route_deps\s*\(", text):

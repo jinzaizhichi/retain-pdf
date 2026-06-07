@@ -63,13 +63,33 @@ export function recentJobTitle(item) {
   return truncateRecentJobName(item.title || item.display_name || item.source_file_name || item.job_id || "-");
 }
 
-export function recentJobImageUrl(item) {
-  const direct = `${item?.thumbnail_url || item?.cover_url || ""}`.trim();
-  if (direct) {
-    return escapeAttribute(direct);
-  }
+export function recentJobRawImageUrl(item) {
+  return recentJobRawImageUrls(item)[0] || "";
+}
+
+export function recentJobRawImageUrls(item) {
+  const urls = [];
+  const add = (value) => {
+    const url = `${value || ""}`.trim();
+    if (url && !urls.includes(url)) {
+      urls.push(url);
+    }
+  };
+  add(item?.thumbnail_url);
+  add(item?.cover_url);
   const jobId = `${item?.job_id || ""}`.trim();
-  return jobId ? `/api/v1/library/books/${encodeURIComponent(jobId)}/thumbnail` : "";
+  if (jobId) {
+    const encodedJobId = encodeURIComponent(jobId);
+    add(`/api/v1/jobs/${encodedJobId}/thumbnail`);
+    add(`/api/v1/library/books/${encodedJobId}/thumbnail`);
+    add(`/api/v1/jobs/${encodedJobId}/cover`);
+    add(`/api/v1/library/books/${encodedJobId}/cover`);
+  }
+  return urls;
+}
+
+export function recentJobImageUrl(item) {
+  return escapeAttribute(recentJobRawImageUrl(item));
 }
 
 export function buildReaderUrl(item) {

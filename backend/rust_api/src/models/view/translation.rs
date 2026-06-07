@@ -13,6 +13,20 @@ pub struct JobEventProgressView {
     pub percent: Option<f64>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct JobEventRawView {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_seq: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_stage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_type: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct JobEventRecord {
     pub job_id: String,
@@ -25,6 +39,8 @@ pub struct JobEventRecord {
     pub user_stage: Option<String>,
     #[serde(default)]
     pub lane: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_stage: Option<String>,
     pub stage: Option<String>,
     #[serde(default)]
     pub substage: Option<String>,
@@ -39,6 +55,8 @@ pub struct JobEventRecord {
     pub event_type: Option<String>,
     #[serde(default)]
     pub raw_event_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw: Option<JobEventRawView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress: Option<JobEventProgressView>,
     pub message: String,

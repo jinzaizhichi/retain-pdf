@@ -35,6 +35,7 @@ class SourceCleanupEvidence:
     output_text: str
     is_marked_non_translated: bool
     has_unresolved_embedded_formula: bool
+    is_force_strip_text: bool
 
 
 @dataclass(frozen=True)

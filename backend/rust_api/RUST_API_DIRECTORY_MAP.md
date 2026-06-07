@@ -71,14 +71,18 @@
 
 #### `src/routes/jobs`
 
-- `common.rs`
-  jobs route 共享轻量入口，只拿现成 facade，不再自己装 runtime。
-- `download_adapter.rs`
-  文件下载类 route adapter。
-- `query_adapter.rs`
-  JSON 查询 / debug / cancel 类 route adapter。
+- `json_response/`
+  jobs JSON 查询 / debug / cancel / retry 的响应出口，只调用 `JobsFacade`
+  并封装 `ApiResponse`。
 - `create.rs` / `download.rs` / `query.rs` / `control.rs` / `translation_debug.rs`
   真正的 axum route 入口。
+
+#### `src/routes/download_response`
+
+- 作用：
+  文件下载、markdown、preview、cover、thumbnail 的响应出口。
+- 使用方：
+  `routes/jobs/*` 和 `routes/library.rs` 都可以调用它；route 模块之间不要互相复用私有 helper。
 
 ### `src/services`
 

@@ -1,5 +1,5 @@
 import { $ } from "../../dom.js";
-import { resetUploadState } from "../../state.js";
+import { resetUploadState } from "../../state/actions.js";
 
 export function setSubmitBusy(busy) {
   document.dispatchEvent(new CustomEvent("retainpdf:submit-busy-changed", {

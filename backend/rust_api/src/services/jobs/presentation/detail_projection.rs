@@ -12,16 +12,16 @@ use crate::models::{
 use crate::services::book_projection::build_artifacts_display;
 use crate::storage_paths::{resolve_markdown_path, resolve_output_pdf};
 
+use super::super::live_stage::{build_progress_view, load_live_stage_snapshot};
 use super::super::readiness;
+use super::super::summary_loaders::{
+    load_glossary_summary, load_invocation_summary, load_normalization_summary,
+};
 use super::contracts::build_job_contracts_view;
 use super::helpers::{
     build_book_summary, build_ocr_job_summary, derive_display_name, job_failure_to_legacy_view,
 };
-use super::live_stage::{build_progress_view, load_live_stage_snapshot};
 use super::security::{redacted_error, redacted_log_tail};
-use super::summary_loaders::{
-    load_glossary_summary, load_invocation_summary, load_normalization_summary,
-};
 
 pub(super) struct DetailCoreProjection {
     pub request_payload: PublicResolvedJobSpec,
@@ -89,8 +89,12 @@ pub(super) fn build_core_projection(
     }
 }
 
-pub(super) fn build_live_projection(job: &JobSnapshot, data_root: &Path) -> DetailLiveProjection {
-    let live_stage = load_live_stage_snapshot(job, data_root);
+pub(super) fn build_live_projection(
+    db: &Db,
+    job: &JobSnapshot,
+    data_root: &Path,
+) -> DetailLiveProjection {
+    let live_stage = load_live_stage_snapshot(db, job, data_root);
     DetailLiveProjection {
         stage: live_stage
             .as_ref()

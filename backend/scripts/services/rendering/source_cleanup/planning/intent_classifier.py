@@ -36,6 +36,21 @@ class IntentRule:
 
 INTENT_RULES: tuple[IntentRule, ...] = (
     IntentRule(
+        name="translated_force_strip_text",
+        matches=lambda evidence: evidence.block_kind == "text"
+        and evidence_has_text_overlay(evidence)
+        and evidence.is_force_strip_text,
+        build=lambda evidence: build_intent(
+            evidence,
+            source_role=SOURCE_ROLE_BODY_TEXT,
+            translation_state=TRANSLATION_STATE_TRANSLATED,
+            replacement_kind=REPLACEMENT_KIND_TEXT_OVERLAY,
+            cleanup_action=CLEANUP_ACTION_STRIP_TEXT,
+            confidence=0.98,
+            reason="translated_force_strip_text_overlay",
+        ),
+    ),
+    IntentRule(
         name="translated_body_text_with_unresolved_embedded_formula",
         matches=lambda evidence: evidence.block_kind == "text"
         and evidence_has_text_overlay(evidence)

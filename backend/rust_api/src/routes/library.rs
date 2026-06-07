@@ -8,10 +8,10 @@ use crate::models::{
     ApiResponse, LibraryBatchDeleteInput, LibraryBatchDeleteResultView, LibraryBookDetailView,
     LibraryBookListView, LibraryDeleteQuery, LibraryDeleteResultView, ListJobsQuery,
 };
+use crate::routes::common::build_jobs_route_deps;
+use crate::routes::common::request_base_url;
 use crate::routes::common::{build_library_route_deps, ok_json};
-use crate::routes::jobs::common::build_jobs_route_deps;
-use crate::routes::jobs::common::request_base_url;
-use crate::routes::jobs::download_adapter::{cover_response, thumbnail_response};
+use crate::routes::download_response::{cover_response, thumbnail_response};
 use crate::services::library_api::{
     delete_library_book_view, delete_library_books_view, get_library_book_view,
     list_library_books_view,

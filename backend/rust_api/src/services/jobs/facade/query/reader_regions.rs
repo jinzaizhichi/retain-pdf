@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::models::{ReaderMetadataView, ReaderRegionsView};
 
-use super::super::super::presentation::load_supported_job;
+use super::super::super::query::load_supported_job;
 use super::super::super::reader_regions::{load_reader_metadata_view, load_reader_regions_view};
 use super::super::JobsFacade;
 

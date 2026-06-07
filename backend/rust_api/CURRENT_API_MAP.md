@@ -322,22 +322,22 @@ Rust API 生产主链入口。
 - 全流程任务只轮询 `GET /api/v1/jobs/<job_id>/events`
 - 不需要额外轮询 `{job_id}-ocr`
 - OCR / 翻译 / 渲染统一看事件里的：
-  - `user_stage`
+  - `display_stage`
   - `stage`
   - `substage`
   - `stage_detail`
   - `event_type`
-  - `progress_unit`
-  - `progress_current`
-  - `progress_total`
+  - `progress.unit`
+  - `progress.current`
+  - `progress.total`
 
 当前推荐的进度单位：
 
-- OCR provider 页进度：`user_stage=ocr`, `stage=ocr_processing`, `progress_unit=page`
-- 翻译批次进度：`user_stage=translate`, `stage=translating`, `progress_unit=batch`
-- 翻译页级子阶段：`continuation_review`, `page_policies`, `domain_inference`, `garbled_repair`, `progress_unit=page`
-- 渲染页进度：`user_stage=render`, `stage=rendering`, `progress_unit=page`
-- Typst compile / overlay / saving：无法按页汇报时使用 `progress_unit=step`
+- OCR provider 页进度：`display_stage=ocr`, `stage=ocr_processing`, `progress.unit=page`
+- 翻译批次进度：`display_stage=translation`, `stage=translating`, `progress.unit=batch`
+- 翻译页级子阶段：`continuation_review`, `page_policies`, `domain_inference`, `garbled_repair`, `progress.unit=page`
+- 渲染页进度：`display_stage=render`, `stage=rendering`, `progress.unit=page`
+- Typst compile / overlay / saving：无法按页汇报时使用 `progress.unit=step`
 
 当前正式失败口径已经是：
 
@@ -351,10 +351,13 @@ Rust API 生产主链入口。
   兼容旧客户端；新客户端应优先读 `event_type`
 - `events[*].message`
   调试/兼容文案；正式语义优先看 `stage_detail` + `event_type`
+- `events[*].raw`
+  保存 DB / pipeline jsonl / OCR child 的来源信息；前端展示不要靠它判断阶段
 
 阶段分层规则也已经固定：
 
-- 顶层统一阶段放在 `stage`
+- 前端显示阶段放在 `display_stage`
+- 机器阶段放在 `stage`
 - provider 私有状态放在 `provider_stage`
 
 ## 10. 现在最该记住的三句话

@@ -11,7 +11,7 @@
     "prepare:vendor": "node ./scripts/prepare-runtime-deps.mjs",
     "smoke:desktop-first-run": "node ./scripts/desktop-first-run-smoke.mjs",
     "smoke:status": "node ./scripts/frontend-status-smoke.mjs",
-    "test": "node --test tests/job-progress.test.mjs",
+    "test": "node --test tests/*.test.mjs",
     "watch:css": "tailwindcss -c tailwind.config.js -i ./src/input.css -o ./styles.css --watch"
   },
   "devDependencies": {

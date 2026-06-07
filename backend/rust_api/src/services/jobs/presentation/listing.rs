@@ -1,11 +1,13 @@
 use std::path::Path;
 
+use super::super::live_stage::{
+    build_progress_view, list_combined_job_events, load_live_stage_snapshot,
+};
 use super::super::query::list_jobs_filtered;
+use super::super::summary_loaders::load_invocation_summary;
 use super::helpers::{cover_url, derive_display_name, job_path_prefix};
 use super::helpers::{page_count_for_job, source_file_name, thumbnail_url};
-use super::live_stage::{build_progress_view, list_combined_job_events, load_live_stage_snapshot};
 use super::security::redact_job_events;
-use super::summary_loaders::load_invocation_summary;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::models::{
@@ -63,7 +65,7 @@ fn build_job_list_item_view(
     base_url: &str,
 ) -> JobListItemView {
     let detail_path = format!("{}/{}", job_path_prefix(job), job.job_id);
-    let live_stage = load_live_stage_snapshot(job, data_root);
+    let live_stage = load_live_stage_snapshot(db, job, data_root);
     let stage = live_stage
         .as_ref()
         .and_then(|snapshot| snapshot.stage.clone())

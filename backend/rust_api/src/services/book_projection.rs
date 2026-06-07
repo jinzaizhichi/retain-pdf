@@ -44,7 +44,7 @@ pub(crate) fn build_library_book_detail_view(
     let display_name = derive_display_name(db, job);
     let summary = build_book_summary(db, job, data_root, base_url, &display_name)
         .with_cover_url(library_image_url(job, data_root, base_url, "cover"));
-    let live = build_live_projection(job, data_root);
+    let live = build_live_projection(db, job, data_root);
     let (pdf_ready, markdown_ready, bundle_ready) =
         readiness(job, data_root, resolve_output_pdf, resolve_markdown_path);
     let artifacts = build_artifact_links(
@@ -81,7 +81,7 @@ fn build_library_book_list_item(
     base_url: &str,
 ) -> LibraryBookListItemView {
     let display_name = derive_display_name(db, job);
-    let live = build_live_projection(job, data_root);
+    let live = build_live_projection(db, job, data_root);
     let (output_pdf_ready, markdown_ready, bundle_ready) =
         readiness(job, data_root, resolve_output_pdf, resolve_markdown_path);
     LibraryBookListItemView {

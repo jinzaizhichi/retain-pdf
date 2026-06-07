@@ -1,7 +1,12 @@
 import { $ } from "../../dom.js";
 import { withTimeout } from "../../async-timeout.js";
 import { buildApiUrl } from "../../config.js";
-import { setUploadState } from "../../state.js";
+import {
+  clearAppliedPageRange,
+  setAppliedPageRange,
+  setUploadState,
+} from "../../state/actions.js";
+import { getUploadState } from "../../state/upload-state.js";
 import {
   clearPageRangeInputs,
   closePageRangeDialog,
@@ -63,7 +68,8 @@ export function mountUploadFeature({
     const { start: rawStart, end: rawEnd } = readPageRangeInputs();
     const start = rawStart.trim();
     const end = rawEnd.trim();
-    const maxPage = Number(state.uploadedPageCount || 0) || frontMaxPageCount;
+    const uploadState = getUploadState(state);
+    const maxPage = Number(uploadState.uploadedPageCount || 0) || frontMaxPageCount;
     if ((start && Number(start) < 1) || (end && Number(end) < 1)) {
       setText("error-box", "页码必须从 1 开始");
       return false;
@@ -80,17 +86,19 @@ export function mountUploadFeature({
       setText("error-box", `页码区间不能超过 ${maxPage} 页`);
       return false;
     }
-    state.appliedPageRange = normalizePageRangeValue(start, end);
+    setAppliedPageRange(state, normalizePageRangeValue(start, end));
     return true;
   }
 
   function renderPageRangeSummary() {
-    setInlinePageRangeVisible(workflowNeedsUpload() && Boolean(state.uploadId));
+    const uploadState = getUploadState(state);
+    setInlinePageRangeVisible(workflowNeedsUpload() && Boolean(uploadState.uploadId));
   }
 
   function openPageRangeDialog() {
+    const uploadState = getUploadState(state);
     openPageRangeDialogView({
-      applied: state.appliedPageRange || "",
+      applied: uploadState.appliedPageRange || "",
       maxPage: frontMaxPageCount || 0,
     });
   }
@@ -101,7 +109,7 @@ export function mountUploadFeature({
 
   function clearPageRanges() {
     clearPageRangeInputs();
-    state.appliedPageRange = "";
+    clearAppliedPageRange(state);
     renderPageRangeSummary();
     refreshSubmitControls();
     closePageRangeDialog();
@@ -111,7 +119,7 @@ export function mountUploadFeature({
     const file = selectedUploadFile();
     resetUploadedFile();
     resetUploadProgress();
-    state.appliedPageRange = "";
+    clearAppliedPageRange(state);
     clearPageRangeInputs();
     renderPageRangeSummary();
     applyWorkflowMode();
@@ -175,8 +183,8 @@ export function mountUploadFeature({
         start: uploadedPageCount > 0 ? "1" : "",
         end: uploadedPageCount > 0 ? `${uploadedPageCount}` : "",
       });
-      state.appliedPageRange = currentPageRanges();
-      markUploadReady(!!state.uploadId);
+      setAppliedPageRange(state, currentPageRanges());
+      markUploadReady(!!getUploadState(state).uploadId);
       showUploadStatus("上传完成，可以开始任务。");
       clearFileInputValue();
       renderPageRangeSummary();

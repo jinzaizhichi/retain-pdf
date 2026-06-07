@@ -16,10 +16,12 @@ from services.rendering.workflow.modes import run_background_typst_render
 from services.rendering.workflow.modes import run_dual_render
 from services.rendering.workflow.modes import run_overlay_render
 from services.rendering.workflow.modes import run_selected_pages_overlay_render
+from services.rendering.workflow.prewarm_cache import build_full_sync_payload_prewarm
 from services.rendering.workflow.prewarm_cache import build_sync_payload_prewarm
 from services.rendering.workflow.prewarm_cache import has_material_payload_prewarm
 from services.rendering.workflow.prewarm_cache import persist_sync_render_source_prewarm
 from services.rendering.source.render_source import build_render_source_pdf
+from services.rendering.source_cleanup.protected_blocks import protected_pages_from_document_path
 from services.rendering.source.prewarm import try_load_prewarmed_render_source_pdf
 from services.rendering.source.prewarm import try_load_render_payload_prewarm
 from services.rendering.source.prewarm_manifest_io import render_payload_prewarm_from_manifest_payload
@@ -81,6 +83,7 @@ def execute_render_plan(
         render_source_pdf=render_source_pdf,
         payload_prewarm=payload_prewarm,
     )
+    protected_pages = _protected_pages_for_render(render_plan.render_inputs.translations_dir)
     render_source_sync_cache_written = False
     if render_source_pdf is None:
         sync_prepare_started = time.perf_counter()
@@ -93,6 +96,7 @@ def execute_render_plan(
             ),
             pdf_compress_dpi=pdf_compress_dpi,
             translated_pages=render_plan.selected_pages,
+            protected_pages=protected_pages,
             strip_hidden_text=render_plan.effective_render_mode != "overlay",
             start_page=start,
             end_page=stop,
@@ -105,9 +109,18 @@ def execute_render_plan(
             source_cleanup_strategy=cleanup_strategy,
             document_analysis=document_analysis,
         )
+        sync_payload_prewarm = build_full_sync_payload_prewarm(
+            manifest_path=render_prewarm_manifest_path,
+            prepared=render_source_pdf,
+            source_pdf_path=render_plan.render_inputs.source_pdf_path,
+            translated_pages=render_plan.selected_pages,
+            effective_render_mode=render_plan.effective_render_mode,
+            source_cleanup_strategy=cleanup_strategy,
+        )
         merged_sync_payload_prewarm = build_sync_payload_prewarm(
             manifest_path=render_prewarm_manifest_path,
             prepared=render_source_pdf,
+            payload_prewarm=sync_payload_prewarm,
         )
         render_source_sync_cache_written = persist_sync_render_source_prewarm(
             manifest_path=render_prewarm_manifest_path,
@@ -261,4 +274,10 @@ def _dispatch_render_mode(
         source_pdf_path=source_pdf_path,
         translated_pages=translated_pages,
         context=context,
+    )
+
+
+def _protected_pages_for_render(translations_dir: Path) -> dict[int, list[dict]]:
+    return protected_pages_from_document_path(
+        Path(translations_dir).parent / "ocr" / "normalized" / "document.v1.json"
     )

@@ -1,4 +1,9 @@
 import { apiBase } from "./config.js";
+import {
+  currentJobManifest,
+  currentJobSnapshot,
+} from "./features/job-runtime/runtime-state.js";
+import { getUploadState } from "./state/upload-state.js";
 
 function trimString(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -37,12 +42,13 @@ function basenameFromUrlLike(value) {
 }
 
 export function resolveOriginalPdfBaseName(state = {}) {
-  const snapshot = state.currentJobSnapshot || {};
+  const snapshot = currentJobSnapshot(state) || {};
+  const uploadState = getUploadState(state);
   const requestPayload = snapshot.request_payload || {};
   const rawResponse = snapshot.raw_response || {};
-  const sourceArtifact = findReadyManifestArtifact(state.currentJobManifest, "source_pdf");
+  const sourceArtifact = findReadyManifestArtifact(currentJobManifest(state), "source_pdf");
   const candidates = [
-    state.uploadedFileName,
+    uploadState.uploadedFileName,
     rawResponse.filename,
     rawResponse.file_name,
     rawResponse.source_file_name,

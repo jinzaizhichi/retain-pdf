@@ -28,7 +28,7 @@ import {
 } from "../main-helpers.js";
 import { fetchGlossaries } from "../api/glossaries.js";
 import { submitUploadRequest } from "../api/http.js";
-import { state } from "../state.js";
+import { state } from "../state/store.js";
 import {
   clearFileInputValue,
   resetUploadProgress,

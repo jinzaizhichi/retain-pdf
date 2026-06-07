@@ -1,6 +1,10 @@
 import { TRANSLATION_PROVIDER_DEFINITION } from "../../provider-config.js";
 import { $ } from "../../dom.js";
 import {
+  resetDeepSeekBalanceState,
+  setDeepSeekBalanceState,
+} from "../../state/actions.js";
+import {
   browserCredentialElements,
   setDeepSeekTopUpVisible,
   setDeepSeekValidationMessage,
@@ -40,8 +44,7 @@ export async function handleBrowserDeepSeekValidate({
   }
   const baseUrl = modelBaseUrlInput?.value?.trim() || "";
   if (state) {
-    state.deepseekBalanceCny = null;
-    state.deepseekBalanceChecked = false;
+    resetDeepSeekBalanceState(state);
   }
   onBalanceChange?.();
   if (!modelApiKey) {
@@ -79,8 +82,7 @@ export async function handleBrowserDeepSeekValidate({
     const balanceSummary = summarizeDeepSeekBalance(balance);
     const balanceAmount = deepSeekBalanceAmount(balance);
     if (state) {
-      state.deepseekBalanceCny = balanceAmount;
-      state.deepseekBalanceChecked = true;
+      setDeepSeekBalanceState(state, balanceAmount, true);
     }
     onBalanceChange?.();
     const shouldTopUp = balanceAmount < DEEPSEEK_LOW_BALANCE_THRESHOLD;

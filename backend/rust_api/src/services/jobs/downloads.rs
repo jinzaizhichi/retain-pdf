@@ -5,7 +5,7 @@ use crate::models::PagePreviewQuery;
 use crate::storage_paths::{resolve_output_pdf, resolve_source_pdf};
 
 use super::creation::context::QueryJobsDeps;
-use super::presentation::load_supported_job;
+use super::query::load_supported_job;
 
 // Keep this file as the small public facade for job downloads. Concrete
 // handlers live in submodules so PDF, markdown, preview, and artifact behavior

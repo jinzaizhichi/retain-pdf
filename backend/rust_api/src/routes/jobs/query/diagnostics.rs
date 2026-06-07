@@ -5,8 +5,8 @@ use crate::error::AppError;
 use crate::models::{ApiResponse, JobDiagnosticsView, JobResumePlanView};
 use crate::AppState;
 
-use super::super::common::build_jobs_route_deps;
-use super::super::query_adapter::{job_diagnostics_response, resume_plan_response};
+use super::super::json_response::{job_diagnostics_response, resume_plan_response};
+use crate::routes::common::build_jobs_route_deps;
 
 pub async fn get_job_diagnostics(
     State(state): State<AppState>,

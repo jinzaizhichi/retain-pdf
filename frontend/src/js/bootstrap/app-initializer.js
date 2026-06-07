@@ -12,7 +12,7 @@ import {
   bootstrapStartupRoute,
   initializeIdleAndRecentJobs,
 } from "../main-startup.js";
-import { state } from "../state.js";
+import { state } from "../state/store.js";
 import { applyPersistedConfig } from "./config-bootstrap.js";
 import { mountApplicationFeatures } from "./feature-registry.js";
 

@@ -9,6 +9,7 @@ import fitz
 
 from services.rendering.source.rects import rect_area
 from services.rendering.source_cleanup.planning.spatial_index import RectOverlapIndex
+from services.rendering.source_cleanup.planning.drawing_classifier import bboxlog_path_blocks_text_strip
 
 
 BBoxTransform = Callable[[fitz.Page, fitz.Rect], fitz.Rect]
@@ -89,6 +90,17 @@ class PageBBoxResolver:
             return None
         rect = self.preferred_candidate.transform(self.page, raw_rect)
         return None if rect.is_empty else rect
+
+    def resolve_bbox_probe_rects(self, bbox: object) -> tuple[fitz.Rect, ...]:
+        raw_rect = raw_bbox_rect(bbox)
+        if raw_rect is None:
+            return ()
+        rects: dict[tuple[int, int, int, int], fitz.Rect] = {}
+        for candidate in BBOX_COORDINATE_CANDIDATES:
+            rect = candidate.transform(self.page, raw_rect)
+            if not rect.is_empty:
+                rects.setdefault(_rect_probe_key(rect), rect)
+        return tuple(rects.values())
 
     def ocr_bbox_to_pdf_rect(self, bbox: object) -> fitz.Rect | None:
         raw_rect = raw_bbox_rect(bbox)
@@ -175,6 +187,15 @@ def raw_bbox_rect(bbox: object) -> fitz.Rect | None:
     return None if rect.is_empty else rect
 
 
+def _rect_probe_key(rect: fitz.Rect) -> tuple[int, int, int, int]:
+    return (
+        int(round(rect.x0 * 10)),
+        int(round(rect.y0 * 10)),
+        int(round(rect.x1 * 10)),
+        int(round(rect.y1 * 10)),
+    )
+
+
 def score_bbox_candidate(
     page: fitz.Page,
     candidate: BBoxCoordinateCandidate,
@@ -237,7 +258,7 @@ def page_bboxlog_rect_groups(page: fitz.Page) -> tuple[tuple[fitz.Rect, ...], tu
         if "image" in kind:
             image_rects.append(rect)
             continue
-        if kind.startswith("stroke-") and "path" in kind:
+        if bboxlog_path_blocks_text_strip(kind, rect):
             unsafe_vector_rects.append(rect)
     return tuple(rects), tuple(image_rects), tuple(unsafe_vector_rects)
 

@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
 
+use super::super::query::load_supported_job;
 use super::QueryJobsDeps;
-use crate::services::jobs::presentation::load_supported_job;
 
 #[derive(Clone, Copy)]
 pub(super) enum PagePreviewKind {

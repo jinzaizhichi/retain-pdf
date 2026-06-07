@@ -1,4 +1,4 @@
-import { normalizeUserStage } from "./job-stage-presentation-utils.js";
+import { canonicalStageOf, isMainLaneEvent, normalizeUserStage } from "./job-stage-presentation-utils.js";
 import { eventLooksLikeRender } from "./job-stage-render-detection.js";
 
 export function compositeRenderProgressFromEvents(
@@ -16,7 +16,11 @@ export function compositeRenderProgressFromEvents(
   let latestPageProgress = null;
   let latestCompileProgress = null;
   for (const item of items) {
-    const itemStage = eventLooksLikeRender(item)
+    if (!isMainLaneEvent(item)) {
+      continue;
+    }
+    const canonicalStage = canonicalStageOf(item);
+    const itemStage = canonicalStage === "render" || eventLooksLikeRender(item)
       ? "rendering"
       : `${item?.stage || item?.provider_stage || normalizeUserStage(item?.user_stage || item?.payload?.user_stage) || ""}`.trim();
     if (!itemStage) {

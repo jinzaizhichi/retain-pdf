@@ -74,6 +74,24 @@ class RectIndex:
                 return True
         return False
 
+    def matches_text_for_removal(self, x: float, y: float, rect: RectTuple) -> bool:
+        if self.bounds is None:
+            return False
+        point_may_match = _point_in_rect(x, y, self.bounds)
+        rect_may_match = _rect_intersects(rect, self.bounds)
+        if not point_may_match and not rect_may_match:
+            return False
+        limit = bisect_right(self.y0_sorted, max(y, rect[3]))
+        for index in range(limit):
+            candidate = self.rects[index]
+            if candidate[3] < min(y, rect[1]):
+                continue
+            if point_may_match and _point_in_rect(x, y, candidate):
+                return True
+            if rect_may_match and _rect_substantially_overlaps_text(rect, candidate):
+                return True
+        return False
+
     def protects_text_rect(self, x: float, y: float, rect: RectTuple) -> bool:
         if self.bounds is None:
             return False

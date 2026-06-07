@@ -8,9 +8,9 @@ use crate::storage_paths::{
     ARTIFACT_KEY_MARKDOWN_BUNDLE_ZIP, ARTIFACT_KEY_SOURCE_PDF, ARTIFACT_KEY_TRANSLATED_PDF,
 };
 
+use super::super::query::load_supported_job;
 use super::pdf::linearized_pdf_or_original;
 use super::{FileDownload, QueryJobsDeps};
-use crate::services::jobs::presentation::load_supported_job;
 
 pub(crate) fn bundle_download(
     deps: &QueryJobsDeps<'_>,

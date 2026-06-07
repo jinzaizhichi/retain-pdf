@@ -1,10 +1,8 @@
-pub(crate) mod common;
 mod control;
 mod create;
 mod download;
-pub(crate) mod download_adapter;
+mod json_response;
 mod query;
-mod query_adapter;
 mod translation_debug;
 
 pub use control::{cancel_job, cancel_ocr_job};

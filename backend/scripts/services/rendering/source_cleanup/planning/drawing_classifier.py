@@ -6,8 +6,13 @@ from typing import Iterable
 
 import fitz
 
+from services.rendering.source.rects import rect_area
+
 
 DrawingPredicate = Callable[[dict], bool]
+
+MAX_TEXT_LIKE_FILL_PATH_HEIGHT_PT = 32.0
+MAX_TEXT_LIKE_FILL_PATH_AREA_PT2 = 3500.0
 
 
 @dataclass(frozen=True)
@@ -27,6 +32,14 @@ TEXT_STRIP_DRAWING_CLASSES: tuple[DrawingClass, ...] = (
         name="stroke_only_path",
         blocks_text_strip=True,
         matches=lambda drawing: drawing.get("color") is not None and drawing.get("fill") is None,
+    ),
+    DrawingClass(
+        name="text_like_filled_path",
+        blocks_text_strip=True,
+        matches=lambda drawing: is_text_like_fill_path(
+            drawing_type(drawing),
+            _drawing_rect(drawing),
+        ),
     ),
 )
 
@@ -64,6 +77,29 @@ def matching_drawing_classes(drawing: dict) -> tuple[DrawingClass, ...]:
 
 def drawing_type(drawing: dict) -> str:
     return str(drawing.get("type") or "").strip().lower()
+
+
+def bboxlog_path_blocks_text_strip(kind: str, rect: fitz.Rect) -> bool:
+    if kind.startswith("stroke-") and "path" in kind:
+        return True
+    return is_text_like_fill_path(kind, rect)
+
+
+def is_text_like_fill_path(kind: str, rect: fitz.Rect | None) -> bool:
+    normalized_kind = str(kind or "").strip().lower()
+    if normalized_kind in {"f", "fs"}:
+        return rect_is_text_like_fill_path(rect)
+    if "path" not in normalized_kind or not normalized_kind.startswith("fill-"):
+        return False
+    return rect_is_text_like_fill_path(rect)
+
+
+def rect_is_text_like_fill_path(rect: fitz.Rect | None) -> bool:
+    if rect is None or rect.is_empty:
+        return False
+    if rect.height <= 0.0 or rect.height > MAX_TEXT_LIKE_FILL_PATH_HEIGHT_PT:
+        return False
+    return rect_area(rect) <= MAX_TEXT_LIKE_FILL_PATH_AREA_PT2
 
 
 def _drawing_rect(drawing: dict) -> fitz.Rect | None:

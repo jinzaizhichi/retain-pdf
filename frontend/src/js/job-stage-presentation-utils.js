@@ -46,21 +46,38 @@ export function eventIdentity(item = {}) {
   };
 }
 
+export function eventLaneOf(item = {}) {
+  const payload = item?.payload && typeof item.payload === "object" ? item.payload : {};
+  return `${item?.lane || payload.lane || ""}`.trim().toLowerCase();
+}
+
+export function isMainLaneEvent(item = {}) {
+  const lane = eventLaneOf(item);
+  return !lane || lane === "main";
+}
+
 export function normalizeUserStage(value = "") {
   const stage = `${value || ""}`.trim().toLowerCase();
   return stage === "translation" ? "translate" : stage;
 }
 
+function normalizeDisplayStage(value = "") {
+  const stage = normalizeUserStage(value);
+  return stage === "translating" ? "translate" : stage;
+}
+
 export function canonicalStageOf(payload = {}) {
   const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : {};
   const candidates = [
-    payload.stage,
-    nestedPayload.stage,
+    payload.display_stage,
+    nestedPayload.display_stage,
     payload.user_stage,
     nestedPayload.user_stage,
+    payload.stage,
+    nestedPayload.stage,
   ];
-  for (const candidate of candidates) {
-    const normalized = normalizeUserStage(candidate);
+  for (let index = 0; index < candidates.length; index += 1) {
+    const normalized = index < 2 ? normalizeDisplayStage(candidates[index]) : normalizeUserStage(candidates[index]);
     if (["ocr", "translate", "render", "done"].includes(normalized)) {
       return normalized;
     }

@@ -20,7 +20,7 @@ import {
   setWorkflowSections as setWorkflowSectionsVisibility,
   updateJobWarning,
 } from "./job-workflow-visibility.js";
-import { state } from "./state.js";
+import { state } from "./state/store.js";
 import {
   isTerminalStatus,
 } from "./job.js";

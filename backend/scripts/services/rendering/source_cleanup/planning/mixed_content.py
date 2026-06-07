@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 
 DISPLAY_MATH_MARKERS = (
     "$$",
@@ -35,7 +37,10 @@ def source_text_has_display_math(text: str) -> bool:
 
 def line_is_standalone_math(line: str) -> bool:
     stripped = line.strip()
-    return len(stripped) >= 3 and stripped.startswith("$") and stripped.endswith("$")
+    if len(stripped) < 3 or not stripped.startswith("$") or not stripped.endswith("$"):
+        return False
+    words = re.findall(r"[A-Za-z]{3,}", stripped)
+    return len(words) <= 2
 
 
 def lines_have_formula_spans(item: dict) -> bool:

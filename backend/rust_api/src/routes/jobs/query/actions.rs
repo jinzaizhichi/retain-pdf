@@ -8,10 +8,10 @@ use crate::models::{
 };
 use crate::AppState;
 
-use super::super::common::build_jobs_route_deps;
-use super::super::query_adapter::{
+use super::super::json_response::{
     rerun_job_response, resume_job_response, retry_stage_response, stage_actions_response,
 };
+use crate::routes::common::build_jobs_route_deps;
 
 pub async fn get_stage_actions(
     State(state): State<AppState>,

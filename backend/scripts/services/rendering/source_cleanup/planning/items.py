@@ -16,6 +16,7 @@ class SourceCleanupItemRects:
     item: dict
     pdf_rect: fitz.Rect
     view_rect: fitz.Rect
+    probe_rects: tuple[fitz.Rect, ...] = ()
 
 
 def iter_strip_item_rect_pairs_for_page(
@@ -31,8 +32,14 @@ def iter_strip_item_rect_pairs_for_page(
             continue
         pdf_rect = active_resolver.ocr_bbox_to_pdf_rect(item.get("bbox", []))
         view_rect = active_resolver.resolve_bbox_rect(item.get("bbox", []))
+        probe_rects = active_resolver.resolve_bbox_probe_rects(item.get("bbox", []))
         if pdf_rect is not None and view_rect is not None:
-            yield SourceCleanupItemRects(item=item, pdf_rect=pdf_rect, view_rect=view_rect)
+            yield SourceCleanupItemRects(
+                item=item,
+                pdf_rect=pdf_rect,
+                view_rect=view_rect,
+                probe_rects=probe_rects or (view_rect,),
+            )
 
 
 def iter_strip_item_rects_for_page(page: fitz.Page, translated_items: list[dict]) -> Iterator[tuple[dict, fitz.Rect]]:

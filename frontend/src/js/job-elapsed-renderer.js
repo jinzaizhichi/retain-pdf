@@ -1,4 +1,9 @@
 import { isTerminalStatus } from "./job.js";
+import {
+  currentJobSnapshot,
+  startElapsedTimer,
+  stopElapsedTimer,
+} from "./features/job-runtime/runtime-state.js";
 import { resolveLiveDurations } from "./status-detail-utils.js";
 import {
   setStatusCardElapsed,
@@ -7,14 +12,11 @@ import {
 } from "./ui-presentation-view.js";
 
 export function stopElapsedTicker(state) {
-  if (state.elapsedTimer) {
-    clearInterval(state.elapsedTimer);
-    state.elapsedTimer = null;
-  }
+  stopElapsedTimer(state);
 }
 
 export function renderElapsed(state) {
-  const snapshot = state.currentJobSnapshot;
+  const snapshot = currentJobSnapshot(state);
   if (!snapshot) {
     setTextView("query-job-duration", "-");
     setStatusCardElapsed("-");
@@ -34,7 +36,7 @@ export function startElapsedTicker(state) {
   if (isTerminalStatus(status)) {
     return;
   }
-  state.elapsedTimer = setInterval(() => {
+  startElapsedTimer(state, () => {
     renderElapsed(state);
   }, 1000);
 }

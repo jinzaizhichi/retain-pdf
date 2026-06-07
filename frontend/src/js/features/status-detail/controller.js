@@ -3,6 +3,16 @@ import { buildFrontendPageUrl } from "../../config.js";
 import { normalizeJobPayload } from "../../job.js";
 import { buildStatusDetailSnapshot } from "../../status-detail-presentation.js";
 import {
+  cacheSecondaryResource,
+  cacheJobDiagnostics,
+  cacheJobResumePlan,
+  currentJobEventsFor,
+  currentJobManifest,
+  currentJobSnapshot,
+  currentJobStageActions,
+  syncCurrentJobSnapshot,
+} from "../job-runtime/runtime-state.js";
+import {
   renderTextBlock,
 } from "./formatters.js";
 import {
@@ -107,8 +117,8 @@ export function mountStatusDetailFeature({
       await detailState.loadingPromise;
       return;
     }
-    const previousJob = state.currentJobSnapshot || { job_id: jobId };
-    const previousEvents = state.currentJobEventsJobId === jobId ? state.currentJobEvents : null;
+    const previousJob = currentJobSnapshot(state) || { job_id: jobId };
+    const previousEvents = currentJobEventsFor(state, jobId);
     renderOverviewSnapshot(previousJob, previousEvents);
     detailState.loadingPromise = (async () => {
       try {
@@ -122,18 +132,16 @@ export function mountStatusDetailFeature({
           ...normalizeJobPayload(payload),
           diagnostics: diagnosticsPayload || undefined,
         };
-        state.currentJobSnapshot = job;
-        state.currentJobId = job.job_id || jobId;
-        state.currentJobDiagnostics = diagnosticsPayload;
-        state.currentJobDiagnosticsJobId = jobId;
-        state.currentJobResumePlan = resumePlan;
-        state.currentJobResumePlanJobId = jobId;
+        syncCurrentJobSnapshot(state, job, job.job_id || jobId, {
+          startedAt: job.started_at || job.created_at || "",
+          finishedAt: job.finished_at || job.updated_at || "",
+        });
+        cacheJobDiagnostics(state, jobId, diagnosticsPayload);
+        cacheJobResumePlan(state, jobId, resumePlan);
         if (eventsPayload) {
-          state.currentJobEvents = eventsPayload;
-          state.currentJobEventsJobId = jobId;
-          state.currentJobEventsFetchedAt = Date.now();
+          cacheSecondaryResource(state, "events", jobId, eventsPayload);
         }
-        renderJob?.(job, eventsPayload || previousEvents, state.currentJobManifest, state.currentJobStageActions);
+        renderJob?.(job, eventsPayload || previousEvents, currentJobManifest(state), currentJobStageActions(state));
         renderOverviewSnapshot(job, eventsPayload || previousEvents);
       } catch (error) {
         setText?.("error-box", error.message || String(error));

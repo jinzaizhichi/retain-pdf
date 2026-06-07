@@ -34,6 +34,14 @@ import {
   buildDeveloperConfigFromDialog,
   defaultDeveloperDialogReadOptions,
 } from "./developer-dialog.js";
+import {
+  resetDeveloperConfig,
+  setDeveloperConfig,
+} from "../../state/actions.js";
+import { getDeepSeekBalanceState } from "../../state/credential-state.js";
+import { getDeveloperConfig } from "../../state/developer-state.js";
+import { isDesktopMode } from "../../state/desktop-state.js";
+import { getUploadState } from "../../state/upload-state.js";
 import { resolveSubmitControlState } from "./submit-controls.js";
 import { resolveTranslationBudgetState } from "./budget.js";
 
@@ -81,7 +89,7 @@ export function mountWorkflowFeature({
 
   function developerConfigWithDefaults() {
     return buildDeveloperConfigWithDefaults({
-      saved: state.developerConfig,
+      saved: getDeveloperConfig(state),
       normalizeWorkflow,
       normalizeMathMode,
       defaults: {
@@ -147,11 +155,12 @@ export function mountWorkflowFeature({
 
   function refreshSubmitControls() {
     const workflow = currentWorkflow();
+    const uploadState = getUploadState(state);
     const submitState = resolveSubmitControlState({
       workflow,
       isMock: isMockMode(),
-      desktopMode: state.desktopMode,
-      uploadId: state.uploadId,
+      desktopMode: isDesktopMode(state),
+      uploadId: uploadState.uploadId,
       renderSourceJobId: currentRenderSourceJobId(),
       hasBrowserCredentials: Boolean(getBrowserCredentialsFeature()?.hasBrowserCredentials()),
       workflowNeedsUpload,
@@ -167,12 +176,14 @@ export function mountWorkflowFeature({
   }
 
   function currentBudgetState(workflow = currentWorkflow()) {
+    const uploadState = getUploadState(state);
+    const balanceState = getDeepSeekBalanceState(state);
     return resolveTranslationBudgetState({
       pageRanges: currentPageRanges(),
-      uploadedPageCount: state.uploadedPageCount,
-      balanceCny: state.deepseekBalanceCny,
-      balanceChecked: state.deepseekBalanceChecked,
-      needsTranslation: workflowNeedsUpload(workflow) && workflowUsesTranslation(workflow) && Boolean(state.uploadId),
+      uploadedPageCount: uploadState.uploadedPageCount,
+      balanceCny: balanceState.balanceCny,
+      balanceChecked: balanceState.balanceChecked,
+      needsTranslation: workflowNeedsUpload(workflow) && workflowUsesTranslation(workflow) && Boolean(uploadState.uploadId),
     });
   }
 
@@ -201,9 +212,10 @@ export function mountWorkflowFeature({
       updateCredentialGate();
       return;
     }
+    const uploadState = getUploadState(state);
     applyWorkflowUploadView({
       needsUpload,
-      uploadReady: Boolean(state.uploadId),
+      uploadReady: Boolean(uploadState.uploadId),
       defaultFileLabel: DEFAULT_FILE_LABEL,
       headline: workflowHeadline(workflow),
       renderSourceJobId: currentRenderSourceJobId(),
@@ -227,19 +239,19 @@ export function mountWorkflowFeature({
         timeoutSeconds: DEFAULT_TIMEOUT_SECONDS,
       },
     }));
-    state.developerConfig = buildDeveloperConfigFromDialog({
+    setDeveloperConfig(state, buildDeveloperConfigFromDialog({
       currentConfig,
       values,
       normalizeWorkflow,
-    });
+    }));
     setDeveloperDialogValues(developerConfigWithDefaults());
-    void saveDeveloperStoredConfig(state.developerConfig);
+    void saveDeveloperStoredConfig(getDeveloperConfig(state));
     applyWorkflowMode();
     closeDeveloperDialog();
   }
 
   function resetDeveloperDialog() {
-    state.developerConfig = {};
+    resetDeveloperConfig(state);
     void saveDeveloperStoredConfig({});
     syncDeveloperDialogFromState();
     applyWorkflowMode();
@@ -282,12 +294,13 @@ export function mountWorkflowFeature({
     const pageRanges = currentPageRanges();
     const developerConfig = developerConfigWithDefaults();
     const workflow = developerConfig.workflow;
+    const uploadState = getUploadState(state);
     const payload = {
       workflow,
       source: buildSourcePayloadRequest({
         workflow,
         developerConfig,
-        uploadId: state.uploadId,
+        uploadId: uploadState.uploadId,
         workflowNeedsUpload,
       }),
       runtime: {

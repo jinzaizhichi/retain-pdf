@@ -13,7 +13,7 @@ from services.rendering.source_cleanup.types import BBoxTextStripCandidates
 RENDER_PREWARM_DIR_NAME = "render_prewarm"
 RENDER_PREWARM_MANIFEST_NAME = "render_source_prewarm_manifest.json"
 RENDER_PREWARM_SCHEMA = "render_source_prewarm_v1"
-BBOX_TEXT_STRIP_ALGORITHM_VERSION = "bbox_text_strip_v19_item_fallback_ids"
+BBOX_TEXT_STRIP_ALGORITHM_ID = "bbox_text_strip"
 HIDDEN_TEXT_STRIP_ALGORITHM_VERSION = "hidden_text_strip_v1"
 IMAGE_COMPRESSION_ALGORITHM_VERSION = "image_only_compress_v1"
 FIRST_LINE_INDENT_ALGORITHM_VERSION = "first_line_indent_v1"
@@ -71,7 +71,7 @@ def prewarm_manifest_path_from_translations_dir(translations_dir: Path | None) -
 
 
 __all__ = [
-    "BBOX_TEXT_STRIP_ALGORITHM_VERSION",
+    "BBOX_TEXT_STRIP_ALGORITHM_ID",
     "FIRST_LINE_INDENT_ALGORITHM_VERSION",
     "GEOMETRY_ADJUSTMENT_ALGORITHM_VERSION",
     "HIDDEN_TEXT_STRIP_ALGORITHM_VERSION",

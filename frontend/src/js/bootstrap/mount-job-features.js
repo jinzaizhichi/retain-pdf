@@ -21,7 +21,7 @@ import {
   fetchTranslationItems,
   replayTranslationItem,
 } from "../api/translation-debug.js";
-import { state } from "../state.js";
+import { state } from "../state/store.js";
 import {
   renderJob,
   resetUploadProgress,

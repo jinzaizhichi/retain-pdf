@@ -1,6 +1,10 @@
 import { buildFrontendPageUrl } from "../../config.js";
 import { resolveManifestArtifactUrl } from "../../job-artifacts.js";
 import {
+  currentJobManifest,
+  currentJobSnapshot,
+} from "../job-runtime/runtime-state.js";
+import {
   resolveJobActions,
   resolveJobSourcePdfAction,
 } from "../../job.js";
@@ -18,8 +22,8 @@ export function jobIdFromReaderUrl(url) {
 }
 
 export function currentReaderArtifactUrls(state) {
-  const manifest = state.currentJobManifest;
-  const job = state.currentJobSnapshot;
+  const manifest = currentJobManifest(state);
+  const job = currentJobSnapshot(state);
   const actions = job ? resolveJobActions(job) : null;
   const sourcePdfAction = job ? resolveJobSourcePdfAction(job, manifest) : null;
   const sourcePdf = sourcePdfAction?.url || resolveManifestArtifactUrl(manifest, "source_pdf");

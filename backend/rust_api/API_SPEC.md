@@ -330,22 +330,22 @@ Behavior:
 - OCR child events are mapped back to the parent `job_id`
 - when an event came from the OCR child job, `payload.source_job_id` contains the child job ID and `payload.source_event` contains the original child event payload
 - `GET /api/v1/ocr/jobs/{job_id}/events` remains available for OCR-only debugging and direct OCR jobs
-- each event includes legacy compatibility fields:
-  - `job_id`, `seq`, `ts`, `level`, `stage`, `event`, `message`, `payload`
-- each event also includes formal progress fields when available:
-  - `user_stage`: `ocr`, `translate`, `render`, or `done`
-  - `stage_detail`
+- each public event includes:
+  - `job_id`, `seq`, `created_at`, `ts`, `level`
+  - `display_stage`: `ocr`, `translation`, `render`, or `done`
+  - `stage`: machine-readable backend stage such as `ocr_processing`, `translating`, or `rendering`
   - `substage`
+  - `stage_detail`
+  - `event_type`
   - `provider`
   - `provider_stage`
-  - `event_type`
-  - `progress_current`
-  - `progress_total`
-  - `progress_unit`: `page`, `batch`, `step`, `percent`, or `none`
-  - `retry_count`
-  - `elapsed_ms`
+  - `progress`: `{ "unit": "page|batch|step|percent|none", "current": 0, "total": 0 }`
+  - `message`
+  - `payload`
+  - `raw`: source-kind/source-seq/debug metadata for DB, pipeline jsonl, or OCR child events
+- public events do not expose top-level `user_stage`, `progress_unit`, `progress_current`, or `progress_total`; those may still exist inside `raw` / `payload.source_event`
 - `event` remains a compatibility alias for legacy clients; new clients should prefer `event_type`
-- `stage` uses the unified pipeline stage enum, while provider-private state stays in `provider_stage`
+- `stage` stays machine-readable, while frontend tabs should use `display_stage`
 - completed jobs keep historical events; clients should not rely only on the final `finished` event
 - failed `failure_classified` and `job_terminal` events include `payload.contracts`
   with the same `job_stage_contracts.v1` shape as job detail, so clients can
@@ -357,12 +357,12 @@ Behavior:
 
 Frontend progress conventions:
 
-- OCR upload / provider processing / normalization should use `user_stage=ocr`
-- OCR provider page progress should use `stage=ocr_processing`, `substage=provider_processing`, and `progress_unit=page`
-- translation batches should use `user_stage=translate`, `stage=translating`, and `progress_unit=batch`
-- translation page sub-stages such as `continuation_review`, `page_policies`, `domain_inference`, and `garbled_repair` should use `progress_unit=page`
-- render page progress should use `user_stage=render`, `stage=rendering`, and `progress_unit=page`
-- Typst compile / overlay / saving steps may use `progress_unit=step` when page-level progress is unavailable
+- OCR upload / provider processing / normalization should publish as `display_stage=ocr`
+- OCR provider page progress should use `stage=ocr_processing`, `substage=provider_processing`, and `progress.unit=page`
+- translation batches should use `display_stage=translation`, `stage=translating`, and `progress.unit=batch`
+- translation page sub-stages such as `continuation_review`, `page_policies`, `domain_inference`, and `garbled_repair` should use `progress.unit=page`
+- render page progress should use `display_stage=render`, `stage=rendering`, and `progress.unit=page`
+- Typst compile / overlay / saving steps may use `progress.unit=step` when page-level progress is unavailable
 
 OCR progress example:
 
@@ -370,15 +370,18 @@ OCR progress example:
 {
   "job_id": "20260514-xxxx",
   "seq": 42,
+  "created_at": "2026-05-14T01:00:00Z",
   "level": "info",
-  "user_stage": "ocr",
+  "display_stage": "ocr",
   "stage": "ocr_processing",
   "substage": "provider_processing",
   "stage_detail": "Paddle 正在解析文件，第 12/34 页",
-  "event_type": "stage_progress",
-  "progress_unit": "page",
-  "progress_current": 12,
-  "progress_total": 34,
+  "event_type": "progress",
+  "progress": {
+    "unit": "page",
+    "current": 12,
+    "total": 34
+  },
   "payload": {
     "source_job_id": "20260514-xxxx-ocr",
     "source_event": {
@@ -393,13 +396,15 @@ Translation batch progress example:
 ```json
 {
   "job_id": "20260514-xxxx",
-  "user_stage": "translate",
+  "display_stage": "translation",
   "stage": "translating",
   "stage_detail": "正在翻译第 8/42 批",
-  "event_type": "stage_progress",
-  "progress_unit": "batch",
-  "progress_current": 8,
-  "progress_total": 42
+  "event_type": "progress",
+  "progress": {
+    "unit": "batch",
+    "current": 8,
+    "total": 42
+  }
 }
 ```
 
@@ -408,13 +413,15 @@ Render progress example:
 ```json
 {
   "job_id": "20260514-xxxx",
-  "user_stage": "render",
+  "display_stage": "render",
   "stage": "rendering",
   "stage_detail": "正在渲染第 18/34 页",
-  "event_type": "stage_progress",
-  "progress_unit": "page",
-  "progress_current": 18,
-  "progress_total": 34
+  "event_type": "progress",
+  "progress": {
+    "unit": "page",
+    "current": 18,
+    "total": 34
+  }
 }
 ```
 

@@ -4,6 +4,10 @@ import {
   normalizeOcrProvider,
   TRANSLATION_PROVIDER_DEFINITION,
 } from "../../provider-config.js";
+import { resetDeepSeekBalanceState } from "../../state/actions.js";
+import { hasValidOcrValidationCache } from "../../state/credential-state.js";
+import { isDesktopMode } from "../../state/desktop-state.js";
+import { getUploadState } from "../../state/upload-state.js";
 import {
   activateCredentialTabView,
   bindCredentialViewEvents,
@@ -96,8 +100,7 @@ export function mountBrowserCredentialsFeature({
     setOcrValidationMessage("", "", "paddle");
     setDeepSeekValidationMessage("", "");
     setDeepSeekTopUpVisible(false);
-    state.deepseekBalanceCny = null;
-    state.deepseekBalanceChecked = false;
+    resetDeepSeekBalanceState(state);
     setDialogStatus("", "");
   }
 
@@ -127,9 +130,10 @@ export function mountBrowserCredentialsFeature({
       setOcrValidationMessage(definition.validationMissingMessage, "error", definition.id);
       return false;
     }
-    if (state.validatedOcrProvider === definition.id
-      && state.validatedOcrToken === token
-      && ["valid", "skipped"].includes(state.ocrValidationStatus)) {
+    if (hasValidOcrValidationCache(state, {
+      provider: definition.id,
+      token,
+    })) {
       return true;
     }
     const result = await runOcrTokenValidation({
@@ -138,7 +142,7 @@ export function mountBrowserCredentialsFeature({
       token,
       validateOcrToken,
       setOcrValidationMessage,
-      showResult: !state.desktopMode,
+      showResult: !isDesktopMode(state),
     });
     if (result.ok) {
       return true;
@@ -153,12 +157,14 @@ export function mountBrowserCredentialsFeature({
     refreshSubmitControls,
   }) {
     const uploadEnabled = workflowNeedsUpload();
-    if (state.desktopMode) {
+    const desktopMode = isDesktopMode(state);
+    const uploadState = getUploadState(state);
+    if (desktopMode) {
       if (!updateCredentialGateView({
         desktopMode: true,
         show: false,
         uploadEnabled,
-        uploadReady: !!state.uploadId,
+        uploadReady: !!uploadState.uploadId,
       })) {
         return;
       }
@@ -170,7 +176,7 @@ export function mountBrowserCredentialsFeature({
       desktopMode: false,
       show,
       uploadEnabled,
-      uploadReady: !!state.uploadId,
+      uploadReady: !!uploadState.uploadId,
     })) {
       return;
     }
@@ -240,7 +246,7 @@ export function mountBrowserCredentialsFeature({
       return;
     }
     try {
-      if (state.desktopMode) {
+      if (isDesktopMode(state)) {
         await persistDesktopCredentials({
           currentOcrProvider,
           defaultModelApiKey,
@@ -281,8 +287,7 @@ export function mountBrowserCredentialsFeature({
     resetDeepSeekValidation: () => {
       setDeepSeekValidationMessage("", "");
       setDeepSeekTopUpVisible(false);
-      state.deepseekBalanceCny = null;
-      state.deepseekBalanceChecked = false;
+      resetDeepSeekBalanceState(state);
       onCredentialStateChange?.();
     },
     validateOcr: handleBrowserOcrValidate,

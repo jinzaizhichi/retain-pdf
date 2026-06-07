@@ -8,7 +8,7 @@ from services.rendering.source_cleanup.types import BBOX_TEXT_STRIP_CANDIDATE_SO
 from services.rendering.source_cleanup.types import BBoxTextStripCandidates
 from services.rendering.contracts import RenderDocumentAnalysis
 from services.rendering.source.prewarm_color_profile import render_colors_from_manifest
-from services.rendering.source.prewarm_contracts import BBOX_TEXT_STRIP_ALGORITHM_VERSION
+from services.rendering.source.prewarm_contracts import BBOX_TEXT_STRIP_ALGORITHM_ID
 from services.rendering.source.prewarm_contracts import RENDER_PREWARM_SCHEMA
 from services.rendering.source.prewarm_contracts import RenderPayloadPrewarm
 from services.rendering.source.prewarm_fingerprint import build_render_prewarm_fingerprint
@@ -313,7 +313,7 @@ def _looks_like_legacy_fast_cover_manifest(render_source: dict[str, Any]) -> boo
 
 def bbox_candidates_to_manifest(candidates: BBoxTextStripCandidates) -> dict[str, Any]:
     return {
-        "algorithm": BBOX_TEXT_STRIP_ALGORITHM_VERSION,
+        "algorithm": BBOX_TEXT_STRIP_ALGORITHM_ID,
         "candidate_source": candidates.candidate_source,
         "page_rects": {
             str(page_idx): [list(rect) for rect in rects]
@@ -343,7 +343,7 @@ def bbox_candidates_to_manifest(candidates: BBoxTextStripCandidates) -> dict[str
 
 def bbox_candidates_from_manifest(value: object) -> BBoxTextStripCandidates | None:
     payload = dict(value or {})
-    if payload.get("algorithm") != BBOX_TEXT_STRIP_ALGORITHM_VERSION:
+    if payload.get("algorithm") != BBOX_TEXT_STRIP_ALGORITHM_ID:
         return None
     page_rects: dict[int, tuple[tuple[float, float, float, float], ...]] = {}
     page_protected_rects: dict[int, tuple[tuple[float, float, float, float], ...]] = {}

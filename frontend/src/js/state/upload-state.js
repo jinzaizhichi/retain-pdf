@@ -30,3 +30,22 @@ export function setUploadState(target, {
     uploadedBytes,
   });
 }
+
+export function setAppliedPageRange(target, value = "") {
+  target.appliedPageRange = `${value || ""}`.trim();
+}
+
+export function clearAppliedPageRange(target) {
+  target.appliedPageRange = "";
+}
+
+export function getUploadState(target) {
+  return {
+    uploadId: target.uploadId,
+    uploadedFileName: target.uploadedFileName,
+    uploadedPageCount: target.uploadedPageCount,
+    uploadedBytes: target.uploadedBytes,
+    appliedPageRange: target.appliedPageRange,
+    submitBusy: target.submitBusy,
+  };
+}

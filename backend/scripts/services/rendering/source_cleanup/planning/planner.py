@@ -8,7 +8,7 @@ from services.rendering.contracts import RenderDocumentAnalysis
 from services.rendering.source_cleanup.planning.accumulator import BBoxTextStripCandidateAccumulator
 from services.rendering.source_cleanup.planning.geometry import formula_guard_rects
 from services.rendering.source_cleanup.planning.geometry import ocr_bbox_to_pdf_rect
-from services.rendering.source_cleanup.planning.item_classifier import item_allows_vector_overlap
+from services.rendering.source_cleanup.planning.item_classifier import item_allows_item_cover_fallback
 from services.rendering.source_cleanup.planning.items import build_source_item_rects
 from services.rendering.source_cleanup.planning.items import iter_formula_item_rects_for_page
 from services.rendering.source_cleanup.planning.items import iter_strip_item_rect_pairs_for_page
@@ -36,6 +36,7 @@ def plan_source_cleanup(
     *,
     source_pdf_path: Path,
     translated_pages: dict[int, list[dict]],
+    protected_pages: dict[int, list[dict]] | None = None,
     skip_formula_pages: bool = False,
     skip_form_xobject_pages: bool = True,
     document_analysis: RenderDocumentAnalysis | None = None,
@@ -43,6 +44,7 @@ def plan_source_cleanup(
     accumulator = BBoxTextStripCandidateAccumulator()
     doc = fitz.open(source_pdf_path)
     try:
+        protected_pages = protected_pages or {}
         for page_idx, items in translated_pages.items():
             if page_idx < 0 or page_idx >= len(doc):
                 continue
@@ -53,6 +55,7 @@ def plan_source_cleanup(
                 doc,
                 page,
                 translated_items=items,
+                protected_items=protected_pages.get(page_idx, []),
                 skip_formula_pages=skip_formula_pages,
                 skip_form_xobject_pages=skip_form_xobject_pages,
                 features=features,
@@ -69,6 +72,7 @@ def plan_source_cleanup_page(
     page: fitz.Page,
     *,
     translated_items: list[dict],
+    protected_items: list[dict] | None = None,
     skip_formula_pages: bool = False,
     skip_form_xobject_pages: bool = True,
     features: PageCleanupFeatures | None = None,
@@ -91,7 +95,12 @@ def plan_source_cleanup_page(
     if page_features.content_stream_size >= BBOX_TEXT_STRIP_CONTENT_STREAM_SIZE_THRESHOLD:
         return BBoxTextStripPagePlan(skip_reason=BBOX_TEXT_STRIP_PAGE_SKIP_COMPLEX)
     if skip_form_xobject_pages and page_features.has_form_xobjects:
-        return _plan_form_xobject_page(page, translated_items=translated_items, strip_items=strip_items)
+        return _plan_form_xobject_page(
+            page,
+            translated_items=translated_items,
+            strip_items=strip_items,
+            protected_items=protected_items or [],
+        )
 
     resolver = PageBBoxResolver.build(page, bboxes=[item.get("bbox", []) for item in strip_items])
     strip_pairs = list(iter_strip_item_rect_pairs_for_page(page, strip_items, resolver=resolver, prefiltered=True))
@@ -104,13 +113,19 @@ def plan_source_cleanup_page(
         return BBoxTextStripPagePlan(skip_reason=BBOX_TEXT_STRIP_PAGE_SKIP_VISUAL_BACKGROUND)
 
     formula_rects = [rect for _item, rect in iter_formula_item_rects_for_page(page, translated_items)]
+    source_protected_rects = [rect for _item, rect in iter_protected_item_rects_for_page(page, protected_items or [])]
     source_strip_rects = merge_rects([pair.pdf_rect for pair in strip_pairs])
     strip_rects = _build_page_strip_rects_from_pairs(
         strip_pairs,
         formula_rects=formula_rects,
         unsafe_rects=resolver.unsafe_vector_index,
     )
-    protected_rects = build_formula_guard_rects(formula_rects, strip_rects=source_strip_rects)
+    protected_rects = merge_rects(
+        [
+            *build_formula_guard_rects(formula_rects, strip_rects=source_strip_rects),
+            *source_protected_rects,
+        ]
+    )
     return BBoxTextStripPagePlan(
         strip_rects=tuple(strip_rects),
         protected_rects=tuple(protected_rects),
@@ -144,8 +159,6 @@ def _build_page_strip_rects_from_pairs(
 ) -> list[fitz.Rect]:
     rects: list[fitz.Rect] = []
     for pair in strip_pairs:
-        if not item_allows_vector_overlap(pair.item) and rect_overlaps_any_unsafe_vector(pair.view_rect, unsafe_rects):
-            continue
         rects.extend(strip_segments_for_text_rect(pair.pdf_rect, formula_rects))
     return merge_rects(rects)
 
@@ -155,6 +168,7 @@ def _plan_form_xobject_page(
     *,
     translated_items: list[dict],
     strip_items: list[dict],
+    protected_items: list[dict] | None = None,
 ) -> BBoxTextStripPagePlan:
     formula_rects = [rect for _item, rect in iter_formula_item_rects_for_page(page, translated_items)]
     source_strip_rects = [
@@ -167,11 +181,24 @@ def _plan_form_xobject_page(
         for rect in source_strip_rects
         for segment in strip_segments_for_text_rect(rect, formula_rects)
     )
-    protected_rects = build_formula_guard_rects(formula_rects, strip_rects=merge_rects(source_strip_rects))
+    protected_rects = merge_rects(
+        [
+            *build_formula_guard_rects(formula_rects, strip_rects=merge_rects(source_strip_rects)),
+            *(rect for _item, rect in iter_protected_item_rects_for_page(page, protected_items or [])),
+        ]
+    )
     return BBoxTextStripPagePlan(
         strip_rects=tuple(strip_rects),
         protected_rects=tuple(protected_rects),
     )
+
+
+def iter_protected_item_rects_for_page(page: fitz.Page, protected_items: list[dict]):
+    resolver = PageBBoxResolver.build(page, bboxes=[item.get("bbox", []) for item in protected_items])
+    for item in protected_items:
+        rect = resolver.ocr_bbox_to_pdf_rect(item.get("bbox", []))
+        if rect is not None:
+            yield item, rect
 
 
 def item_ids_with_uncovered_unsafe_vector_overlap(
@@ -210,11 +237,16 @@ def uncovered_unsafe_vector_item_ids(strip_pairs, *, unsafe_rects) -> frozenset[
         item_id = str(pair.item.get("item_id") or "").strip()
         if not item_id:
             continue
-        if item_allows_vector_overlap(pair.item):
+        if not item_allows_item_cover_fallback(pair.item):
             continue
-        if rect_overlaps_any_unsafe_vector(pair.view_rect, unsafe_rects):
+        if pair_overlaps_unsafe_vector(pair, unsafe_rects):
             item_ids.add(item_id)
     return frozenset(item_ids)
+
+
+def pair_overlaps_unsafe_vector(pair, unsafe_rects) -> bool:
+    probe_rects = tuple(getattr(pair, "probe_rects", ()) or (pair.view_rect,))
+    return any(rect_overlaps_any_unsafe_vector(rect, unsafe_rects) for rect in probe_rects)
 
 
 def build_page_formula_rects_for_page(

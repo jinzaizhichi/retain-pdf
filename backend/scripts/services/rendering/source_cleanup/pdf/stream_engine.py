@@ -4,6 +4,10 @@ import fitz
 import pikepdf
 
 from services.rendering.source_cleanup.pdf.hit_test import RectIndex
+from services.rendering.source_cleanup.pdf.path_removal import PATH_CONSTRUCTION_OPERATORS
+from services.rendering.source_cleanup.pdf.path_removal import PATH_PAINT_OPERATORS
+from services.rendering.source_cleanup.pdf.path_removal import PathTracker
+from services.rendering.source_cleanup.pdf.path_removal import decide_path_paint_rewrite
 from services.rendering.source_cleanup.pdf.pdf_math import IDENTITY_MATRIX
 from services.rendering.source_cleanup.pdf.pdf_math import PdfMatrix
 from services.rendering.source_cleanup.pdf.text_ops import TEXT_SHOW_OPERATORS
@@ -50,8 +54,11 @@ def strip_bbox_text_from_stream(
     strip_index = RectIndex.build(rects)
     protected_index = RectIndex.build(protected_rects)
     removed = 0
+    path_removed = 0
     forms_changed = 0
     state = ContentStreamState(ctm=initial_ctm)
+    path_tracker = PathTracker.empty()
+    pending_path_ops: list[tuple] = []
 
     xobjects = xobject_dict(stream_obj)
 
@@ -94,8 +101,30 @@ def strip_bbox_text_from_stream(
                 removed += 1
                 continue
 
+        if op in PATH_CONSTRUCTION_OPERATORS:
+            path_tracker.record(op, operands, state.ctm)
+            pending_path_ops.append((operands, operator))
+            continue
+
+        if op in PATH_PAINT_OPERATORS and pending_path_ops:
+            path_decision = decide_path_paint_rewrite(
+                op=op,
+                path_rect=path_tracker.rect(),
+                strip_index=strip_index,
+                protected_index=protected_index,
+            )
+            path_tracker.clear()
+            if path_decision.remove:
+                pending_path_ops.clear()
+                path_removed += 1
+                continue
+            output.extend(pending_path_ops)
+            pending_path_ops.clear()
+
         output.append((operands, operator))
 
+    output.extend(pending_path_ops)
+    removed += path_removed
     if removed <= 0:
         return None, 0, forms_changed
     return pikepdf.unparse_content_stream(output), removed, forms_changed

@@ -32,7 +32,9 @@ import {
   validatePaddleToken,
 } from "../api/providers.js";
 import { submitJobRequest } from "../api/jobs.js";
-import { state } from "../state.js";
+import { state } from "../state/store.js";
+import { setDeveloperConfig } from "../state/actions.js";
+import { getDeveloperConfig } from "../state/developer-state.js";
 import {
   renderJob,
   resetUploadedFile,
@@ -49,14 +51,15 @@ export function mountCredentialAndActionFeatures(features) {
     defaultModelBaseUrl,
     getTaskOptions: () => features.workflowFeature?.developerConfigWithDefaults() || {},
     saveTaskOptions: ({ model, baseUrl, mathMode, translateTitles }) => {
-      state.developerConfig = {
-        ...(state.developerConfig || {}),
-        model: `${model || ""}`.trim() || state.developerConfig?.model,
-        baseUrl: `${baseUrl || ""}`.trim() || state.developerConfig?.baseUrl,
+      const currentDeveloperConfig = getDeveloperConfig(state);
+      setDeveloperConfig(state, {
+        ...currentDeveloperConfig,
+        model: `${model || ""}`.trim() || currentDeveloperConfig.model,
+        baseUrl: `${baseUrl || ""}`.trim() || currentDeveloperConfig.baseUrl,
         mathMode: normalizeMathMode(mathMode),
         translateTitles: translateTitles !== false,
-      };
-      void savePersistedDeveloperStoredConfig(state.developerConfig);
+      });
+      void savePersistedDeveloperStoredConfig(getDeveloperConfig(state));
     },
     saveBrowserStoredConfig,
     saveDesktopConfig,

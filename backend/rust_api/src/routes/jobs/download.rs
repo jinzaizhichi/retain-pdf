@@ -8,8 +8,8 @@ use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::HeaderMap;
 use axum::response::Response;
 
-use super::common::build_jobs_route_deps;
-use super::download_adapter::{
+use crate::routes::common::build_jobs_route_deps;
+use crate::routes::download_response::{
     bundle_response, cover_response, download_document_response, markdown_document_response,
     markdown_image_response, markdown_response, page_preview_response,
     registered_artifact_response, thumbnail_response,

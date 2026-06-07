@@ -2,9 +2,9 @@ use crate::error::AppError;
 use crate::models::{to_absolute_url, JobSnapshot, MarkdownDocumentView, MarkdownImageView};
 use crate::storage_paths::{resolve_markdown_images_dir, resolve_markdown_path};
 
+use super::super::query::load_supported_job;
 use super::paths::safe_markdown_image_path;
 use super::{FileDownload, MarkdownDownload, QueryJobsDeps};
-use crate::services::jobs::presentation::load_supported_job;
 
 const MARKDOWN_IMAGE_LINK_RE: &str = r#"!\[([^\]]*)\]\((images/[^)]+)\)"#;
 

@@ -24,6 +24,7 @@ from services.rendering.source.prewarm_manifest_io import load_matching_manifest
 from services.rendering.source.prewarm_manifest_io import try_load_prewarmed_render_source_pdf
 from services.rendering.source.prewarm_manifest_io import try_load_render_payload_prewarm
 from services.rendering.source.prewarm_payload import build_payload_prewarm
+from services.rendering.source_cleanup.protected_blocks import protected_pages_from_document_path
 
 
 def start_render_source_prewarm(spec: RenderPrewarmSpec) -> RenderPrewarmHandle:
@@ -69,11 +70,13 @@ def _run_render_source_prewarm(spec: RenderPrewarmSpec, manifest_path: Path) -> 
         )
         if prepared is None:
             cleanup_strategy = spec.source_cleanup_strategy if spec.include_source_cleanup else layout.SOURCE_CLEANUP_TYPST_FILL
+            protected_pages = _protected_pages_for_prewarm(spec.artifacts_dir)
             prepared = build_render_source_pdf(
                 source_pdf_path=spec.source_pdf_path,
                 output_pdf_path=prewarm_dir / spec.output_pdf_path.name,
                 pdf_compress_dpi=spec.pdf_compress_dpi,
                 translated_pages=spec.translated_pages,
+                protected_pages=protected_pages,
                 strip_hidden_text=effective_render_mode != "overlay",
                 start_page=resolved_start,
                 end_page=resolved_stop,
@@ -206,6 +209,12 @@ def _pages_for_prewarm_mode_probe(translated_pages: dict[int, list[dict]]) -> di
             probed_items.append(clone)
         probed[page_idx] = probed_items
     return probed
+
+
+def _protected_pages_for_prewarm(artifacts_dir: Path) -> dict[int, list[dict]]:
+    return protected_pages_from_document_path(
+        Path(artifacts_dir).parent / "ocr" / "normalized" / "document.v1.json"
+    )
 
 
 __all__ = [

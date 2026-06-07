@@ -133,18 +133,27 @@ def test_render_plan_persists_sync_source_prewarm_for_next_render() -> None:
         translations_dir.mkdir()
         _source_pdf(source_pdf)
         manifest_path = prewarm_manifest_path_from_artifacts_dir(artifacts_dir)
+        translated_pages = _translated_page_payload()
+        translated_pages[0][0]["lines"] = [
+            {"bbox": [34.0, 20.0, 150.0, 30.0]},
+            {"bbox": [12.0, 32.0, 150.0, 42.0]},
+            {"bbox": [12.5, 44.0, 150.0, 54.0]},
+        ]
         render_plan = RenderPlan(
             render_inputs=RenderInputs(
                 source_pdf_path=source_pdf,
                 translations_dir=translations_dir,
                 translation_manifest_path=None,
             ),
-            selected_pages=_translated_page_payload(),
+            selected_pages=translated_pages,
             effective_render_mode="overlay",
         )
 
+        seen_indents: list[dict[str, float]] = []
+
         def _fake_overlay(*, source_pdf_path, translated_pages, context):
             assert source_pdf_path.exists()
+            seen_indents.append(context.first_line_indent_lookup or {})
             return 1, {"route": "sync-cache-test"}
 
         with mock.patch(
@@ -167,7 +176,7 @@ def test_render_plan_persists_sync_source_prewarm_for_next_render() -> None:
         payload_prewarm = try_load_render_payload_prewarm(
             manifest_path=manifest_path,
             source_pdf_path=source_pdf,
-            translated_pages=_translated_page_payload(),
+            translated_pages=translated_pages,
             effective_render_mode="overlay",
             start_page=0,
             end_page=0,
@@ -175,6 +184,8 @@ def test_render_plan_persists_sync_source_prewarm_for_next_render() -> None:
             source_cleanup_strategy="bbox_text_strip",
         )
         assert payload_prewarm is not None
+        assert payload_prewarm.first_line_indent_lookup["p001-b001"] == 19.87
+        assert seen_indents and seen_indents[0]["p001-b001"] == 19.87
         assert payload_prewarm.bbox_text_strip_candidates is not None
         assert payload_prewarm.bbox_text_strip_candidates.candidate_source == "manifest"
 
@@ -751,6 +762,8 @@ def test_render_prewarm_fingerprint_tracks_payload_render_algorithm() -> None:
         )
 
     assert fingerprint["payload_render_algorithm"] == PAYLOAD_RENDER_ALGORITHM_VERSION
+    assert fingerprint["bbox_text_strip_algorithm"] == "bbox_text_strip"
+    assert len(str(fingerprint["bbox_text_strip_implementation_hash"])) == 64
 
 
 def test_render_prewarm_fingerprint_tracks_translated_text_changes() -> None:

@@ -9,11 +9,11 @@ use crate::models::{
 };
 use crate::AppState;
 
-use super::common::build_jobs_route_deps;
-use super::query_adapter::{
+use super::json_response::{
     replay_translation_item_response, translation_diagnostics_response, translation_item_response,
     translation_items_response,
 };
+use crate::routes::common::build_jobs_route_deps;
 
 pub async fn get_translation_diagnostics(
     State(state): State<AppState>,

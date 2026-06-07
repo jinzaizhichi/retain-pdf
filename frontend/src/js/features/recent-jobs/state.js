@@ -1,4 +1,5 @@
-import { resetRecentJobsListState, state } from "../../state.js";
+import { resetRecentJobsListState } from "../../state/actions.js";
+import { state } from "../../state/store.js";
 
 export function getRecentJobsState() {
   return {

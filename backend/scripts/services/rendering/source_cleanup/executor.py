@@ -20,6 +20,7 @@ def execute_source_cleanup(request: SourceCleanupRequest) -> SourceCleanupResult
     candidates = request.candidates or plan_source_cleanup(
         source_pdf_path=request.source_pdf_path,
         translated_pages=request.translated_pages,
+        protected_pages=request.protected_pages,
         skip_formula_pages=request.options.skip_formula_pages,
         skip_form_xobject_pages=request.options.skip_form_xobject_pages,
         document_analysis=request.document_analysis,
@@ -52,9 +53,10 @@ def build_bbox_text_stripped_pdf_copy(
     source_pdf_path: Path,
     output_pdf_path: Path,
     translated_pages: dict[int, list[dict]],
+    protected_pages: dict[int, list[dict]] | None = None,
     candidates: BBoxTextStripCandidates | None = None,
     recurse_forms: bool | None = None,
-    skip_form_xobject_pages: bool = True,
+    skip_form_xobject_pages: bool = False,
     skip_formula_pages: bool = False,
     max_elapsed_seconds: float | None = None,
 ) -> BBoxTextStripResult:
@@ -65,6 +67,7 @@ def build_bbox_text_stripped_pdf_copy(
     candidates = candidates or plan_source_cleanup(
         source_pdf_path=source_pdf_path,
         translated_pages=translated_pages,
+        protected_pages=protected_pages,
         skip_formula_pages=skip_formula_pages,
         skip_form_xobject_pages=skip_form_xobject_pages,
     )

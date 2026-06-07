@@ -76,13 +76,11 @@ app -> routes -> application services -> internal services -> job_runner / ocr_p
 当前已经固定的公共模式：
 
 - `routes/common.rs`
-  负责 route 侧公共轻量 deps builder
-- `routes/jobs/common.rs`
-  只保留 jobs route 侧共享 deps / facade builder
-- `routes/jobs/download_adapter.rs`
-  负责 jobs 文件下载类 route adapter
-- `routes/jobs/query_adapter.rs`
-  负责 jobs JSON 查询 / 调试 / 控制类 route adapter
+  负责 route 侧公共轻量 deps builder、`request_base_url(...)` 和 `ok_json(...)`
+- `routes/download_response.rs` / `routes/download_response/**`
+  负责文件下载、markdown、preview、cover、thumbnail 的 response boundary
+- `routes/jobs/json_response/**`
+  负责 jobs JSON 查询 / 调试 / 控制 / retry 的 response boundary
 - `app/jobs.rs::build_process_runtime_deps(...)`
   负责 runner 装配
 
@@ -231,8 +229,10 @@ Rust 侧关键落点：
   facade；现在已拆成 `constants / job_paths / path_ops / resolvers / registry`
 - [src/services/artifacts/mod.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/services/artifacts/mod.rs)
   artifact facade；现在已拆成 `registry / bundle / response`
-- [src/routes/jobs/download.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/routes/jobs/download.rs)
-  负责下载类 HTTP adapter
+- [src/routes/download_response.rs](/home/wxyhgk/tmp/Code/backend/rust_api/src/routes/download_response.rs)
+  负责文件下载、markdown、preview、cover、thumbnail 的 HTTP 响应出口
+- [src/routes/jobs/json_response](/home/wxyhgk/tmp/Code/backend/rust_api/src/routes/jobs/json_response)
+  负责 jobs JSON 查询 / 调试 / 控制 / retry 类 HTTP 响应出口
 
 边界规则：
 
@@ -343,15 +343,13 @@ Rust 侧关键落点：
 
 也就是：
 
-- `routes/jobs/*` 只调 `JobsFacade`
+- `routes/jobs/*` 只通过 response boundary 调 `JobsFacade`
 - `routes/common.rs`
-  只保留统一 `ok_json(...)` 这种 HTTP envelope helper
-- `routes/jobs/common.rs`
-  只保留 jobs 路由共享 deps builder
-- `routes/jobs/download_adapter.rs`
-  只保留下载类 route adapter
-- `routes/jobs/query_adapter.rs`
-  只保留 JSON / debug / cancel 类 route adapter
+  只保留 route 侧公共 deps builder、base URL 和统一 HTTP envelope helper
+- `routes/download_response/**`
+  只保留文件响应出口
+- `routes/jobs/json_response/**`
+  只保留 JSON 响应出口
 - `routes/glossaries.rs`
   只调 `services/glossary_api.rs`
 - `routes/uploads.rs`

@@ -8,13 +8,15 @@ from typing import Any
 from foundation.config import layout
 from services.document_schema.semantics import block_kind as schema_block_kind
 from services.rendering.policy.cleanup_policy import item_will_render_translated_overlay
-from services.rendering.source.prewarm_contracts import BBOX_TEXT_STRIP_ALGORITHM_VERSION
+from services.rendering.source.prewarm_algorithm_hash import source_cleanup_implementation_hash
+from services.rendering.source.prewarm_contracts import BBOX_TEXT_STRIP_ALGORITHM_ID
 from services.rendering.source.prewarm_contracts import GEOMETRY_ADJUSTMENT_ALGORITHM_VERSION
 from services.rendering.source.prewarm_contracts import HIDDEN_TEXT_STRIP_ALGORITHM_VERSION
 from services.rendering.source.prewarm_contracts import IMAGE_COMPRESSION_ALGORITHM_VERSION
 from services.rendering.source.prewarm_contracts import PAYLOAD_RENDER_ALGORITHM_VERSION
 from services.rendering.source.prewarm_manifest import float_or_zero
 from services.rendering.source.prewarm_manifest import int_or_default
+from services.rendering.source_cleanup.protected_blocks import protected_pages_from_document_path
 
 
 def build_payload_structure_hash(translated_pages: dict[int, list[dict]]) -> str:
@@ -78,12 +80,32 @@ def build_render_prewarm_fingerprint(
         "payload_structure_hash": build_payload_structure_hash(translated_pages),
         "visual_payload_hash": build_visual_payload_hash(translated_pages),
         "render_payload_hash": build_payload_structure_hash(translated_pages),
-        "bbox_text_strip_algorithm": BBOX_TEXT_STRIP_ALGORITHM_VERSION,
+        "bbox_text_strip_algorithm": BBOX_TEXT_STRIP_ALGORITHM_ID,
+        "bbox_text_strip_implementation_hash": source_cleanup_implementation_hash(),
+        "bbox_text_strip_protected_source_hash": build_protected_source_hash(
+            source_pdf_path.parent.parent / "ocr" / "normalized" / "document.v1.json"
+        ),
         "hidden_text_strip_algorithm": HIDDEN_TEXT_STRIP_ALGORITHM_VERSION,
         "image_compression_algorithm": IMAGE_COMPRESSION_ALGORITHM_VERSION,
         "geometry_adjustment_algorithm": GEOMETRY_ADJUSTMENT_ALGORITHM_VERSION,
         "payload_render_algorithm": PAYLOAD_RENDER_ALGORITHM_VERSION,
     }
+
+
+def build_protected_source_hash(document_path: Path) -> str:
+    protected_pages = protected_pages_from_document_path(document_path)
+    digest = hashlib.sha256()
+    for page_idx in sorted(protected_pages):
+        digest.update(f"page:{page_idx}\n".encode("utf-8"))
+        for item in protected_pages[page_idx]:
+            compact = {
+                "item_id": str(item.get("item_id") or ""),
+                "bbox": [float_or_zero(value) for value in list(item.get("bbox", []) or [])[:4]],
+                "source_text": str(item.get("source_text") or ""),
+            }
+            digest.update(json.dumps(compact, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+            digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def _payload_structure_item(page_idx: int, item: dict) -> dict[str, Any]:

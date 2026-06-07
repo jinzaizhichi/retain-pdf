@@ -60,7 +60,7 @@ pub(super) fn page_count_for_job(db: &Db, job: &JobSnapshot, data_root: &Path) -
                 .and_then(|artifacts| artifacts.pages_processed)
         })
         .or_else(|| {
-            super::summary_loaders::load_normalization_summary(job, data_root)
+            super::super::summary_loaders::load_normalization_summary(job, data_root)
                 .and_then(|summary| summary.page_count.or(summary.pages_seen))
         })
 }

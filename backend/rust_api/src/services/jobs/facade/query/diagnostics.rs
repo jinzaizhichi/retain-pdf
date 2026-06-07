@@ -4,7 +4,7 @@ use crate::models::{JobDiagnosticsView, JobFailureInfo, JobResumePlanView, JobSn
 use crate::services::jobs::stage_plan::resume_plan;
 use crate::storage_paths::resolve_pipeline_summary;
 
-use super::super::super::presentation::load_supported_job;
+use super::super::super::query::load_supported_job;
 use super::super::JobsFacade;
 
 impl<'a> JobsFacade<'a> {

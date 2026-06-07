@@ -36,6 +36,7 @@ import {
   jobIdFromReaderUrl,
   requestedReaderJobIdFromLocation,
 } from "./routing.js";
+import { currentJobId } from "../job-runtime/runtime-state.js";
 
 export function mountReaderDialogFeature({
   state,
@@ -73,11 +74,12 @@ export function mountReaderDialogFeature({
       return;
     }
     try {
-      const preferredName = resolveSourcePdfDownloadName(state, `${state.currentJobId || "result"}-source.pdf`);
+      const jobId = currentJobId(state) || "result";
+      const preferredName = resolveSourcePdfDownloadName(state, `${jobId}-source.pdf`);
       await downloadProtectedResource(
         fetchProtected,
         url,
-        `${state.currentJobId || "result"}-source.pdf`,
+        `${jobId}-source.pdf`,
         preferredName,
         ({ filename, receivedBytes, totalBytes, percent, done }) => {
           setText("error-box", done ? `已开始保存 ${filename}` : summarizeDownloadProgress(receivedBytes, totalBytes, percent));
@@ -98,11 +100,12 @@ export function mountReaderDialogFeature({
       return;
     }
     try {
+      const jobId = currentJobId(state) || "result";
       const preferredName = resolveTranslatedPdfDownloadName(state, "");
       await downloadProtectedResource(
         fetchProtected,
         url,
-        `${state.currentJobId || "result"}-translated.pdf`,
+        `${jobId}-translated.pdf`,
         preferredName,
         ({ filename, receivedBytes, totalBytes, percent, done }) => {
           setText("error-box", done ? `已开始保存 ${filename}` : summarizeDownloadProgress(receivedBytes, totalBytes, percent));
@@ -129,7 +132,7 @@ export function mountReaderDialogFeature({
         fetchProtectedBytes(fetchProtected, translatedPdf, "译文 PDF"),
       ]);
       const mergedBytes = await buildMergedComparePdf(sourceBytes, translatedBytes);
-      const filename = `${state.currentJobId || "result"}-compare.pdf`;
+      const filename = `${currentJobId(state) || "result"}-compare.pdf`;
       downloadBlob(new Blob([mergedBytes], { type: "application/pdf" }), filename);
       completeDownloadToast(filename);
     } catch (err) {
@@ -158,7 +161,7 @@ export function mountReaderDialogFeature({
       };
     }
     const { url, disabled } = getReaderLinkOpenState(input);
-    let jobId = `${state.currentJobId || ""}`.trim();
+    let jobId = currentJobId(state);
     if (!jobId && url) {
       try {
         jobId = new URL(url, window.location.href).searchParams.get("job_id")?.trim() || "";

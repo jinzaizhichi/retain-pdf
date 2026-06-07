@@ -5,8 +5,8 @@ use axum::extract::{Path as AxumPath, State};
 use axum::http::HeaderMap;
 use axum::Json;
 
-use super::common::build_jobs_route_deps;
-use super::query_adapter::cancel_job_response;
+use super::json_response::cancel_job_response;
+use crate::routes::common::build_jobs_route_deps;
 
 pub async fn cancel_ocr_job(
     State(state): State<AppState>,

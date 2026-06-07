@@ -16,6 +16,9 @@ from services.rendering.source.cleanup.vector_text_cleanup import cleanup_vector
 from services.rendering.source_cleanup import plan_source_cleanup
 from services.rendering.source_cleanup.planning import geometry
 from services.rendering.source_cleanup.planning import test_support
+from services.rendering.source_cleanup.planning.drawing_classifier import bboxlog_path_blocks_text_strip
+from services.rendering.source_cleanup.planning.drawing_classifier import drawing_blocks_text_strip
+from services.rendering.source_cleanup.planning.planner import plan_source_cleanup_page
 
 
 def test_collect_vector_text_rects_detects_black_filled_glyph_drawings() -> None:
@@ -85,6 +88,81 @@ def test_cleanup_vector_text_drawings_uses_background_covers_instead_of_redactio
     assert count == 1
     prepare_mock.assert_called_once_with(page, [vector_rect])
     apply_mock.assert_called_once_with(page, ["cover"])
+
+
+def test_text_like_fill_path_blocks_text_strip() -> None:
+    drawing = {
+        "type": "f",
+        "fill": (0.0, 0.0, 0.0),
+        "rect": fitz.Rect(368.1, 531.67, 373.78, 540.54),
+    }
+
+    assert drawing_blocks_text_strip(drawing) is True
+    assert bboxlog_path_blocks_text_strip("fill-path", fitz.Rect(368.1, 531.67, 373.78, 540.54)) is True
+
+
+def test_large_fill_path_does_not_block_text_strip() -> None:
+    large_background = {
+        "type": "f",
+        "fill": (1.0, 1.0, 1.0),
+        "rect": fitz.Rect(0, 0, 300, 400),
+    }
+
+    assert drawing_blocks_text_strip(large_background) is False
+    assert bboxlog_path_blocks_text_strip("fill-path", fitz.Rect(0, 0, 300, 400)) is False
+
+
+def test_source_cleanup_body_vector_probe_strips_without_cover_fallback() -> None:
+    doc = fitz.open()
+    page = doc.new_page(width=600, height=800)
+    item = {
+        "item_id": "p002-b009",
+        "block_kind": "text",
+        "block_type": "text",
+        "bbox": [312.0, 530.0, 557.0, 568.0],
+        "protected_translated_text": "译文 $ x_i $",
+    }
+    bboxlog_entries = [
+        ("fill-text", (312.0, 232.0, 557.0, 271.0)),
+        ("fill-text", (314.0, 234.0, 555.0, 269.0)),
+        ("fill-path", (368.0, 532.0, 374.0, 541.0)),
+    ]
+    page.get_bboxlog = lambda: bboxlog_entries  # type: ignore[method-assign]
+    page.get_cdrawings = lambda: []  # type: ignore[method-assign]
+    page.get_xobjects = lambda: []  # type: ignore[method-assign]
+
+    plan = plan_source_cleanup_page(doc, page, translated_items=[item], skip_form_xobject_pages=False)
+
+    assert "p002-b009" not in plan.uncovered_unsafe_vector_item_ids
+    assert plan.strip_rects
+
+
+def test_source_cleanup_footnote_vector_probe_uses_item_cover_fallback() -> None:
+    doc = fitz.open()
+    page = doc.new_page(width=600, height=800)
+    item = {
+        "item_id": "p008-b005",
+        "block_kind": "text",
+        "block_type": "text",
+        "layout_role": "footnote",
+        "semantic_role": "metadata",
+        "normalized_sub_type": "table_footnote",
+        "bbox": [48.0, 281.0, 439.0, 291.0],
+        "source_text": "$ ^{a} $The nuclear repulsive interaction term is omitted.",
+        "protected_translated_text": "$^{a}$核排斥相互作用项被省略。",
+    }
+    bboxlog_entries = [
+        ("fill-text", (48.0, 509.0, 439.0, 520.0)),
+        ("fill-path", (335.0, 510.0, 342.0, 518.0)),
+    ]
+    page.get_bboxlog = lambda: bboxlog_entries  # type: ignore[method-assign]
+    page.get_cdrawings = lambda: []  # type: ignore[method-assign]
+    page.get_xobjects = lambda: []  # type: ignore[method-assign]
+
+    plan = plan_source_cleanup_page(doc, page, translated_items=[item], skip_form_xobject_pages=False)
+
+    assert "p008-b005" in plan.uncovered_unsafe_vector_item_ids
+    assert plan.strip_rects
 
 
 def test_bbox_text_strip_rects_shrink_away_from_adjacent_display_formula() -> None:

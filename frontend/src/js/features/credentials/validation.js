@@ -3,11 +3,13 @@ import {
   getOcrProviderDefinition,
   TRANSLATION_PROVIDER_DEFINITION,
 } from "../../provider-config.js";
+import {
+  resetOcrValidationCache as resetOcrValidationCacheState,
+  setOcrValidationCache,
+} from "../../state/actions.js";
 
 export function resetOcrValidationCache(state) {
-  state.validatedOcrProvider = "";
-  state.validatedOcrToken = "";
-  state.ocrValidationStatus = "";
+  resetOcrValidationCacheState(state);
 }
 
 export async function runOcrTokenValidation({
@@ -28,9 +30,11 @@ export async function runOcrTokenValidation({
     return { ok: false, status: "unauthorized" };
   }
   if (!definition.supportsValidation) {
-    state.validatedOcrProvider = definition.id;
-    state.validatedOcrToken = normalizedToken;
-    state.ocrValidationStatus = "skipped";
+    setOcrValidationCache(state, {
+      provider: definition.id,
+      token: normalizedToken,
+      status: "skipped",
+    });
     if (showResult) {
       setOcrValidationMessage(definition.validationUnavailableMessage, "", definition.id);
     }
@@ -45,9 +49,11 @@ export async function runOcrTokenValidation({
   }
   try {
     const result = await validateOcrToken(API_PREFIX, definition.id, normalizedToken);
-    state.validatedOcrProvider = definition.id;
-    state.validatedOcrToken = normalizedToken;
-    state.ocrValidationStatus = result.status || "";
+    setOcrValidationCache(state, {
+      provider: definition.id,
+      token: normalizedToken,
+      status: result.status || "",
+    });
     if (showResult) {
       const hint = result.operator_hint ? ` ${result.operator_hint}` : "";
       const message = result.summary || `${definition.label} Token 检测结果：${result.status || "unknown"}`;

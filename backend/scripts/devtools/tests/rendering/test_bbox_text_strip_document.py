@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import json
 from pathlib import Path
 from unittest import mock
 
@@ -121,6 +122,73 @@ def test_source_cleanup_intent_keeps_inline_math_text_deletable() -> None:
     assert intent.cleanup_action == "strip_text"
 
 
+def test_source_cleanup_intent_strips_table_footnote_with_inline_math_markers() -> None:
+    intent = classify_source_cleanup_intent(
+        {
+            "item_id": "p001-b001",
+            "block_kind": "text",
+            "block_type": "text",
+            "layout_role": "footnote",
+            "semantic_role": "metadata",
+            "normalized_sub_type": "table_footnote",
+            "source_text": "$ ^{a} $All calculations were performed with the def2-TZVP basis set. $ ^{54} $",
+            "protected_translated_text": "$^{a}$所有计算均使用 def2-TZVP 基组完成。$^{54}$",
+        }
+    )
+
+    assert intent.source_role == "body_text"
+    assert intent.cleanup_action == "strip_text"
+
+
+def test_text_strip_hit_test_ignores_tiny_edge_intersections() -> None:
+    strip_index = RectIndex.build([(100.0, 100.0, 160.0, 120.0)])
+
+    assert strip_index.matches_text_for_removal(
+        20.0,
+        110.0,
+        (20.0, 100.0, 101.0, 120.0),
+    ) is False
+    assert strip_index.matches_text_for_removal(
+        20.0,
+        110.0,
+        (20.0, 100.0, 145.0, 120.0),
+    ) is True
+    assert strip_index.matches_text_for_removal(
+        120.0,
+        110.0,
+        (20.0, 100.0, 101.0, 120.0),
+    ) is True
+
+
+def test_bbox_text_strip_preserves_explicit_protected_source_blocks() -> None:
+    job = Path("data/jobs/20260607133703-aa37db")
+    source_pdf = next((job / "source").glob("*.pdf"), None)
+    translated_path = job / "translated/page-009-deepseek.json"
+    normalized_path = job / "ocr/normalized/document.v1.json"
+    if source_pdf is None or not translated_path.exists() or not normalized_path.exists():
+        pytest.skip("sample job is not available")
+
+    from services.rendering.source_cleanup.protected_blocks import protected_pages_from_document_path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        output_pdf = Path(tmp) / "stripped.pdf"
+        translated_items = json.loads(translated_path.read_text(encoding="utf-8"))
+        result = build_bbox_text_stripped_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            translated_pages={8: translated_items},
+            protected_pages=protected_pages_from_document_path(normalized_path),
+        )
+
+        assert result.changed is True
+        stripped = fitz.open(output_pdf)
+        try:
+            text = stripped[8].get_text()
+        finally:
+            stripped.close()
+        assert "The Supporting Information is available free of charge at" in text
+
+
 def test_bbox_text_strip_removes_text_inside_bbox_without_redaction_bloat() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -145,6 +213,7 @@ def test_bbox_text_strip_removes_text_inside_bbox_without_redaction_bloat() -> N
                     }
                 ]
             },
+            skip_form_xobject_pages=True,
         )
 
         assert result.changed is True
@@ -290,7 +359,7 @@ def test_bbox_text_strip_skips_large_background_image_page_before_deletion() -> 
         assert output_pdf.exists() is False
 
 
-def test_bbox_text_strip_drops_rect_when_text_bbox_overlaps_unsafe_vector_line() -> None:
+def test_bbox_text_strip_keeps_body_text_deletable_when_vector_line_overlaps() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         source_pdf = root / "source.pdf"
@@ -316,8 +385,8 @@ def test_bbox_text_strip_drops_rect_when_text_bbox_overlaps_unsafe_vector_line()
             },
         )
 
-        assert result.changed is False
-        assert output_pdf.exists() is False
+        assert result.changed is True
+        assert output_pdf.exists() is True
         assert result.skipped_complex_page_indices == frozenset()
 
 
@@ -643,6 +712,45 @@ def test_strip_bbox_text_rects_from_pdf_copy_removes_text_without_translated_pag
         assert "keep me" in text
 
 
+def test_strip_bbox_text_rects_from_pdf_copy_removes_text_like_fill_paths() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "stripped.pdf"
+        pdf = pikepdf.Pdf.new()
+        page = pdf.add_blank_page(page_size=(240, 180))
+        page.obj[Name("/Contents")] = pdf.make_stream(
+            b"BT /F1 12 Tf 30 50 Td (remove me) Tj ET\n"
+            b"q 0 0 0 rg 60 60 m 65 60 l 65 70 l 60 70 l h f Q\n"
+            b"q 0 0 0 rg 160 120 m 165 120 l 165 130 l 160 130 l h f Q\n"
+        )
+        page.obj[Name("/Resources")] = pikepdf.Dictionary(
+            Font=pikepdf.Dictionary(
+                F1=pikepdf.Dictionary(
+                    Type=Name("/Font"),
+                    Subtype=Name("/Type1"),
+                    BaseFont=Name("/Helvetica"),
+                )
+            )
+        )
+        pdf.save(source_pdf)
+
+        result = strip_bbox_text_rects_from_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            page_rects={0: [fitz.Rect(20.0, 35.0, 100.0, 80.0)]},
+        )
+
+        assert result.changed is True
+        stripped = fitz.open(output_pdf)
+        try:
+            bboxlog = stripped[0].get_bboxlog()
+        finally:
+            stripped.close()
+        assert not any(kind == "fill-path" and fitz.Rect(rect).intersects(fitz.Rect(20, 35, 100, 80)) for kind, rect in bboxlog)
+        assert any(kind == "fill-path" and fitz.Rect(rect).intersects(fitz.Rect(150, 40, 180, 70)) for kind, rect in bboxlog)
+
+
 def test_bbox_text_strip_clones_shared_form_xobject_before_rewrite() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -726,6 +834,7 @@ def test_bbox_text_strip_executor_skips_form_xobject_pages_for_cover_fallback() 
                     }
                 ]
             },
+            skip_form_xobject_pages=True,
         )
 
         assert result.changed is False
@@ -776,6 +885,59 @@ def test_bbox_text_strip_skips_form_recursion_but_keeps_page_text_fast_path() ->
             stripped.close()
         assert "PAGETEXT" not in text
         assert "FORMTEXT" in text
+
+
+def test_source_cleanup_default_recurses_form_xobjects_for_inline_formula_text() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+        output_pdf = root / "stripped.pdf"
+        pdf = pikepdf.Pdf.new()
+        page = pdf.add_blank_page(page_size=(240, 180))
+        form = pdf.make_stream(b"BT /F1 12 Tf 0 0 Td (INLINEFORMULA) Tj ET")
+        form[Name("/Type")] = Name("/XObject")
+        form[Name("/Subtype")] = Name("/Form")
+        form[Name("/BBox")] = pikepdf.Array([0, 0, 140, 30])
+        font = pikepdf.Dictionary(
+            Type=Name("/Font"),
+            Subtype=Name("/Type1"),
+            BaseFont=Name("/Helvetica"),
+        )
+        page.obj[Name("/Resources")] = pikepdf.Dictionary(
+            Font=pikepdf.Dictionary(F1=font),
+            XObject=pikepdf.Dictionary(Fm1=form),
+        )
+        page.obj[Name("/Contents")] = pdf.make_stream(
+            b"BT /F1 12 Tf 30 50 Td (BODYTEXT) Tj ET\n"
+            b"q 1 0 0 1 30 100 cm /Fm1 Do Q\n"
+        )
+        pdf.save(source_pdf)
+
+        result = build_bbox_text_stripped_pdf_copy(
+            source_pdf_path=source_pdf,
+            output_pdf_path=output_pdf,
+            translated_pages={
+                0: [
+                    {
+                        "block_kind": "text",
+                        "bbox": [20.0, 35.0, 180.0, 125.0],
+                        "source_text": "BODYTEXT $ INLINEFORMULA $",
+                        "protected_translated_text": "正文 $ INLINEFORMULA $",
+                    }
+                ]
+            },
+        )
+
+        assert result.changed is True
+        assert result.forms_changed >= 1
+        assert result.skipped_form_xobject_page_indices == frozenset()
+        stripped = fitz.open(output_pdf)
+        try:
+            text = stripped[0].get_text()
+        finally:
+            stripped.close()
+        assert "BODYTEXT" not in text
+        assert "INLINEFORMULA" not in text
 
 
 def test_render_source_skips_physical_strip_when_document_analysis_requires_visual_cover() -> None:

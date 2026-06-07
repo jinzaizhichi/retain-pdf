@@ -24,14 +24,14 @@
 
   .status-focus-card {
     width: min(100%, 520px);
-    min-height: 308px;
-    height: 308px;
+    min-height: 284px;
+    height: 284px;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
     align-items: center;
     gap: 8px;
-    padding: 16px 18px 12px;
-    border-radius: 28px;
+    padding: 14px 16px 10px;
+    border-radius: 22px;
     background: #fff;
     border: 1px solid #f1f1f4;
     text-align: center;
@@ -65,8 +65,8 @@
   .status-stage-flow {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 6px;
-    width: min(100%, 360px);
+    gap: 5px;
+    width: min(100%, 340px);
   }
 
   .status-stage-step {
@@ -77,11 +77,11 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-height: 28px;
+    min-height: 26px;
     border-radius: 999px;
     background: #f5f5f7;
     color: #8a8a90;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 650;
     letter-spacing: -0.01em;
     transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
@@ -169,7 +169,7 @@
 
   .status-stage-animation {
     width: min(100%, 380px);
-    height: 132px;
+    height: 116px;
     display: grid;
     place-items: center;
     overflow: visible;
@@ -180,8 +180,8 @@
   }
 
   .status-stage-lottie {
-    width: 236px;
-    height: 140px;
+    width: 220px;
+    height: 126px;
   }
 
   .status-stage-lottie.is-fallback {
@@ -199,16 +199,16 @@
 
   .status-card.has-stage-animation .status-progress-block {
     width: min(100%, 380px);
-    min-height: 38px;
+    min-height: 34px;
     margin-top: 0;
   }
 
   .status-progress-block {
     display: grid;
-    gap: 8px;
+    gap: 6px;
     width: min(100%, 300px);
     margin-top: 2px;
-    min-height: 40px;
+    min-height: 34px;
     align-content: start;
   }
 
@@ -259,7 +259,7 @@
   }
 
   .status-card .progress-track {
-    height: 12px;
+    height: 8px;
     overflow: hidden;
     border-radius: 999px;
     background: linear-gradient(180deg, #ececf1 0%, #e2e2e8 100%);
@@ -304,13 +304,13 @@
     align-items: center;
     gap: 10px;
     width: min(100%, 520px);
-    margin: 0 auto 8px;
+    margin: 0 auto 6px;
   }
 
   .status-head-btn {
-    min-height: 34px;
-    padding-inline: 12px;
-    font-size: 12px;
+    min-height: 30px;
+    padding-inline: 10px;
+    font-size: 11px;
   }
 
   .status-head-cancel {
@@ -383,8 +383,8 @@
   .status-ring-actions .task-toolbar-btn,
   .status-result-actions .task-toolbar-btn,
   .status-result-actions .button-link {
-    min-height: 34px;
-    padding-inline: 12px;
+    min-height: 32px;
+    padding-inline: 11px;
     font-size: 12px;
   }
 
@@ -414,8 +414,8 @@
   }
 
   .status-result-actions .task-toolbar-btn-result {
-    min-height: 38px;
-    padding-inline: 14px;
+    min-height: 34px;
+    padding-inline: 13px;
     font-weight: 650;
     border-color: #1d1d1f;
   }

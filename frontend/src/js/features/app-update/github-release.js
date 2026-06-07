@@ -7,9 +7,9 @@ function normalizeVersion(value = "") {
 }
 
 function versionParts(value = "") {
-  const normalized = normalizeVersion(value).split(/[.+-]/)[0] || "";
-  return normalized.split(".").map((part) => {
-    const num = Number(part);
+  return normalizeVersion(value).split(/[.+-]/).map((part) => {
+    const match = `${part || ""}`.match(/\d+/);
+    const num = Number.parseInt(match?.[0] || "0", 10);
     return Number.isFinite(num) ? num : 0;
   });
 }

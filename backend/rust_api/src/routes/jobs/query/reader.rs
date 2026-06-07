@@ -5,8 +5,8 @@ use crate::error::AppError;
 use crate::models::{ApiResponse, ReaderMetadataView, ReaderRegionsView};
 use crate::AppState;
 
-use super::super::common::build_jobs_route_deps;
-use super::super::query_adapter::{reader_metadata_response, reader_regions_response};
+use super::super::json_response::{reader_metadata_response, reader_regions_response};
+use crate::routes::common::build_jobs_route_deps;
 
 pub async fn get_reader_regions(
     State(state): State<AppState>,

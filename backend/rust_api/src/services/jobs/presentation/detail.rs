@@ -23,7 +23,7 @@ pub fn build_job_detail_view(
 ) -> JobDetailView {
     let (pdf_ready, markdown_ready, bundle_ready) = detail_readiness(job, data_root);
     let core = build_core_projection(job, base_url, pdf_ready, markdown_ready, bundle_ready);
-    let live = build_live_projection(job, data_root);
+    let live = build_live_projection(db, job, data_root);
     let artifacts = build_artifact_projection(
         job,
         data_root,

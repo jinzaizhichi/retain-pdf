@@ -5,10 +5,11 @@ import {
   defaultOcrProvider,
   defaultPaddleToken,
 } from "../config.js";
+import { setDeveloperConfig } from "../state/actions.js";
 
 export function applyPersistedConfig(state, persistedConfig) {
   const browserStored = persistedConfig.browserConfig || {};
-  state.developerConfig = persistedConfig.developerConfig || {};
+  setDeveloperConfig(state, persistedConfig.developerConfig || {});
   applyKeyInputs(
     {
       ocrProvider: browserStored.ocrProvider || defaultOcrProvider(),

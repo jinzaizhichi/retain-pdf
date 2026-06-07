@@ -53,7 +53,7 @@ pub use view::{
     ActionLinkView, ArtifactDisplayItemView, ArtifactDownloadQuery, ArtifactLinksView,
     BookSummaryView, GlossaryUsageSummaryView, InvocationSummaryView, JobActionsView,
     JobArtifactItemView, JobArtifactManifestView, JobContractsView, JobDetailView,
-    JobDiagnosticsView, JobEventListView, JobEventProgressView, JobEventRecord,
+    JobDiagnosticsView, JobEventListView, JobEventProgressView, JobEventRawView, JobEventRecord,
     JobFailureDiagnosticView, JobLinksView, JobListInvocationSummaryView, JobListItemView,
     JobListView, JobProgressView, JobResumePlanView, JobStageContractArtifactView,
     JobStageContractView, JobSubmissionView, JobTimestampsView, LibraryBatchDeleteInput,

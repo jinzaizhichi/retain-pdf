@@ -24,6 +24,11 @@ def matrix_point(matrix: PdfMatrix) -> tuple[float, float]:
     return matrix[4], matrix[5]
 
 
+def transform_point(matrix: PdfMatrix, x: float, y: float) -> tuple[float, float]:
+    a, b, c, d, e, f = matrix
+    return a * x + c * y + e, b * x + d * y + f
+
+
 def to_float(value: object, default: float = 0.0) -> float:
     try:
         return float(value)

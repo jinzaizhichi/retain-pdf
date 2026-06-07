@@ -50,7 +50,7 @@
 - `routes/jobs/create.rs` 负责 OCR `multipart/form-data` 入口
 - `routes/jobs/query.rs` / `routes/jobs/control.rs` / `routes/jobs/download.rs` 负责查询、取消和产物下载
 - `routes/job_requests.rs` 负责 OCR 表单解析
-- `routes/jobs/common.rs` / `routes/job_helpers.rs` 负责 OCR / 通用 job 的公共 response 与下载辅助逻辑
+- `routes/common.rs` / `routes/download_response/**` / `routes/job_helpers.rs` 负责 OCR / 通用 job 的公共 response 与下载辅助逻辑
 - `services/jobs/facade.rs` 负责稳定服务入口
 - `services/jobs/creation.rs` 与 `services/jobs/creation/bundle.rs` 负责 OCR job 构建
 - `services/job_validation.rs` 负责 provider 参数校验

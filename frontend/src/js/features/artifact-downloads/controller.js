@@ -18,6 +18,7 @@ import {
   resolveSourcePdfDownloadName,
   resolveTranslatedPdfDownloadName,
 } from "../../job-artifacts.js";
+import { currentJobId } from "../job-runtime/runtime-state.js";
 
 export function mountArtifactDownloadsFeature({
   state,
@@ -59,7 +60,7 @@ export function mountArtifactDownloadsFeature({
 
     event.preventDefault();
     setText("error-box", "-");
-    const jobId = state.currentJobId || "result";
+    const jobId = currentJobId(state) || "result";
     const fallbackName = link.id === "download-btn"
       ? `${jobId}.zip`
       : link.id === "markdown-bundle-btn"

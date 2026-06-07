@@ -7,7 +7,7 @@ from typing import Callable
 ItemPredicate = Callable[[dict], bool]
 
 
-SAFE_VECTOR_OVERLAP_ROLES = frozenset(
+VECTOR_OVERLAP_ROLE_ALLOWLIST = frozenset(
     {
         "heading",
         "title",
@@ -16,6 +16,20 @@ SAFE_VECTOR_OVERLAP_ROLES = frozenset(
         "page_number",
     }
 )
+TEXT_STRIP_ROLE_ALLOWLIST = frozenset(
+    {
+        "caption",
+        "figure_caption",
+        "image_caption",
+        "table_caption",
+        "footnote",
+        "table_footnote",
+        "image_footnote",
+        "vision_footnote",
+        "metadata",
+    }
+)
+ITEM_COVER_FALLBACK_ROLE_ALLOWLIST = TEXT_STRIP_ROLE_ALLOWLIST
 
 
 @dataclass(frozen=True)
@@ -33,6 +47,14 @@ def page_all_strip_items_allow_vector_overlap(items: list[dict]) -> bool:
 def item_allows_vector_overlap(item: dict) -> bool:
     item_class = first_cleanup_item_class(item)
     return item_class.allows_vector_overlap if item_class is not None else False
+
+
+def item_allows_forced_text_strip(item: dict) -> bool:
+    return item_is_text(item) and item_matches_role_allowlist(item, TEXT_STRIP_ROLE_ALLOWLIST)
+
+
+def item_allows_item_cover_fallback(item: dict) -> bool:
+    return item_is_text(item) and item_matches_role_allowlist(item, ITEM_COVER_FALLBACK_ROLE_ALLOWLIST)
 
 
 def first_cleanup_item_class(item: dict) -> CleanupItemClass | None:
@@ -59,11 +81,20 @@ def item_role_values(item: dict) -> frozenset[str]:
     )
 
 
+def item_matches_role_allowlist(item: dict, allowlist: frozenset[str]) -> bool:
+    return bool(item_role_values(item) & allowlist)
+
+
 CLEANUP_ITEM_CLASSES: tuple[CleanupItemClass, ...] = (
+    CleanupItemClass(
+        name="force_strip_text",
+        allows_vector_overlap=True,
+        matches=item_allows_forced_text_strip,
+    ),
     CleanupItemClass(
         name="safe_decorated_text",
         allows_vector_overlap=True,
-        matches=lambda item: item_is_text(item) and bool(item_role_values(item) & SAFE_VECTOR_OVERLAP_ROLES),
+        matches=lambda item: item_is_text(item) and item_matches_role_allowlist(item, VECTOR_OVERLAP_ROLE_ALLOWLIST),
     ),
     CleanupItemClass(
         name="ordinary_text",

@@ -23,6 +23,43 @@ function isLibraryMainViewMounted() {
   return Boolean(document.querySelector("#library-view #recent-jobs-list"));
 }
 
+function recentJobCardElement(item) {
+  const card = document.createElement("recent-job-card");
+  card.item = item;
+  return card;
+}
+
+function bindRecentJobCardEvents(list, { onSelect, onDelete, onReader } = {}) {
+  list.__retainPdfRecentJobSelect = onSelect;
+  list.__retainPdfRecentJobDelete = onDelete;
+  list.__retainPdfRecentJobReader = onReader;
+  if (list.__retainPdfRecentJobCardBound) {
+    return;
+  }
+  list.__retainPdfRecentJobCardBound = true;
+  list.addEventListener("recent-job-select", (event) => {
+    list.__retainPdfRecentJobSelect?.(event.detail?.jobId || "");
+  });
+  list.addEventListener("recent-job-delete", (event) => {
+    list.__retainPdfRecentJobDelete?.(event.detail?.jobId || "");
+  });
+  list.addEventListener("recent-job-reader", (event) => {
+    list.__retainPdfRecentJobReader?.(event.detail?.jobId || "");
+  });
+}
+
+function renderRecentJobCards(list, items, { reset = false, onSelect, onDelete, onReader } = {}) {
+  bindRecentJobCardEvents(list, { onSelect, onDelete, onReader });
+  if (reset) {
+    list.replaceChildren();
+  }
+  const fragment = document.createDocumentFragment();
+  for (const item of Array.isArray(items) ? items : []) {
+    fragment.append(recentJobCardElement(item));
+  }
+  list.append(fragment);
+}
+
 export function hasRecentJobsView() {
   if (isLibraryMainViewMounted()) {
     return true;
@@ -227,12 +264,16 @@ export function renderRecentJobsList({
   }
   list.classList.remove("hidden");
   empty.classList.add("hidden");
-  list.__retainPdfRecentJobSelect = onSelect;
-  list.__retainPdfRecentJobDelete = onDelete;
-  list.__retainPdfRecentJobReader = onReader;
-  bindRecentJobsListEvents(list);
-  list.innerHTML = reset ? markup : `${list.innerHTML}${markup}`;
-  hydrateRecentJobImages(list);
+  if (isLibraryMainViewMounted()) {
+    renderRecentJobCards(list, items, { reset, onSelect, onDelete, onReader });
+  } else {
+    list.__retainPdfRecentJobSelect = onSelect;
+    list.__retainPdfRecentJobDelete = onDelete;
+    list.__retainPdfRecentJobReader = onReader;
+    bindRecentJobsListEvents(list);
+    list.innerHTML = reset ? markup : `${list.innerHTML}${markup}`;
+    hydrateRecentJobImages(list);
+  }
   loadMoreButton.classList.toggle("hidden", !hasMore);
   loadMoreButton.disabled = false;
   loadMoreButton.textContent = "更多";
@@ -250,14 +291,20 @@ export function replaceRecentJobCard(item) {
   if (!list || !previous) {
     return false;
   }
-  const template = document.createElement("template");
-  template.innerHTML = recentJobCardMarkup(item).trim();
-  const next = template.content.firstElementChild;
+  const next = isLibraryMainViewMounted()
+    ? recentJobCardElement(item)
+    : (() => {
+      const template = document.createElement("template");
+      template.innerHTML = recentJobCardMarkup(item).trim();
+      return template.content.firstElementChild;
+    })();
   if (!next) {
     return false;
   }
   previous.replaceWith(next);
-  hydrateRecentJobImages(next);
+  if (!isLibraryMainViewMounted()) {
+    hydrateRecentJobImages(next);
+  }
   return true;
 }
 

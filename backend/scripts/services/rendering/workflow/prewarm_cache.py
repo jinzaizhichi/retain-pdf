@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from services.rendering.source.prewarm_payload import build_payload_prewarm
 from services.rendering.source.prewarm_fingerprint import build_render_prewarm_fingerprint
 from services.rendering.source.prewarm_manifest import write_json_atomic
 from services.rendering.source.prewarm_manifest_io import bbox_candidates_to_manifest
@@ -63,6 +64,27 @@ def sync_source_payload_prewarm(prepared) -> dict[str, object]:
     return {
         "bbox_text_strip_candidates": bbox_candidates_to_manifest(candidates),
     }
+
+
+def build_full_sync_payload_prewarm(
+    *,
+    manifest_path: Path | None,
+    prepared,
+    source_pdf_path: Path,
+    translated_pages: dict[int, list[dict]],
+    effective_render_mode: str,
+    source_cleanup_strategy: str,
+) -> dict[str, object]:
+    if manifest_path is None:
+        return sync_source_payload_prewarm(prepared)
+    return build_payload_prewarm(
+        source_pdf_path=source_pdf_path,
+        translated_pages=translated_pages,
+        manifest_path=manifest_path,
+        effective_render_mode=effective_render_mode,
+        source_cleanup_strategy=source_cleanup_strategy,
+        bbox_text_strip_candidates=getattr(prepared, "bbox_text_strip_candidates", None),
+    )
 
 
 def build_sync_payload_prewarm(

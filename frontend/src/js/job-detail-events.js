@@ -143,10 +143,12 @@ export function renderEvents(eventsPayload) {
       firstNonEmptyText(item?.event_type),
     ].filter(Boolean);
     const statsBits = [];
-    const progressCurrent = numberOrNull(item?.progress_current);
-    const progressTotal = numberOrNull(item?.progress_total);
+    const progressCurrent = numberOrNull(item?.progress?.current ?? item?.progress_current);
+    const progressTotal = numberOrNull(item?.progress?.total ?? item?.progress_total);
     if (progressCurrent !== null || progressTotal !== null) {
-      statsBits.push(`progress ${progressCurrent ?? "-"} / ${progressTotal ?? "-"}`);
+      const progressUnit = `${item?.progress?.unit || item?.progress_unit || ""}`.trim();
+      const suffix = progressUnit ? ` ${progressUnit}` : "";
+      statsBits.push(`progress ${progressCurrent ?? "-"} / ${progressTotal ?? "-"}${suffix}`);
     }
     const retryCount = numberOrNull(item?.retry_count);
     if (retryCount !== null) {

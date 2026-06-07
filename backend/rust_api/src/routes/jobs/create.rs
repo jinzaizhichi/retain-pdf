@@ -7,7 +7,7 @@ use axum::http::HeaderMap;
 use axum::Json;
 use serde_json::Value;
 
-use super::common::{build_jobs_route_deps, jobs_facade, ok_json, request_base_url};
+use crate::routes::common::{build_jobs_route_deps, jobs_facade, ok_json, request_base_url};
 
 pub async fn create_job(
     State(state): State<AppState>,

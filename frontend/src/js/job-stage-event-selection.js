@@ -4,7 +4,12 @@ import {
 } from "./job-status-summary.js";
 import { eventLooksLikeRender } from "./job-stage-render-detection.js";
 import { progressFromEvent } from "./job-stage-event-progress.js";
-import { canonicalStageOf, normalizeUserStage, stageRank } from "./job-stage-presentation-utils.js";
+import {
+  canonicalStageOf,
+  isMainLaneEvent,
+  normalizeUserStage,
+  stageRank,
+} from "./job-stage-presentation-utils.js";
 
 function strongestStageKey(...payloads) {
   return payloads
@@ -40,6 +45,7 @@ export function latestStageEvent(job, eventsPayload) {
       progress,
       payload: {
         ...job,
+        display_stage: item.display_stage || item.payload?.display_stage || "",
         current_stage: itemStageForMatch,
         stage_detail: item.stage_detail || item.message || "",
         user_stage: userStage,
@@ -51,6 +57,9 @@ export function latestStageEvent(job, eventsPayload) {
   };
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index] || {};
+    if (!isMainLaneEvent(item)) {
+      continue;
+    }
     const candidate = payloadForItem(item);
     if (!candidate) {
       continue;
@@ -67,6 +76,9 @@ export function latestStageEvent(job, eventsPayload) {
   const findMatchingEvent = (allowBroadStage, requireProgress = false) => {
     for (let index = items.length - 1; index >= 0; index -= 1) {
       const item = items[index] || {};
+      if (!isMainLaneEvent(item)) {
+        continue;
+      }
       const candidate = payloadForItem(item);
       if (!candidate) {
         continue;
@@ -99,6 +111,9 @@ export function latestStageEvent(job, eventsPayload) {
     if (desiredSubstageKey) {
       for (let index = items.length - 1; index >= 0; index -= 1) {
         const item = items[index] || {};
+        if (!isMainLaneEvent(item)) {
+          continue;
+        }
         const candidate = payloadForItem(item);
         if (!candidate) {
           continue;
